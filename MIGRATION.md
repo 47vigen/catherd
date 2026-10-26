@@ -55,8 +55,9 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
 ### Unattended
 
 - A blocked reply names a reason: `BLOCKED: needs_user | too_hard | provider_error | no_access | check_broken |
-  out_of_scope`. It decides what the daemon does: climb (`too_hard`), retry then fail over (`provider_error`), park
-  (`needs_user`, `no_access`, `out_of_scope`) or wait (`check_broken`). The decision model gives a stop that names none a failure class,
+  out_of_scope`. It decides what the daemon does: dispatch again with the failed rung as the floor, so the decision
+  model picks a stronger one (`too_hard`; at the top rung the judge, then you, are asked), retry then fail over
+  (`provider_error`), park (`needs_user`, `no_access`, `out_of_scope`) or wait (`check_broken`). The decision model gives a stop that names none a failure class,
   `product` or `harness` (see "The decision model").
 - A limit fails over to any backend you have configured, never to a weaker rung, with Claude last.
 - `land` rests on catherd's own check. A verifier's reply ends with `HEAD: <the full sha it checked>`, and `land`
@@ -113,8 +114,10 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
 - Replies gain `EXTRA:` (a file outside the lane), `REJECTED:` (a finding a fix round rejects) and `DESIGN:` (the
   plan task conflicts with the code; the reply ends `blocked`, `needs_user`).
 - `plan-input/` in the run folder holds the copies roles read; it and `plan-approved.md` are read-only to roles.
-- Every role's brief is its role text, team, the plan's preamble, the task, its done-when rules and its reply
-  contract, as labelled sections.
+- Every role's brief has four parts, each in its tag: `<role-contract>` (the role's purpose, rules, done-when and
+  reply, the same for a role in every run), `<run-facts>`, `<unit-context>` (the plan tasks of the unit verbatim, the
+  sections they cite, the role's A-lines and the lane file, in about 20 KB; a cap names the file that holds the rest)
+  and `<this-round>` (the findings or the task of this dispatch). A resumed thread gets `<this-round>` only.
 
 ### Routing on one scale
 

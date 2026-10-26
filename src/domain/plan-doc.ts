@@ -1,6 +1,7 @@
 /** Plan files as a preamble and tasks (plan 32): what a lane's `Tasks:` line points at, and what an approval reads. */
 
 import type { Role } from "./roles.ts";
+import { maskFences } from "./util.ts";
 
 export interface PlanTask {
   doc: string;
@@ -62,14 +63,19 @@ const TEST = [
   /^[ \t]*(?:[-*][ \t]*)?\**Expected\**[ \t]*:/im,
 ];
 
+/** Where the first `## M<n>` heading starts; the text's end when it has none. */
+const milestoneStart = (text: string): number => /^##[ \t]+M\d+\b/m.exec(text)?.index ?? text.length;
+
 export function parsePlanDoc(name: string, text: string): PlanDoc {
-  const heads = [...text.matchAll(TASK_HEADING)];
+  // headings are matched with fenced code blanked, so a `## ` line in a code block ends nothing
+  const masked = maskFences(text);
+  const heads = [...masked.matchAll(TASK_HEADING)];
   const tasks: PlanTask[] = heads.map((m, i) => {
     const next = heads[i + 1]?.index ?? text.length;
     const body = text.slice(m.index, next);
     const nl = body.indexOf("\n");
     // a task ends at the next task heading, or at the next `## ` heading after its own line
-    const rest = nl < 0 ? -1 : body.slice(nl).search(/^##[ \t]+(?!#)/m);
+    const rest = nl < 0 ? -1 : masked.slice(m.index + nl, next).search(/^##[ \t]+(?!#)/m);
     const taskText = rest < 0 ? body : body.slice(0, nl + rest);
     return {
       doc: name,
@@ -80,7 +86,7 @@ export function parsePlanDoc(name: string, text: string): PlanDoc {
       test: TEST.some((r) => r.test(taskText)),
     };
   });
-  const milestone = /^##[ \t]+M\d+\b/m.exec(text)?.index ?? text.length;
+  const milestone = milestoneStart(masked);
   return { name, preamble: text.slice(0, Math.min(milestone, heads[0]?.index ?? text.length)), tasks, text };
 }
 
@@ -149,9 +155,10 @@ export const DEPTH_SECTIONS = ["What already exists", "Contracts", "Decisions"] 
 /** The text under a `## <name>` heading (case-insensitive prefix), up to the next `## ` heading; null when absent. */
 function section(text: string, name: string): string | null {
   const lines = text.split("\n");
-  const at = lines.findIndex((l) => new RegExp(`^##[ \\t]+${name}`, "i").test(l));
+  const heads = maskFences(text).split("\n");
+  const at = heads.findIndex((l) => new RegExp(`^##[ \\t]+${name}`, "i").test(l));
   if (at < 0) return null;
-  const end = lines.findIndex((l, i) => i > at && /^##[ \t]+(?!#)/.test(l));
+  const end = heads.findIndex((l, i) => i > at && /^##[ \t]+(?!#)/.test(l));
   return lines.slice(at + 1, end < 0 ? undefined : end).join("\n");
 }
 
@@ -239,15 +246,16 @@ export function planInputNames(paths: string[]): string[] {
 /** One milestone's section: its `## <id>` line up to the next `## ` heading, or null when the plan has none. */
 export function milestoneSection(planText: string, id: string): string | null {
   const lines = planText.split("\n");
-  const at = lines.findIndex((line) => /^##[ \t]+(M\d+)\b/.exec(line)?.[1] === id);
+  const heads = maskFences(planText).split("\n");
+  const at = heads.findIndex((line) => /^##[ \t]+(M\d+)\b/.exec(line)?.[1] === id);
   if (at < 0) return null;
-  const end = lines.findIndex((line, i) => i > at && /^##[ \t]+/.test(line));
+  const end = heads.findIndex((line, i) => i > at && /^##[ \t]+/.test(line));
   return lines.slice(at, end < 0 ? undefined : end).join("\n");
 }
 
 /** The Check command of one milestone section, or null when absent. */
 export function milestoneCheck(planText: string, id: string): string | null {
-  for (const line of (milestoneSection(planText, id) ?? "").split("\n")) {
+  for (const line of maskFences(milestoneSection(planText, id) ?? "").split("\n")) {
     const check = /^[ \t]*Check:[ \t]*(.+)/.exec(line)?.[1]?.trim();
     if (check) return check;
   }
@@ -256,7 +264,7 @@ export function milestoneCheck(planText: string, id: string): string | null {
 
 /** The `Baseline:` items of one milestone's section and of the preamble above the first milestone, in plan order. */
 export function baselineItems(planText: string, id: string): string[] {
-  const preamble = planText.slice(0, /^##[ \t]+M\d+\b/m.exec(planText)?.index ?? planText.length);
+  const preamble = planText.slice(0, milestoneStart(maskFences(planText)));
   const out: string[] = [];
   for (const line of [...preamble.split("\n"), ...(milestoneSection(planText, id) ?? "").split("\n")]) {
     const item = /^[ \t]*Baseline:[ \t]*(.+)/.exec(line)?.[1]?.trim();
@@ -267,7 +275,7 @@ export function baselineItems(planText: string, id: string): string[] {
 
 /** The `Format:` command of one milestone: its section's last such line, else the preamble's; null when neither has one. */
 export function formatCommand(planText: string, id: string): string | null {
-  const preamble = planText.slice(0, /^##[ \t]+M\d+\b/m.exec(planText)?.index ?? planText.length);
+  const preamble = planText.slice(0, milestoneStart(maskFences(planText)));
   for (const text of [milestoneSection(planText, id) ?? "", preamble]) {
     const found = [...text.matchAll(/^[ \t]*Format:[ \t]*(.+)$/gm)].map((m) => m[1]?.trim()).at(-1);
     if (found) return found;

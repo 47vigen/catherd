@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type BriefParts, composeBrief } from "../domain/brief.ts";
+import { type BriefParts, composeBrief, laneBlock } from "../domain/brief.ts";
 import { parseFindings } from "../domain/findings.ts";
 import { type JudgeInput, JUDGE_VERBS, judgeName } from "../domain/judge.ts";
 import { parseLaneHeader } from "../domain/lane.ts";
@@ -18,6 +18,7 @@ import { landedCommits } from "./milestones.ts";
 import { readChecks } from "./milestone-check.ts";
 import {
   deliveredALines,
+  fitUnit,
   laneTasks,
   PLAN_INPUT_DIR,
   roleALines,
@@ -468,19 +469,24 @@ export const RULES_REVIEW_BRIEF =
 /** A judge's finding is cut to this many characters; the whole text is in notes/ (plan 44 D7). */
 const JUDGE_FINDING_MAX = 200;
 
+/** A judge's context is cut to this many characters, and past this many findings the rest go to notes/ (spec B10). */
+const JUDGE_CONTEXT_MAX = 4_000;
+const JUDGE_FINDINGS_MAX = 20;
+
 /**
  * The judge's brief: its A-lines, its kind and unit, the context, the numbered findings (cut, with a pointer) and
  * the lanes, nothing else. The reply it must read is named by path in the context, not pasted.
  */
 export function judgeBrief(run: Run, input: JudgeInput): BriefParts {
   const facts = runFacts(run, "judge", []);
+  const context = capText(run, input.context, JUDGE_CONTEXT_MAX);
   if (input.kind === "rules")
     return {
       facts,
       unit: [],
       round: [
         RULES_REVIEW_BRIEF,
-        input.context,
+        context,
         `Kind: ${input.kind}. Unit: ${input.unit}. Your verbs: ${JUDGE_VERBS[input.kind].join(", ")}.`,
       ],
     };
@@ -496,7 +502,7 @@ export function judgeBrief(run: Run, input: JudgeInput): BriefParts {
     unit: aLinesBlock(run, "judge", input.unit),
     round: [
       `Kind: ${input.kind}. Unit: ${input.unit}. Your verbs: ${verbs}.`,
-      input.context,
+      context,
       ...(design
         ? [
             "The worker's DESIGN: line says the approved plan conflicts with the code. Answer only when the plan itself settles it (another task, its contracts, its decisions); a change to what the plan decided is the owner's: ask_owner.",
@@ -505,7 +511,16 @@ export function judgeBrief(run: Run, input: JudgeInput): BriefParts {
         : []),
       ...(input.findings.length
         ? [
-            `Findings:\n${input.findings.map((f, i) => `${i + 1}. ${capText(run, f, JUDGE_FINDING_MAX)}`).join("\n")}`,
+            `Findings:\n${[
+              ...input.findings
+                .slice(0, JUDGE_FINDINGS_MAX)
+                .map((f, i) => `${i + 1}. ${capText(run, f, JUDGE_FINDING_MAX)}`),
+              ...(input.findings.length > JUDGE_FINDINGS_MAX
+                ? [
+                    `+${input.findings.length - JUDGE_FINDINGS_MAX} more, numbered on from ${JUDGE_FINDINGS_MAX + 1}: ${capText(run, input.findings.slice(JUDGE_FINDINGS_MAX).join("\n"), 0).trim()}`,
+                  ]
+                : []),
+            ].join("\n")}`,
           ]
         : []),
       `Lanes of the milestone and what each owns:\n${input.lanes.map((l) => `- ${l.id}: ${l.owns.join(", ") || "(nothing)"}`).join("\n")}`,
@@ -532,10 +547,18 @@ export async function renderBrief(
   const rules = rulesBlock(await standingRules(run.meta.repo, role).catch(() => ""), role);
   const lane = judge ? null : a.lane;
   const laneText = lane === null ? "" : read(join(runPaths(run.dir).lanes, `${lane}.md`));
+  // the lane file is the last of part 3, so the unit-context cap covers it too (a resumed thread renders none of it)
+  const inLane = lane !== null && laneText && !resumed;
   return composeBrief(
     {
       facts: parts.facts,
-      unit: [...parts.unit, ...(rules ? [rules] : [])],
+      unit: resumed
+        ? []
+        : fitUnit(run, [
+            ...parts.unit,
+            ...(rules ? [rules] : []),
+            ...(inLane ? [laneBlock(lane, laneText)] : []),
+          ]),
       round:
         role === "verifier" ? [await verifierBrief(run, role, name, parts.round.join("\n\n"))] : parts.round,
     },
@@ -545,7 +568,7 @@ export async function renderBrief(
       role,
       version: VERSION,
       resumed,
-      lane: lane !== null && laneText ? { id: lane, text: laneText } : null,
+      lane: lane !== null && laneText && resumed ? { id: lane, text: laneText } : null,
     },
   );
 }

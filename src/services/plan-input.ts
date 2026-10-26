@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
+import { cutText, maskFences } from "../domain/util.ts";
 import { parseLaneHeader } from "../domain/lane.ts";
 import {
   aLineOwner,
@@ -136,7 +137,7 @@ export function numberedALines(lines: string[]): { id: string | undefined; line:
 export function milestoneALines(plan: string, milestone: string): Set<string> {
   const cited = new Set<string>();
   let inside = false;
-  for (const line of plan.split("\n")) {
+  for (const line of maskFences(plan).split("\n")) {
     if (/^##\s/.test(line)) inside = new RegExp(`^##\\s+${milestone}\\b`).test(line);
     if (inside) for (const m of line.matchAll(/\bA\d+\b/g)) cited.add(m[0]);
   }
@@ -192,7 +193,7 @@ function unownedALines(run: Run): string[] {
 function untaggedALines(plan: string): string[] {
   const ids = new Set<string>();
   let inside = false;
-  for (const line of plan.split("\n")) {
+  for (const line of maskFences(plan).split("\n")) {
     if (/^##\s/.test(line)) inside = /^##\s+M\d+\b/.test(line);
     const id = /^\s*(?:[-*]\s+)?(A\d+)\b/.exec(line)?.[1];
     if (inside && id && aLineOwner(line) === null) ids.add(id);
@@ -233,11 +234,12 @@ export const UNIT_CONTEXT_MAX = 20_000;
 function sectionOf(text: string, ref: string): string | null {
   const level = ref.split(".").length + 1;
   const lines = text.split("\n");
+  const heads = maskFences(text).split("\n");
   const head = new RegExp(`^#{${level}}[ \\t]+(?:§)?${ref.replaceAll(".", "\\.")}(?!\\.?\\d)`);
-  const at = lines.findIndex((l) => head.test(l));
+  const at = heads.findIndex((l) => head.test(l));
   if (at < 0) return null;
   const stop = new RegExp(`^#{1,${Math.max(level, 3)}}[ \\t]`);
-  const end = lines.findIndex((l, i) => i > at && stop.test(l));
+  const end = heads.findIndex((l, i) => i > at && stop.test(l));
   return lines
     .slice(at, end < 0 ? undefined : end)
     .join("\n")
@@ -284,23 +286,53 @@ export function unitContext(run: Run, role: Role, unit: string): string[] {
   const lines = roleALines(run, role, unit);
   const own = new Set(tasks.map((t) => t.doc));
   const others = files.filter((f) => !own.has(f.doc.name)).map((f) => `- ${f.path}`);
-  const head = tasks.map(taskBlock);
-  const tail = [
+  return fitUnit(run, [
+    ...tasks.map(taskBlock),
+    ...[...cited].map(([path, sections]) => `Cited from ${path}:\n\n${[...sections.values()].join("\n\n")}`),
     ...(lines.length ? [`Your A-lines:\n${lines.join("\n")}`] : []),
     ...(others.length ? [`Read on demand:\n${others.join("\n")}`] : []),
-  ];
-  // each block costs its length and a blank line between it and the next
-  let room = UNIT_CONTEXT_MAX - [...head, ...tail].reduce((n, b) => n + b.length + 2, 0);
-  const middle = [...cited].map(([path, sections]) => {
-    const body = `Cited from ${path}:\n\n${[...sections.values()].join("\n\n")}`;
-    if (body.length + 2 <= room) {
-      room -= body.length + 2;
-      return body;
+  ]);
+}
+
+/** How to read the whole of a unit-context block, from its first line; the run folder in general. */
+function readHint(run: Run, block: string): string {
+  const first = block.split("\n", 1)[0] ?? "";
+  const task = /^<plan-task file="([^"]*)"/.exec(first)?.[1];
+  const file =
+    task !== undefined
+      ? (planFiles(run).find((f) => f.doc.name === task)?.path ?? "plan.md")
+      : (/^Cited from (.+):$/.exec(first)?.[1] ??
+        /^Your lane file, (\S+?),/.exec(first)?.[1] ??
+        (first.startsWith("Your A-lines") ? "plan.md" : null));
+  if (file) return `read ${file} with catherd run-file read ${run.id} ${file}`;
+  return first.startsWith("Standing rules")
+    ? "read the rules with catherd knowledge show"
+    : `the rest is in the run folder (catherd run-file read ${run.id} <path>)`;
+}
+
+/**
+ * The blocks of a unit context within `UNIT_CONTEXT_MAX` bytes of UTF-8 in all (plan 44 D6, spec B10): a block that
+ * fits its share is kept whole, so the small ones (the lane file, the A-lines) never lose to a large task; a larger
+ * one is cut at a line, a fence left open closed, and ends in a pointer to the file that holds the rest.
+ */
+export function fitUnit(run: Run, blocks: string[]): string[] {
+  // each block costs its bytes and the blank line between it and the next
+  const cost = (b: string) => Buffer.byteLength(b) + 2;
+  if (blocks.reduce((n, b) => n + cost(b), 0) <= UNIT_CONTEXT_MAX) return blocks;
+  const out = [...blocks];
+  let room = UNIT_CONTEXT_MAX;
+  const bySize = blocks
+    .map((_, i) => i)
+    .sort((a, b) => cost(blocks[a] as string) - cost(blocks[b] as string));
+  for (const [n, i] of bySize.entries()) {
+    const block = blocks[i] as string;
+    const share = Math.floor(Math.max(room, 0) / (bySize.length - n));
+    if (cost(block) > share) {
+      const pointer = `[… cut: ${readHint(run, block)}]`;
+      const kept = cutText(block, share - 2 - Buffer.byteLength(pointer) - 1);
+      out[i] = kept ? `${kept}\n${pointer}` : pointer;
     }
-    const pointer = `[… cut: read ${path} with catherd run-file read]`;
-    const kept = body.slice(0, Math.max(room - pointer.length - 3, 0));
-    room = 0;
-    return kept ? `${kept}\n${pointer}` : pointer;
-  });
-  return [...head, ...middle, ...tail];
+    room -= cost(out[i] as string);
+  }
+  return out;
 }

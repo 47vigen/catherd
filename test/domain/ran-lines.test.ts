@@ -41,6 +41,16 @@ describe("verifierShortfall", () => {
     expect(verifierShortfall(["bun   test"], [{ command: "bun test", exit: 0, log: "/x" }], ok)).toEqual([]);
   });
 
+  it("a command wrapped in catherd lock counts as the command it wraps", () => {
+    const wrapped = [
+      { command: "bunx catherd-cli@2.0.1 lock --role verifier -- bun   test", exit: 0, log: "/x" },
+    ];
+    expect(verifierShortfall(["bun test"], wrapped, ok)).toEqual([]);
+    expect(
+      verifierShortfall(["bun test"], [{ command: "catherd lock -- bun test", exit: 0, log: "/x" }], ok),
+    ).toEqual([]);
+  });
+
   it("a NOT RUN line or a missing log path is a shortfall", () => {
     expect(verifierShortfall(["a"], [{ command: "a", exit: null, log: null }], ok)).toEqual([
       "FAIL a: NOT RUN (no RAN line)",

@@ -119,6 +119,12 @@ describe("lintPlan (plan 40, D11)", () => {
     ]);
   });
 
+  it("a list-marked history A-line is warned too", () => {
+    expect(lintPlan(plan("true", ["- A3 [worker] — TDD all the way"]), "M1", [])).toEqual([
+      "M1: A3 asks for commit history (TDD): catherd commits tests and code together; it is judged from the tree",
+    ]);
+  });
+
   it("a milestone without Check: is warned", () => {
     expect(lintPlan(plan(null, ["A1 — it works"]), "M1", [])).toEqual([
       "M1: no Check: line: the verifier must run the whole gate by hand",

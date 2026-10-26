@@ -19,7 +19,7 @@ const runFiles = (writes: boolean): string =>
     : "The run folder is outside the project. Read it only with `catherd run-file read <run> <path>`, with the run id your brief gives you. Paths are relative to the run folder. When your harness lists catherd tools with the same names, they do the same.";
 
 /** Plan 44 D3: prose is short, the report is a file, and the machine lines catherd parses do not count. */
-const PROSE = `Reply in at most 5 lines of prose: put the full report in $TMPDIR/report.md and name it on a line REPORT: <path>. The machine lines do not count toward the 5: STATUS, VERDICT, findings, EXTRA, REJECTED, DESIGN, ENV, RAN and REPORT. Give evidence as a log path, not the log.`;
+const PROSE = `Reply in at most 5 lines of prose: put the full report in $TMPDIR/report-<run id>-<your name>-<epoch seconds>.md (your run id and name are in your run facts; scratch is shared across your rounds, and on some backends across runs, so a fixed name is overwritten) and name it on a line REPORT: <path>. The machine lines do not count toward the 5: STATUS, VERDICT, findings, EXTRA, REJECTED, DESIGN, ENV, RAN and REPORT. Give evidence as a log path, not the log.`;
 
 const REPLY = `Do not commit. ${PROSE} The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>. ${BLOCKED_LINE}`;
 
@@ -27,7 +27,7 @@ const REPLY = `Do not commit. ${PROSE} The last line of your reply is: STATUS: c
  * The worker's reply contract. Plan 22, resume hygiene: a worker's thread may be resumed for its fix round, and a
  * command its last turn left running in the background ends the resumed CLI (exit 143). Plan 23: acceptance that
  * builds from HEAD is the verifier's, since a worker does not commit; an environment that stopped it goes on an ENV:
- * line (climb refuses it); a check that failed, then passed alone, is STATUS: flaky with that evidence.
+ * line (catherd then treats the stop as the environment's, not the work's); a check that failed, then passed alone, is STATUS: flaky with that evidence.
  */
 const WORKER_REPLY = `Before you reply, leave nothing running: stop every server, watcher or command you started in the background. Never end your turn to wait for a background command or a Monitor: nothing resumes you. Run long commands in the foreground and wait for them. Do not commit. Acceptance items that build from HEAD (git archive, a commit's image) belong to the verifier: do not run them, and never commit to get them to run. ${PROSE} Name each file outside your lane that you had to change on a line of its own: EXTRA: <path> — <why>. In a fix round, add one line per finding you reject: REJECTED: <the finding's first words> — <why>. A conflict with your plan task is a DESIGN: line, and your reply ends blocked with needs_user. When the environment stopped you (no Docker, a VPN, a dead registry), add a line ENV: <what>. The last line of your reply is: STATUS: complete|partial|blocked|refused|flaky — <one line why>; flaky means a check failed, then passed when run alone: name it, and how often each. ${BLOCKED_LINE}`;
 
