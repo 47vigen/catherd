@@ -11,6 +11,7 @@ import {
 import type { MilestoneStatus } from "../../src/domain/run-state.ts";
 import { makeRecord } from "./make-record.ts";
 import {
+  decide,
   endDispatch,
   finishLane,
   type Log,
@@ -354,8 +355,24 @@ describe("statuses", () => {
     expect(node(model(planning), "architect").now).toBe("Claude Code is writing the plan for the run");
   });
 
-  it("a lane that is not dispatched yet carries its routed rung", () => {
-    expect(node(model(runningLog()), "M1/lane/M1.L1").rung).toBe("codex:gpt-6-sol#medium");
+  it("a lane that is not dispatched yet carries the rung of its decision", () => {
+    const log = runningLog();
+    expect(node(model(log), "M1/lane/M1.L1").rung).toBeNull();
+    decide(log, "worker-M1.L1", "codex:gpt-6-sol#high");
+    expect(node(model(log), "M1/lane/M1.L1").rung).toBe("codex:gpt-6-sol#high");
+  });
+
+  it("a lane of an old run carries its routed rung, and the route node counts a milestone routed with no lanes", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    log.add("plan.approved", { by: "owner" });
+    log.add("lanes.routed", {
+      milestone: "M1",
+      lanes: [{ lane: "M1.L1", rung: "codex:gpt-6-sol#medium", ladder: ["codex:gpt-6-sol#medium"] }],
+    });
+    expect(node(model(log), "M1/lane/M1.L1").rung).toBe("codex:gpt-6-sol#medium");
+    expect(node(model(runningLog()), "M1/route").status).toBe("done");
   });
 });
 

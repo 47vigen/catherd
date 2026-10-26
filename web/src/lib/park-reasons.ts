@@ -22,6 +22,7 @@ export const REASON_TEXT: Record<Reason, string> = {
   judge: "A judge could not settle a question and passed it to you.",
   effect: "A step would change something outside the repository, so it waits for you.",
   push: "The branch is ready. Push it, or tell catherd it has been merged.",
+  decision: "The decision model gave no usable answer. Answer with one of the listed rungs, or retry.",
 };
 
 export interface QuickAnswer {

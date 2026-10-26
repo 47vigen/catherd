@@ -34,7 +34,7 @@ import { cancel, launcher } from "./dispatch-service.ts";
 import { type Dispatch, listDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import { failoverRung } from "./failover-rungs.ts";
-import { climb, land, routeLanes } from "./lane-service.ts";
+import { land, routeLanes } from "./lane-service.ts";
 import { blockedByEnvironment, landedCommitOf, replyVerdict } from "./milestones.ts";
 import {
   freshFailures,
@@ -1299,19 +1299,9 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return machineCheck(a, s);
       case "commit":
         return commit(a, s);
-      case "climb": {
-        const r = await climb(deps, {
-          run: run.id,
-          lane: a.lane,
-          reason: a.reason,
-        });
-        return void (await append({
-          type: "lane.climbed",
-          lane: a.lane,
-          rung: r.rung,
-          top: r.top,
-        }));
-      }
+      case "decide":
+        // plan 44 M4.L3 writes the decide effect; this stub keeps the file compiling
+        return;
       case "park":
         // the push question is the daemon's own: a 1.5 question would hold the run's pause and ask twice
         if (milestoneOf(s, a.unit) && a.reason !== "push")

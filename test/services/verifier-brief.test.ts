@@ -113,6 +113,7 @@ describe("the composed verifier brief (plan 44)", () => {
     failoverFrom: null,
     brief: "verify" as const,
     notes: [],
+    decision: null,
   };
 
   it("known issues are titles", async () => {

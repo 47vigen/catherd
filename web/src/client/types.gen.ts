@@ -131,7 +131,7 @@ export type RunNode = {
     endedAt: string | null;
     question: {
         unit: string;
-        reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push';
+        reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision';
         question: string;
     } | null;
     attempts: Array<Attempt>;
@@ -367,7 +367,7 @@ export type QuestionView = {
     runTitle: string;
     unit: string;
     question: string;
-    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push';
+    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision';
     at: string;
     command: string;
     context: QuestionContext;
@@ -559,7 +559,7 @@ export type ParkedView = {
     runTitle: string;
     unit: string;
     question: string;
-    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push';
+    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision';
     at: string;
     command: string;
 };

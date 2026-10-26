@@ -2,11 +2,13 @@ import { describe, expect, it } from "bun:test";
 import { describeEvent, type RunEvent } from "../../src/domain/run-events.ts";
 import { type Action, next } from "../../src/domain/run-machine.ts";
 import {
+  decide,
   endDispatch,
   type Log,
   makeLog,
   PLAN,
   runningLog,
+  settled,
   startDispatch,
   startedFields,
 } from "./run-fixtures.ts";
@@ -18,13 +20,29 @@ const last = (log: Log): Action[] => next(log.state(), log.events.at(-1) as RunE
 describe("per-run pause", () => {
   it("a paused run issues no dispatch or judge, and the resume issues them at once", () => {
     const log = runningLog();
-    expect(of(last(log), "dispatch").map((a) => a.name)).toContain("worker-M1.L1");
+    expect(of(settled(log), "dispatch").map((a) => a.name)).toContain("worker-M1.L1");
     log.add("run.paused", { by: "owner" });
     expect(log.state().paused).toBe(log.events.at(-1)?.at as string);
-    expect(last(log).filter((a) => a.type === "dispatch" || a.type === "judge")).toEqual([]);
+    expect(settled(log).filter((a) => a.type === "dispatch" || a.type === "judge")).toEqual([]);
     log.add("run.resumed", { by: "owner" });
     expect(log.state().paused).toBeNull();
-    expect(of(last(log), "dispatch").map((a) => a.name)).toContain("worker-M1.L1");
+    expect(of(settled(log), "dispatch").map((a) => a.name)).toContain("worker-M1.L1");
+  });
+
+  it("a pause holds the decide step", () => {
+    const log = runningLog();
+    expect(of(last(log), "decide").map((a) => a.next.type === "dispatch" && a.next.name)).toEqual([
+      "worker-M1.L1",
+    ]);
+    log.add("run.paused", { by: "owner" });
+    expect(of(last(log), "decide")).toEqual([]);
+    // a decision made before the pause is no step: the dispatch it owes is held with the rest
+    log.add("run.resumed", { by: "owner" });
+    decide(log, "worker-M1.L1");
+    log.add("run.paused", { by: "owner" });
+    expect(last(log).filter((a) => a.type === "decide" || a.type === "dispatch")).toEqual([]);
+    log.add("run.resumed", { by: "owner" });
+    expect(of(last(log), "dispatch").map((a) => a.name)).toEqual(["worker-M1.L1"]);
   });
 
   it("a paused run claims no worktree and routes no milestone, and the resume issues them", () => {

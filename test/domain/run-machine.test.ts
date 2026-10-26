@@ -6,6 +6,7 @@ import {
   type Action,
   actionKey,
   confirms,
+  decidedName,
   failKey,
   judgeInputFor,
   next,
@@ -22,6 +23,7 @@ import {
 } from "../../src/domain/run-state.ts";
 import { memoryLoad } from "../../src/domain/milestone-memory.ts";
 import {
+  decide,
   endDispatch,
   finishLane,
   type Log,
@@ -30,6 +32,7 @@ import {
   PLAN,
   routeMilestone,
   runningLog,
+  settled,
   startDispatch,
   startedFields,
 } from "./run-fixtures.ts";
@@ -40,7 +43,11 @@ const of = <T extends Action["type"]>(as: Action[], type: T): Extract<Action, { 
 const approvalAsk = `${approvalQuestion("r1")} ${SOURCE_PLAN_NOTE}`;
 const names = (as: Action[]): string[] => of(as, "dispatch").map((a) => a.name);
 /** what the machine does after the log's last event */
-const last = (log: Log): Action[] => next(log.state(), log.events.at(-1) as RunEvent);
+const last = (log: Log): Action[] => settled(log);
+/** what the machine owes after the log's last event, its decides unanswered */
+const raw = (log: Log): Action[] => next(log.state(), log.events.at(-1) as RunEvent);
+const SOL = "codex:gpt-6-sol#medium";
+const SOL_HIGH = "codex:gpt-6-sol#high";
 const bug = (text: string, file: string | null, label: "BUG" | "BLOCKER" = "BUG") => ({ label, text, file });
 
 function plan(lanes: number): MilestonePlan[] {
@@ -236,7 +243,7 @@ describe("the machine: a milestone's lanes", () => {
     expect(names(last(log))).toEqual([]);
   });
 
-  it("checks a lane after a clean reply; a first failure resumes its thread with the tail, a second climbs", () => {
+  it("checks a lane after a clean reply; a first failure resumes its thread with the tail, a second raises the floor", () => {
     const log = runningLog();
     const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
     endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", thread: "t-1" });
@@ -248,13 +255,14 @@ describe("the machine: a milestone's lanes", () => {
     const w2 = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", thread: "t-1" });
     endDispatch(log, w2, { name: "worker-M1.L1", unit: "M1.L1", thread: "t-1" });
     log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "still", foreign: [] });
-    expect(last(log)).toEqual([{ type: "climb", lane: "M1.L1", reason: "check-failed-twice" }]);
-    log.add("lane.climbed", { lane: "M1.L1", rung: "codex:gpt-6-sol#high", top: false });
-    d = of(last(log), "dispatch")[0];
-    expect(d).toMatchObject({ rung: "codex:gpt-6-sol#high", thread: null });
+    expect(of(raw(log), "decide")).toMatchObject([{ floor: SOL, strict: true }]);
+    // a decision on a stronger rung cannot resume the weaker one's session
+    decide(log, "worker-M1.L1", SOL_HIGH);
+    d = of(raw(log), "dispatch")[0];
+    expect(d).toMatchObject({ rung: SOL_HIGH, thread: null });
   });
 
-  it("retries a failed lane once on its rung, then climbs; out of rungs asks the judge", () => {
+  it("retries a failed lane once on its rung, then moves the floor above it; out of rungs asks the judge", () => {
     const log = runningLog();
     const fail = () => {
       const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
@@ -270,8 +278,8 @@ describe("the machine: a milestone's lanes", () => {
       failoverFrom: null,
     });
     fail();
-    expect(last(log)).toEqual([{ type: "climb", lane: "M1.L1", reason: "unchanged" }]);
-    log.add("lane.climbed", { lane: "M1.L1", rung: "codex:gpt-6-sol#high", top: true });
+    expect(of(raw(log), "decide")).toMatchObject([{ floor: SOL, strict: true }]);
+    log.add("decision.exhausted", { name: "worker-M1.L1", n: 1, unit: "M1.L1", floor: SOL });
     const j = of(last(log), "judge");
     expect(j).toHaveLength(1);
     expect(j[0]?.input).toMatchObject({ kind: "unexpected", unit: "M1.L1" });
@@ -297,7 +305,7 @@ describe("the machine: a milestone's lanes", () => {
     expect(of(out, "judge")[0]?.input).toMatchObject({ kind: "question", unit: "M1.L1" });
     expect(of(out, "judge")[0]?.input.context).toContain("roles/worker-M1.L1/");
     const id = of(out, "judge")[0]!.input.id;
-    const decide = (decision: JudgeDecision, l: Log = log) => {
+    const judged = (decision: JudgeDecision, l: Log = log) => {
       const j = startDispatch(l, {
         name: `judge-${id}`,
         role: "judge",
@@ -311,25 +319,27 @@ describe("the machine: a milestone's lanes", () => {
     };
     // each verb on a fresh run
     let l = base();
-    expect(of(decide({ verb: "answer", answer: "use v2" }, l), "dispatch")[0]).toMatchObject({
+    expect(of(judged({ verb: "answer", answer: "use v2" }, l), "dispatch")[0]).toMatchObject({
       name: "worker-M1.L1",
       brief: "fix",
     });
     expect(l.state().lanes["M1.L1"]?.notes).toEqual(["The judge answered: use v2"]);
     l = base();
-    expect(of(decide({ verb: "ask_owner", question: "which key?" }, l), "park")).toMatchObject([
+    expect(of(judged({ verb: "ask_owner", question: "which key?" }, l), "park")).toMatchObject([
       { unit: "M1.L1", question: "which key?", reason: "needs_user" },
     ]);
     l = base();
-    expect(of(decide({ verb: "retry", why: "flaky" }, l), "dispatch")[0]).toMatchObject({
+    expect(of(judged({ verb: "retry", why: "flaky" }, l), "dispatch")[0]).toMatchObject({
       name: "worker-M1.L1",
     });
     l = base();
-    expect(decide({ verb: "climb", why: "too hard" }, l)).toEqual([
-      { type: "climb", lane: "M1.L1", reason: "blocked" },
+    judged({ verb: "climb", why: "too hard" }, l);
+    // the judge's climb: the lane's rung failed it, so its next decision goes above the rung
+    expect(of(raw(l), "decide")).toMatchObject([
+      { next: { name: "worker-M1.L1" }, floor: SOL, strict: true },
     ]);
     l = base();
-    decide({ verb: "skip", why: "not needed" }, l);
+    judged({ verb: "skip", why: "not needed" }, l);
     expect(l.state().lanes["M1.L1"]?.status).toBe("done");
     expect(l.state().milestones[0]?.knownIssues).toEqual(["M1.L1 skipped: not needed"]);
   });
@@ -603,7 +613,7 @@ describe("the machine: review rounds", () => {
     });
   });
 
-  it("climbs a fixer whose finding survived its fix, before it fixes", () => {
+  it("makes the floor strict for a fixer whose finding survived its fix, before it fixes", () => {
     const log = runningLog(plan(1));
     finishLane(log, "M1.L1");
     log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
@@ -615,16 +625,14 @@ describe("the machine: review rounds", () => {
     fixPending(log);
     log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
     review(log, [bug("BUG src/a/x.ts:9 — null deref", "src/a/x.ts")]);
-    expect(last(log)).toEqual([{ type: "climb", lane: "M1.L1", reason: "same-defect" }]);
-    log.add("lane.climbed", { lane: "M1.L1", rung: "codex:gpt-6-sol#high", top: false });
-    expect(of(last(log), "dispatch")[0]).toMatchObject({
-      rung: "codex:gpt-6-sol#high",
-      brief: "fix",
-      thread: null,
-    });
+    expect(of(raw(log), "decide")).toMatchObject([
+      { next: { name: "worker-M1.L1" }, floor: SOL, strict: true },
+    ]);
+    decide(log, "worker-M1.L1", SOL_HIGH);
+    expect(of(raw(log), "dispatch")[0]).toMatchObject({ rung: SOL_HIGH, brief: "fix", thread: null });
   });
 
-  it("an armed lane owes a cheap dispatch on a fresh thread", () => {
+  it("a mechanical fix gets no cheap try: it is decided like any fix, on its thread", () => {
     const log = runningLog(plan(2));
     finishLane(log, "M1.L1");
     finishLane(log, "M1.L2");
@@ -633,10 +641,14 @@ describe("the machine: review rounds", () => {
       bug("BUG src/a/x.ts:3 — the comment restates the code", "src/a/x.ts"),
       bug("BUG src/b/y.ts:1 — off by one in the total", "src/b/y.ts"),
     ]);
-    const [cheap, plain] = of(last(log), "dispatch");
-    expect(cheap).toMatchObject({ name: "worker-M1.L1", brief: "fix", thread: null, cheap: true });
-    expect(plain).toMatchObject({ name: "worker-M1.L2", brief: "fix", thread: "t-M1.L2" });
-    expect(plain).not.toHaveProperty("cheap");
+    expect(of(raw(log), "decide")).toMatchObject([
+      { next: { name: "worker-M1.L1" }, floor: SOL, strict: false },
+      { next: { name: "worker-M1.L2" }, floor: SOL, strict: false },
+    ]);
+    const [first, second] = of(last(log), "dispatch");
+    expect(first).toMatchObject({ name: "worker-M1.L1", brief: "fix", thread: "t-M1.L1" });
+    expect(second).toMatchObject({ name: "worker-M1.L2", brief: "fix", thread: "t-M1.L2" });
+    expect(first).not.toHaveProperty("cheap");
   });
 
   it("parks a milestone whose BLOCKER outlives the rounds, and moves on to the next one", () => {
@@ -770,9 +782,14 @@ describe("the machine: review rounds", () => {
 });
 
 /** lane M1.L<n> of a plan(2) run, dispatched and ended with `o` */
-function stop(log: Log, lane: string, o: Omit<Parameters<typeof endDispatch>[2], "name" | "unit">) {
+function stop(
+  log: Log,
+  lane: string,
+  o: Omit<Parameters<typeof endDispatch>[2], "name" | "unit">,
+  rung?: string,
+) {
   const name = `worker-${lane}`;
-  const w = startDispatch(log, { name, unit: lane });
+  const w = startDispatch(log, { name, unit: lane, ...(rung ? { rung } : {}) });
   endDispatch(log, w, { ...o, name, unit: lane });
   // a stop that names its reason is classed all the same: the reducer waits for the class (plan 44 D9)
   if (o.reason) classified(log, w, o.reason);
@@ -786,15 +803,20 @@ const blocked = (reason: BlockedReason, why: string = reason, foreign: string[] 
 });
 
 describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
-  it("climbs a too_hard lane, and parks it at the top rung", () => {
+  it("floors a too_hard lane on its rung, and parks it when no rung is left above", () => {
     const log = runningLog(plan(2));
     stop(log, "M1.L1", blocked("too_hard"));
     expect(of(last(log), "judge")).toEqual([]);
-    expect(of(last(log), "climb")).toEqual([{ type: "climb", lane: "M1.L1", reason: "blocked" }]);
-    log.add("lane.climbed", { lane: "M1.L1", rung: "codex:gpt-6-sol#high", top: false });
-    expect(of(last(log), "dispatch")[0]).toMatchObject({ rung: "codex:gpt-6-sol#high", thread: null });
-    stop(log, "M1.L1", blocked("too_hard"));
-    log.add("lane.climbed", { lane: "M1.L1", rung: "codex:gpt-6-sol#high", top: true });
+    expect(of(raw(log), "decide")[0]).toMatchObject({
+      next: { name: "worker-M1.L1" },
+      floor: SOL,
+      strict: false,
+    });
+    decide(log, "worker-M1.L1", SOL_HIGH);
+    expect(of(raw(log), "dispatch")[0]).toMatchObject({ rung: SOL_HIGH, thread: null });
+    stop(log, "M1.L1", blocked("too_hard"), SOL_HIGH);
+    expect(of(raw(log), "decide")[0]).toMatchObject({ floor: SOL_HIGH, strict: false });
+    log.add("decision.exhausted", { name: "worker-M1.L1", n: 2, unit: "M1.L1", floor: SOL_HIGH });
     // a stronger model was the only fix: the owner is asked, not the judge
     expect(of(last(log), "judge")).toEqual([]);
     expect(of(last(log), "park")).toMatchObject([{ unit: "M1.L1", reason: "too_hard" }]);
@@ -908,7 +930,8 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     finishLane(log, "M1.L2");
     const done = log.state();
     expect(siblingMayChange(done, done.lanes["M1.L1"] as LaneState)).toBe(false);
-    expect(names(next(done, log.events.at(-1) as RunEvent))).toEqual(["worker-M1.L1"]);
+    expect(names(settled(log))).toEqual(["worker-M1.L1"]);
+    expect(done.lanes["M1.L1"]?.status).toBe("pending");
   });
 
   it("parks a verifier's first check_broken; BLOCKED: environment also parks first", () => {
@@ -938,7 +961,7 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     const w = stop(log, "M1.L1", { replyStatus: "blocked", why: "I could not do it" });
     expect(of(last(log), "classify")).toEqual([{ type: "classify", dispatchId: w }]);
     // the lane waits for the answer; its sibling does not
-    expect(names(next(log.state(), log.events.at(-1) as RunEvent))).toEqual(["worker-M1.L2"]);
+    expect(names(settled(log))).toEqual(["worker-M1.L2"]);
     classified(log, w, "needs_user");
     expect(of(last(log), "judge")[0]?.input).toMatchObject({ kind: "question", unit: "M1.L1" });
     const t = runningLog(plan(2));
@@ -962,19 +985,30 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     expect(names(last(log))).not.toContain("worker-M1.L1");
   });
 
-  it("handles a stop with no reason as 1.5 does when Jev is off", () => {
+  it("fails the rung of a stop with no reason, and holds a classification the decision model cannot make", () => {
     const log = runningLog(plan(2));
     const w = stop(log, "M1.L1", { replyStatus: "blocked", why: "the tests fail" });
     expect(of(last(log), "classify")).toEqual([{ type: "classify", dispatchId: w }]);
     classified(log, w, null);
     expect(of(last(log), "judge")).toEqual([]);
-    expect(of(last(log), "climb")).toEqual([{ type: "climb", lane: "M1.L1", reason: "blocked" }]);
-    // a classification that cannot be made is none
+    expect(of(raw(log), "decide")[0]).toMatchObject({
+      next: { name: "worker-M1.L1" },
+      floor: SOL,
+      strict: false,
+    });
+    // a classification that cannot be made is a decision failure: it waits a minute, then is asked again (D16)
     const f = runningLog(plan(2));
-    stop(f, "M1.L1", { replyStatus: "refused" });
-    f.add("effect.failed", { action: "classify", unit: "M1.L1", message: "jev down" });
-    expect(of(last(f), "climb")).toEqual([{ type: "climb", lane: "M1.L1", reason: "blocked" }]);
-    expect(of(last(f), "park")).toEqual([]);
+    const w2 = stop(f, "M1.L1", { replyStatus: "refused" });
+    const failed = f.add("effect.failed", {
+      action: "classify",
+      unit: "M1.L1",
+      message: "decision model down",
+    });
+    expect(of(raw(f), "classify")).toEqual([]);
+    expect(of(raw(f), "park")).toEqual([]);
+    const later = new Date(Date.parse(failed.at) + 60_000).toISOString();
+    f.add("tick", {}, later);
+    expect(of(raw(f), "classify")).toEqual([{ type: "classify", dispatchId: w2 }]);
   });
 
   it("re-verifies a PASS whose HEAD is not the milestone's commit", () => {
@@ -2049,5 +2083,101 @@ describe("unchanged verifier failure recovery", () => {
       by: "owner",
     });
     expect(names(last(log))).toEqual(["verifier-M1"]);
+  });
+});
+
+describe("plan 44: the decide step", () => {
+  const decides = (as: Action[]): string[] => of(as, "decide").map((a) => decidedName(a.next));
+
+  it("a lane's first dispatch is a decide", () => {
+    const log = runningLog();
+    const out = raw(log);
+    expect(of(out, "decide")).toMatchObject([
+      {
+        type: "decide",
+        n: 1,
+        next: { type: "dispatch", name: "worker-M1.L1", decision: null },
+        floor: null,
+        strict: false,
+        exclude: [],
+        failoverFrom: null,
+        pick: null,
+      },
+    ]);
+    expect(of(out, "dispatch")).toEqual([]);
+    expect(actionKey(of(out, "decide")[0] as Action)).toBe("decide:worker-M1.L1:1");
+  });
+
+  it("a decision makes the dispatch, on its rung and brief", () => {
+    const log = runningLog();
+    decide(log, "worker-M1.L1", SOL);
+    const out = raw(log);
+    expect(of(out, "decide")).toEqual([]);
+    const d = of(out, "dispatch")[0] as Action & { type: "dispatch" };
+    expect(d).toMatchObject({
+      name: "worker-M1.L1",
+      rung: SOL,
+      decision: { n: 1, briefFile: "decisions/worker-M1.L1/1/brief.md", briefHash: "hash-worker-M1.L1-1" },
+    });
+    expect(actionKey(d)).toBe("dispatch:worker-M1.L1");
+    // the decision.made settles the decide, so the daemon may issue the dispatch next
+    expect(confirms(log.events.at(-1) as RunEvent)).toEqual(["decide:worker-M1.L1:1"]);
+  });
+
+  it("a restart between decision and dispatch asks nothing again", () => {
+    const log = runningLog();
+    decide(log, "worker-M1.L1", SOL);
+    const daemon = log.add("daemon.started", { pid: 2, version: "x" });
+    const out = next(log.state(), daemon);
+    expect(of(out, "decide")).toEqual([]);
+    expect(of(out, "dispatch")).toMatchObject([{ name: "worker-M1.L1", rung: SOL, decision: { n: 1 } }]);
+  });
+
+  it("every role is decided", () => {
+    const researcher = makeLog();
+    researcher.add("run.started", startedFields);
+    expect(decides(raw(researcher))).toEqual(["researcher-dossier"]);
+    const architect = makeLog();
+    architect.add("run.started", { ...startedFields, plan: ["M1 the plan"] });
+    expect(decides(raw(architect))).toEqual(["architect"]);
+
+    const p = plan(2);
+    p[0]!.lanes[1]!.kind = "ui";
+    const reviewing = runningLog(p);
+    finishLane(reviewing, "M1.L1");
+    finishLane(reviewing, "M1.L2");
+    reviewing.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    expect(decides(raw(reviewing))).toEqual(["reviewer-M1", "ui-reviewer-M1"]);
+
+    const verifying = runningLog(plan(1));
+    finishLane(verifying, "M1.L1");
+    verifying.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(verifying, []);
+    checked(verifying, "c0");
+    expect(decides(raw(verifying))).toEqual(["verifier-M1"]);
+
+    const integrating = baseRun();
+    integrating.add("base.behind", { milestone: "M1" });
+    integrating.add("integrate.conflict", { milestone: "M1", files: ["src/a/x.ts"] });
+    expect(decides(raw(integrating))).toEqual(["worker-M1-integrate"]);
+
+    const triage = runningLog(plan(2));
+    finishLane(triage, "M1.L1");
+    finishLane(triage, "M1.L2");
+    triage.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(triage, [bug("BUG README.md — nobody owns it", "README.md")]);
+    expect(decides(raw(triage))).toContain("judge-M1-triage-0");
+    // the judge's decision is its dispatch's: the id the decide names is the id the judge call carries
+    decide(triage, "judge-M1-triage-0", SOL);
+    expect(of(raw(triage), "judge")).toMatchObject([
+      { input: { id: "M1-triage-0", kind: "triage" }, rung: SOL, decision: { n: 1 } },
+    ]);
+  });
+
+  it("a decide keeps its key while the call is in flight, whatever happens meanwhile", () => {
+    const log = runningLog();
+    const first = actionKey(of(raw(log), "decide")[0] as Action);
+    log.add("tick", {});
+    expect(actionKey(of(raw(log), "decide")[0] as Action)).toBe(first);
   });
 });

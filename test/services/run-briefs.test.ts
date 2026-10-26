@@ -45,6 +45,7 @@ const act = (over: Partial<Dispatch>): Dispatch => ({
   failoverFrom: null,
   brief: "lane",
   notes: [],
+  decision: null,
   ...over,
 });
 

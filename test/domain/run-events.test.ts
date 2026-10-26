@@ -4,6 +4,33 @@ import { PLAN, endDispatch, makeLog, startDispatch, startedFields } from "./run-
 
 const finding = { label: "BUG" as const, text: "BUG src/a.ts:3 — x — y", file: "src/a.ts" };
 
+const decisionMade = {
+  name: "worker-M1.L1",
+  n: 1,
+  role: "worker" as const,
+  unit: "M1.L1",
+  level: 0,
+  levels: 3,
+  levelRungs: [["codex:gpt-6-luna#high"], ["codex:gpt-6-sol#medium"], ["codex:gpt-6-sol#high"]],
+  rung: "codex:gpt-6-luna#high",
+  floor: null,
+  strict: false,
+  briefFile: "decisions/worker-M1.L1/1/brief.md",
+  briefHash: "0123abcd",
+  p: 0.91,
+  probabilities: { "1": 0.91, "2": 0.05 },
+  why: "a mechanical change",
+  source: "model" as const,
+};
+const decisionFailed = {
+  name: "worker-M1.L1",
+  n: 1,
+  unit: "M1.L1",
+  code: "E_DECISION",
+  error: "the model gave no usable answer",
+  rungs: ["codex:gpt-6-sol#medium"],
+};
+
 /** one fixture per member of the union */
 function oneOfEach(): RunEvent[] {
   const log = makeLog();
@@ -29,6 +56,9 @@ function oneOfEach(): RunEvent[] {
   log.add("commit.failed", { milestone: "M1", round: 1, tail: "hook failed" });
   log.add("pause.lifted", {});
   log.add("lane.climbed", { lane: "M1.L1", rung: "codex:gpt-6-sol#high", top: false });
+  log.add("decision.made", decisionMade);
+  log.add("decision.failed", decisionFailed);
+  log.add("decision.exhausted", { name: "worker-M1.L1", n: 2, unit: "M1.L1", floor: "codex:gpt-6-sol#high" });
   log.add("stop.classified", { dispatchId: id, reason: "needs_user" });
   log.add("judge.decided", {
     id: "9",
@@ -252,5 +282,50 @@ describe("plan 43 events", () => {
     expect(describeEvent(failed)).toBe("M1 could not be merged by catherd: CONFLICT");
     expect(describeEvent(merged)).toBe("M1 merged by catherd");
     expect(describeEvent(owner)).toBe("M2 merged");
+  });
+
+  it("the decision events parse and describe", () => {
+    const log = makeLog();
+    const made = log.add("decision.made", decisionMade);
+    const failed = log.add("decision.failed", decisionFailed);
+    const exhausted = log.add("decision.exhausted", {
+      name: "worker-M1.L1",
+      n: 2,
+      unit: "M1.L1",
+      floor: "codex:gpt-6-sol#high",
+    });
+    for (const e of [made, failed, exhausted]) expect(RunEventSchema.parse(e)).toEqual(e);
+    expect(describeEvent(made)).toBe("worker-M1.L1 decided: codex:gpt-6-luna#high (level 1 of 3, model)");
+    expect(describeEvent(failed)).toBe(
+      "worker-M1.L1 decision failed (E_DECISION): the model gave no usable answer",
+    );
+    expect(describeEvent(exhausted)).toBe("worker-M1.L1 has no rung above codex:gpt-6-sol#high");
+    expect(RunEventSchema.safeParse({ ...made, source: "guess" }).success).toBe(false);
+    expect(RunEventSchema.safeParse({ ...made, n: 0 }).success).toBe(false);
+  });
+
+  it("an old run's events still parse: a climb, a climb's effect failure, a routed lane, a refusal with no rung", () => {
+    const log = makeLog();
+    const climbed = log.add("lane.climbed", { lane: "M1.L1", rung: "codex:gpt-6-sol#high", top: true });
+    const failed = log.add("effect.failed", { action: "climb", unit: "M1.L1", message: "no rung" });
+    const refused = log.add("dispatch.refused", {
+      name: "worker-M1.L1",
+      unit: "M1.L1",
+      code: "E_X",
+      message: "m",
+    });
+    for (const e of [climbed, failed, refused]) expect(RunEventSchema.parse(e)).toEqual(e);
+    expect(describeEvent(climbed)).toBe("M1.L1 climbed to codex:gpt-6-sol#high (top rung)");
+    // the new refusal names the rung, and `decide` is an action an effect can fail
+    const named = log.add("dispatch.refused", {
+      name: "worker-M1.L1",
+      unit: "M1.L1",
+      code: "E_ADMIT_RUNG",
+      message: "m",
+      rung: "codex:gpt-6-sol#high",
+    });
+    const decideFailed = log.add("effect.failed", { action: "decide", unit: "M1.L1", message: "disk full" });
+    for (const e of [named, decideFailed]) expect(RunEventSchema.parse(e)).toEqual(e);
+    expect(RunEventSchema.safeParse({ ...failed, action: "teleport" }).success).toBe(false);
   });
 });

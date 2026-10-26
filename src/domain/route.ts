@@ -15,7 +15,7 @@ export type ClimbReason = (typeof CLIMB_REASONS)[number];
  * Spec §5.4: where a lane's kind and difficulty came from. `jev-kind`: Jev was sure of the kind only, and the
  * difficulty came from the lane's `Difficulty:` line, else from the role's default rung.
  */
-export type RouteSource = "jev" | "jev-kind" | "lane" | "default";
+export type RouteSource = "jev" | "jev-kind" | "lane" | "default" | "decision";
 
 /** What Jev said about a lane, kept with its route for outcomes.jsonl (spec §5.6). */
 export interface RouteJev {
@@ -45,6 +45,10 @@ export interface RouteRow {
   env?: boolean;
   /** route rows (spec 1.5 plan 24): the decision in one line, as `route` returned it */
   why?: string;
+  /** plan 44 D24, `decision` rows: the picked level, how many levels the decision had, and the rung's intelligence */
+  level?: number;
+  levels?: number;
+  intelligence?: number;
   /** route rows: where Jev disagreed with the lane's declared Kind/Difficulty */
   jevSaid?: string;
   /** route rows: no rung clears the lane's bar, and the closest one */
@@ -131,11 +135,17 @@ export interface OutcomeRow {
   min_ok_index: number | null;
   /** some climb was the environment's fault: calibration leaves this lane out */
   envCaused: boolean;
+  /** plan 44 R7: the level of the lane's first decision, how many levels it had and its rung's intelligence; null before decisions */
+  level?: number | null;
+  levels?: number | null;
+  intelligence?: number | null;
 }
 
 /** The lane's outcome from its routes.jsonl rows since its last route; null when it was never routed. */
 export function laneOutcome(rows: RouteRow[], lane: string, landed: boolean, at: string): OutcomeRow | null {
   const mine = rows.filter((r) => r.lane === lane);
+  const decisions = mine.filter((r) => r.source === "route" && r.decidedBy === "decision");
+  if (decisions.length > 0) return decisionOutcome(decisions, lane, landed, at);
   const i = mine.findLastIndex((r) => r.source === "route");
   const start = mine[i];
   if (!start) return null;
@@ -161,6 +171,42 @@ export function laneOutcome(rows: RouteRow[], lane: string, landed: boolean, at:
     start_ok: landed && allClimbs.every((c) => c.env),
     min_ok_index: landed && idx >= 0 ? idx : null,
     envCaused: allClimbs.some((c) => c.env),
+    level: null,
+    levels: null,
+    intelligence: null,
+  };
+}
+
+/**
+ * plan 44 D24: a lane decided per dispatch. The first decision is the start and the last the final rung; each change
+ * of rung between two decisions is a climb with reason `decision`. The level fields are the first decision's.
+ */
+function decisionOutcome(rows: RouteRow[], lane: string, landed: boolean, at: string): OutcomeRow {
+  const start = rows[0] as RouteRow;
+  const final = rows.at(-1) as RouteRow;
+  const climbs = rows.flatMap((r, i) => {
+    const from = rows[i - 1]?.rung;
+    return from !== undefined && from !== r.rung
+      ? [{ from, to: r.rung, reason: "decision", env: false }]
+      : [];
+  });
+  const idx = final.ladder.indexOf(final.rung);
+  return {
+    at,
+    lane,
+    questionSet: null,
+    jevProbs: null,
+    source: "decision",
+    startRung: start.rung,
+    finalRung: final.rung,
+    climbs,
+    landed,
+    start_ok: landed && climbs.length === 0,
+    min_ok_index: landed && idx >= 0 ? idx : null,
+    envCaused: false,
+    level: start.level ?? null,
+    levels: start.levels ?? null,
+    intelligence: start.intelligence ?? null,
   };
 }
 

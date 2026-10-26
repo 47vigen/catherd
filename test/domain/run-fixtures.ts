@@ -1,6 +1,7 @@
 import type { BlockedReason } from "../../src/domain/blocked.ts";
 import type { JudgeKind } from "../../src/domain/judge.ts";
 import type { RunEvent, RunEventType, MilestonePlan } from "../../src/domain/run-events.ts";
+import { type Action, type DecideAction, decidedName, next, unitOf } from "../../src/domain/run-machine.ts";
 import { type RunState, replay } from "../../src/domain/run-state.ts";
 
 type Fields<T extends RunEventType> = Omit<Extract<RunEvent, { type: T }>, "v" | "seq" | "at" | "type">;
@@ -150,11 +151,9 @@ export function runningLog(
   return log;
 }
 
-export function routeMilestone(log: Log, mp: MilestonePlan, rung = "codex:gpt-6-sol#medium"): void {
-  log.add("lanes.routed", {
-    milestone: mp.id,
-    lanes: mp.lanes.map((l) => ({ lane: l.id, rung, ladder: [rung, "codex:gpt-6-sol#high"] })),
-  });
+export function routeMilestone(log: Log, mp: MilestonePlan): void {
+  // plan 44 D22: the milestone's start names no rung; every dispatch is decided
+  log.add("lanes.routed", { milestone: mp.id, lanes: [] });
   log.add("preflight.done", { milestone: mp.id, blocking: [], confirm: null, lint: [] });
 }
 
@@ -164,4 +163,63 @@ export function finishLane(log: Log, lane: string, o: { thread?: string; role?: 
   const id = startDispatch(log, { name, role: o.role ?? "worker", unit: lane });
   endDispatch(log, id, { name, unit: lane, thread: o.thread ?? `t-${lane}` });
   log.add("check.ran", { lane, exit: 0, tail: "", foreign: [] });
+}
+
+const RUNG = "codex:gpt-6-sol#medium";
+
+/** What a `decision.made` for the decide `d` records when `rung` is picked (source `floor`, a single level). */
+const madeFields = (d: DecideAction, rung: string): Fields<"decision.made"> => {
+  const name = decidedName(d.next);
+  return {
+    name,
+    n: d.n,
+    role: (d.next.type === "judge" ? "judge" : d.next.role) as never,
+    unit: unitOf(d),
+    level: 0,
+    levels: 1,
+    levelRungs: [[rung]],
+    rung,
+    floor: d.floor,
+    strict: d.strict,
+    briefFile: `decisions/${name}/${d.n}/brief.md`,
+    briefHash: `hash-${name}-${d.n}`,
+    p: null,
+    probabilities: {},
+    why: "test",
+    source: "floor",
+  };
+};
+
+const owed = (log: Log): DecideAction[] =>
+  next(log.state(), log.events.at(-1) as RunEvent).filter((a): a is DecideAction => a.type === "decide");
+
+/** Appends the `decision.made` the machine owes for dispatch (or judge) `name`, on `rung`; `n` overrides its number. */
+export function decide(log: Log, name: string, rung = RUNG, n?: number) {
+  const d = owed(log).find((a) => decidedName(a.next) === name);
+  if (!d) throw new Error(`no decide is owed for ${name}`);
+  return log.add("decision.made", madeFields(n === undefined ? d : { ...d, n }, rung));
+}
+
+/**
+ * `next` after the log's last event, as if every decide it owes were answered at once with `rung` (a pick, else the
+ * floor, else `rung`). The log is untouched: the decisions live in a copy, so a test that pins what the machine
+ * dispatches reads it without recording the decisions.
+ */
+export function settled(log: Log, rung = RUNG): Action[] {
+  const events = [...log.events];
+  for (let i = 0; i < 50; i++) {
+    const last = events.at(-1) as RunEvent;
+    const acts = next(replay(events, "r1"), last);
+    const decides = acts.filter((a): a is DecideAction => a.type === "decide");
+    if (decides.length === 0) return acts;
+    for (const d of decides)
+      events.push({
+        v: 1,
+        seq: events.length + 1,
+        at: last.at,
+        type: "decision.made",
+        ...madeFields(d, d.pick ?? (d.strict ? rung : (d.floor ?? rung))),
+      });
+  }
+  throw new Error("the machine kept owing decisions");
 }
