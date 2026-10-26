@@ -9,6 +9,7 @@ import {
   familyOf,
   levelsOf,
   levelTexts,
+  parseReply,
   pickLevel,
 } from "../../src/domain/decision.ts";
 import { ROLES } from "../../src/domain/roles.ts";
@@ -44,6 +45,36 @@ describe("levels", () => {
     expect(strict[0]?.level).toBe(0);
     expect(aboveFloor(ls, "d", true)).toEqual([]);
     expect(rungsOf(aboveFloor(ls, null, true))).toEqual(rungsOf(ls));
+  });
+});
+
+describe("a floor that is no candidate", () => {
+  const ls = levelsOf([
+    { rung: "a", intelligence: 30 },
+    { rung: "b", intelligence: 40 },
+    { rung: "d", intelligence: 50 },
+  ]);
+  it("is placed by its intelligence", () => {
+    expect(rungsOf(aboveFloor(ls, "x", false, 40))).toEqual([["b"], ["d"]]);
+    expect(rungsOf(aboveFloor(ls, "x", true, 40))).toEqual([["d"]]);
+    expect(aboveFloor(ls, "x", true, 50)).toEqual([]);
+  });
+  it("with no known intelligence, strict allows nothing and a plain floor everything", () => {
+    expect(aboveFloor(ls, "x", true)).toEqual([]);
+    expect(rungsOf(aboveFloor(ls, "x", false))).toEqual(rungsOf(ls));
+  });
+});
+
+describe("parseReply", () => {
+  const qs = { difficulty: { type: "score" as const, instructions: "", criteria: ["a", "b", "c"] } };
+  const body = (probabilities: Record<string, number>) => ({
+    model: "m",
+    answers: { difficulty: { type: "score", score: 1, probabilities, confidence: 0.9 } },
+  });
+  it("a score with no probability mass is no answer", () => {
+    expect(parseReply(qs, body({ "0": 0, "1": 0 }))).toMatchObject({ ok: false });
+    expect(parseReply(qs, body({}))).toMatchObject({ ok: false });
+    expect(parseReply(qs, body({ "1": 0.9 }))).toMatchObject({ ok: true });
   });
 });
 

@@ -55,39 +55,6 @@
       "cap": ["mechanical"],
       "noulMin": 0.8
     },
-    "finding": {
-      "questions": {
-        "finding": {
-          "type": "choice",
-          "instructions": "A reviewer reported `finding` on the work planned in `lane`. Where is the defect?",
-          "criteria": {
-            "design": "The plan itself is wrong: its decisions, signatures or data shapes cannot meet the goal",
-            "code": "The plan is sound and the code does not implement it correctly",
-            "unclear": "The finding does not say enough to tell"
-          }
-        }
-      },
-      "rule": {
-        "min": 0.83,
-        "fallback": "code"
-      }
-    },
-    "same-defect": {
-      "questions": {
-        "same-defect": {
-          "type": "choice",
-          "instructions": "Does `after` report the same underlying defect as `before`, even if worded differently or at another line?",
-          "criteria": {
-            "yes": "Same underlying defect",
-            "no": "A different defect"
-          }
-        }
-      },
-      "rule": {
-        "min": 0.85,
-        "fallback": "no"
-      }
-    },
     "stop": {
       "questions": {
         "stop": {

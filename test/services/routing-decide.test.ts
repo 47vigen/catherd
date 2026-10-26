@@ -166,6 +166,15 @@ describe("decide", () => {
     });
   });
 
+  it("a strict floor that is no candidate still holds the weaker rungs back", async () => {
+    const f = fakeFetch({ status: 200, body: reply({ "0": 1 }) });
+    const rungs = [LADDER[0] as string, LADDER[1] as string];
+    const r = await svc(f).decide(req({ rungs, floor: LADDER[3] as string, strict: true }));
+    expect(r).toMatchObject({ ok: false, exhausted: true, floor: LADDER[3] });
+    const unknown = await svc(f).decide(req({ rungs, floor: "codex:no-such-model#high", strict: true }));
+    expect(unknown).toMatchObject({ ok: false, exhausted: true });
+  });
+
   it("a profile with no decision model fails with the fix", async () => {
     const f = fakeFetch({ status: 200, body: reply({ "0": 1 }) });
     const profile = { ...view(LADDER), decision: { url: null, model: null, minConfidence: 0.8 } };
@@ -179,10 +188,10 @@ describe("verdict and probe", () => {
   const verdictReply = (p: number) => ({
     model: "test-decider",
     answers: {
-      finding: {
+      failure_class: {
         type: "choice",
-        choice: "design",
-        probabilities: { design: p, code: 1 - p, unclear: 0 },
+        choice: "harness",
+        probabilities: { harness: p, product: 1 - p },
         confidence: 0.9,
       },
     },
@@ -190,19 +199,19 @@ describe("verdict and probe", () => {
 
   it("a sure answer is its value, an unsure one the rule's fallback, an error no value", async () => {
     const sure = fakeFetch({ status: 200, body: verdictReply(0.95) });
-    expect(await svc(sure).verdict(dirIn(), view(LADDER), "finding", { finding: "x" })).toEqual({
+    expect(await svc(sure).verdict(dirIn(), view(LADDER), "failure-class", { text: "x" })).toEqual({
       ok: true,
-      value: "design",
+      value: "harness",
       p: 0.95,
     });
     const unsure = fakeFetch({ status: 200, body: verdictReply(0.5) });
-    expect(await svc(unsure).verdict(dirIn(), view(LADDER), "finding", { finding: "x" })).toMatchObject({
+    expect(await svc(unsure).verdict(dirIn(), view(LADDER), "failure-class", { text: "x" })).toMatchObject({
       ok: true,
-      value: decisionQuestions().sets.finding.rule.fallback,
+      value: decisionQuestions().sets["failure-class"].rule.fallback,
       p: 0.5,
     });
     const bad = fakeFetch({ status: 200, body: {} });
-    expect(await svc(bad).verdict(dirIn(), view(LADDER), "finding", { finding: "x" })).toMatchObject({
+    expect(await svc(bad).verdict(dirIn(), view(LADDER), "failure-class", { text: "x" })).toMatchObject({
       ok: false,
       error: expect.any(String),
     });

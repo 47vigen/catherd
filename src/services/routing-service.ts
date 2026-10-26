@@ -1,5 +1,5 @@
 import { errorMessage } from "../domain/errors.ts";
-import { quotaOf } from "../domain/failover.ts";
+import { intelligenceOf, quotaOf } from "../domain/failover.ts";
 import {
   aboveFloor,
   difficultyQuestions,
@@ -78,24 +78,53 @@ function decisionConfig(v: ProfileView): DecisionConfig | string {
 }
 
 /**
- * Plan 44 task 14: the levels of the role's rungs above the floor, then the decision model's pick of one. The floor
- * is applied to every candidate first, so a floor rung that is held or refused still holds the weaker rungs back.
+ * The role's levels above the floor, then only the rungs that are neither refused nor on a held quota. The floor is
+ * applied to every candidate first, so a floor rung that is held or refused still holds the weaker rungs back.
+ * `above` is the levels before that filter; `refused` the excluded rungs, in the headless spelling.
  */
-async function decideRung(req: DecideRequest, o: RoutingOpts): Promise<DecideAnswer> {
+export function openLevels(req: {
+  profile: ProfileView;
+  role: Role;
+  repo: string;
+  runDir: string;
+  usage?: Record<string, number>;
+  floor: string | null;
+  strict: boolean;
+  exclude: string[];
+  held: string[];
+}) {
   const p = routingProfile(req.profile, req.role, req.usage);
-  await freshenWithin(p.role.rungs, req.repo, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);
-  const cands = decisionCandidates(loadCatalog({ repo: req.repo, runDir: req.runDir }), p, req.role);
+  const catalog = loadCatalog({ repo: req.repo, runDir: req.runDir });
+  const cands = decisionCandidates(catalog, p, req.role);
   const refused = req.exclude.map(headlessRung);
   const open = new Set(
     cands
       .filter((x) => !refused.includes(headlessRung(x.rung)) && !req.held.includes(quotaOf(x.info.parsed)))
       .map((x) => x.rung),
   );
-  const above = aboveFloor(levelsOf(cands), req.floor, req.strict);
+  const above = aboveFloor(
+    levelsOf(cands),
+    req.floor,
+    req.strict,
+    req.floor === null ? null : intelligenceOf(catalog, req.floor),
+  );
   const levels = above
     .map((l) => ({ ...l, rungs: l.rungs.filter((r) => open.has(r)) }))
     .filter((l) => l.rungs.length > 0)
     .map((l, level) => ({ ...l, level }));
+  return { cands, above, levels, open, refused };
+}
+
+/**
+ * Plan 44 task 14: the levels of the role's rungs above the floor, then the decision model's pick of one.
+ */
+async function decideRung(req: DecideRequest, o: RoutingOpts): Promise<DecideAnswer> {
+  await freshenWithin(
+    routingProfile(req.profile, req.role).role.rungs,
+    req.repo,
+    o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS,
+  );
+  const { cands, above, levels, open, refused } = openLevels(req);
   // a level above the floor with a rung that only a quota hold keeps out: wait for it, as a failover does
   if (
     levels.length === 0 &&
