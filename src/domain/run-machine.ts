@@ -26,6 +26,7 @@ import {
   milestoneOf,
   remindDue,
   type RunState,
+  VERDICT_ASK,
 } from "./run-state.ts";
 
 export type BriefKind = "dossier" | "architect" | "lane" | "fix" | "review" | "recheck" | "verify" | "judge";
@@ -178,6 +179,9 @@ export function unitOf(a: Action, s?: RunState): string {
 /** What `effect.failed` carries to name an action: its type and unit. The daemon frees the matching key. */
 export const failKey = (a: Action, s?: RunState): string => `${a.type}@${unitOf(a, s)}`;
 
+const judgeKeys = (unit: string): string[] =>
+  (["triage", "question", "unexpected", "rules"] as const).map((k) => `judge:${unit}:${k}`);
+
 /** The keys an event settles: what the daemon forgets, so a still-ready action may be issued again. */
 export function confirms(e: RunEvent): string[] {
   switch (e.type) {
@@ -187,7 +191,7 @@ export function confirms(e: RunEvent): string[] {
         ...(e.role === "judge" && e.judgeKind ? [`judge:${e.unit}:${e.judgeKind}`] : []),
       ];
     case "dispatch.refused":
-      return [`dispatch:${e.name}`];
+      return [`dispatch:${e.name}`, ...(e.name.startsWith("judge-") ? judgeKeys(e.unit) : [])];
     case "dispatch.ended":
       return [`watch:${e.dispatchId}`, `classify:${e.dispatchId}`, "cancel:run"];
     case "stop.classified":
@@ -207,7 +211,7 @@ export function confirms(e: RunEvent): string[] {
       return [`decide:${e.name}:${e.n}`];
     case "judge.decided":
     case "judge.failed":
-      return (["triage", "question", "unexpected", "rules"] as const).map((k) => `judge:${e.unit}:${k}`);
+      return judgeKeys(e.unit);
     case "question.parked":
       return [`park:${e.unit}`];
     case "question.reminded":
@@ -271,14 +275,17 @@ const threadRung = (s: RunState, thread: string): string | undefined =>
  */
 export function decided(s: RunState, a: DispatchAction | JudgeAction): Action[] {
   const name = decidedName(a);
+  if (waiting(s, name)) return [];
   const d = s.decisions[name];
   if (d) {
     const decision = { n: d.n, briefFile: d.briefFile, briefHash: d.briefHash };
     if (a.type === "judge") return [{ ...a, rung: d.rung, decision }];
     const ran = a.thread === null ? undefined : threadRung(s, a.thread);
-    return [{ ...a, rung: d.rung, decision, thread: ran !== undefined && ran !== d.rung ? null : a.thread }];
+    const thread = ran !== undefined && ran !== d.rung ? null : a.thread;
+    // a fresh session was not asked for a verdict before
+    const notes = thread === a.thread ? a.notes : a.notes.filter((n) => n !== VERDICT_ASK);
+    return [{ ...a, rung: d.rung, decision, thread, notes }];
   }
-  if (waiting(s, name)) return [];
   const { floor, strict } = floorOf(s, name);
   return [
     {
@@ -376,7 +383,7 @@ export function judgeInputFor(s: RunState, id: string, kind: JudgeKind, unit: st
     kind,
     unit,
     context:
-      `Lane ${unit} is at the top rung of its ladder (${lane?.rung ?? "unknown"}) and did not get through; it has stood there ${lane?.sameReason ?? 0} time(s). Decide: retry once more, climb, skip it as a known issue, or park it for the owner.\n${lane?.notes.join("\n") ?? ""}`.trimEnd(),
+      `Lane ${unit} is on the strongest open rung (${lane?.rung ?? "unknown"}) and did not get through; it has stood there ${lane?.sameReason ?? 0} time(s). Decide: retry once more, climb (raise the floor), skip it as a known issue, or park it for the owner.\n${lane?.notes.join("\n") ?? ""}`.trimEnd(),
     findings: [],
     lanes,
   };
@@ -472,20 +479,6 @@ function laneActions(s: RunState, m: MilestoneState): Action[] {
  */
 export function onLaneStopped(s: RunState, lane: LaneState, kind: "question" | "unexpected"): Action[] {
   return decided(s, { type: "judge", input: judgeCall(s, kind, lane.id), rung: null, decision: null });
-}
-
-/** A limit: the unit went back to pending with its rung to fail over from (reduce did it); the dispatch takes the stand-in. */
-export function onLimit(_s: RunState, _e: RunEvent): Action[] {
-  return [];
-}
-
-/**
- * A verifier's verdict is in the milestone's status (reduce did it): landing only for a PASS that names the
- * milestone's commit, a fresh verifier for a PASS that names another or a check that could not run, a fix round
- * for a FAIL, a park for BLOCKED: environment. The dispatch of a fresh verifier is milestoneActions'.
- */
-export function onVerifier(_s: RunState, _m: MilestoneState, _e: RunEvent): Action[] {
-  return [];
 }
 
 /** A judge call whose answer was unreadable is asked again, under the same id, until the state gives up on it. */
@@ -719,6 +712,14 @@ function react(s: RunState, e: RunEvent): Action[] {
   switch (e.type) {
     case "daemon.started":
       return liveDispatches(s).map((d) => ({ type: "watch", dispatchId: d.dispatchId }));
+    case "effect.failed":
+      // a settle that threw after dispatch.started leaves the dispatch live and unwatched
+      return (e.action === "dispatch" || e.action === "watch") &&
+        (s.failedEffects[`${e.action}@${e.unit}`] ?? 0) < MAX_TRIES
+        ? liveDispatches(s)
+            .filter((d) => d.unit === e.unit)
+            .map((d) => ({ type: "watch", dispatchId: d.dispatchId }))
+        : [];
     case "question.parked":
       return [
         {

@@ -283,7 +283,7 @@ describe("the machine: a milestone's lanes", () => {
     const j = of(last(log), "judge");
     expect(j).toHaveLength(1);
     expect(j[0]?.input).toMatchObject({ kind: "unexpected", unit: "M1.L1" });
-    expect(j[0]?.input.context).toContain("top rung");
+    expect(j[0]?.input.context).toContain("strongest open rung");
   });
 
   it("asks the judge about a needs_user reply, and acts on each of its verbs", () => {
@@ -968,7 +968,7 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     const w2 = stop(t, "M1.L1", { status: "timeout", replyStatus: null });
     classified(t, w2, "provider_error");
     expect(of(last(t), "dispatch").find((d) => d.lane === "M1.L1")).toMatchObject({ thread: null });
-    expect(t.state().lanes["M1.L1"]).toMatchObject({ lastReason: "provider_error", attempts: 0 });
+    expect(t.state().lanes["M1.L1"]).toMatchObject({ lastReason: "provider_error" });
     // an ok end with no STATUS line is asked for one, not classified
     const u = runningLog(plan(2));
     stop(u, "M1.L1", { replyStatus: null });
@@ -1537,6 +1537,18 @@ describe("the machine: the run", () => {
     const fresh = runningLog();
     fresh.add("daemon.started", { pid: 2, version: "2.0.0" });
     expect(names(last(fresh))).toEqual(["worker-M1.L1"]);
+  });
+
+  it("watches a live dispatch again when its dispatch or watch effect failed, until the tries run out", () => {
+    const log = runningLog();
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    expect(of(last(log), "watch")).toEqual([]);
+    log.add("effect.failed", { action: "dispatch", unit: "M1.L1", message: "settle threw" });
+    expect(of(last(log), "watch")).toEqual([{ type: "watch", dispatchId: w }]);
+    log.add("effect.failed", { action: "watch", unit: "M1.L1", message: "again" });
+    expect(of(last(log), "watch")).toEqual([{ type: "watch", dispatchId: w }]);
+    log.add("effect.failed", { action: "watch", unit: "M1.L1", message: "again" });
+    expect(of(last(log), "watch")).toEqual([]);
   });
 
   it("retries a failed effect once, then parks its unit", () => {
@@ -2172,6 +2184,26 @@ describe("plan 44: the decide step", () => {
     expect(of(raw(triage), "judge")).toMatchObject([
       { input: { id: "M1-triage-0", kind: "triage" }, rung: SOL, decision: { n: 1 } },
     ]);
+  });
+
+  it("a refused judge dispatch frees the judge key and waits instead of retrying at once", () => {
+    const log = runningLog(plan(2));
+    finishLane(log, "M1.L1");
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, [bug("BUG README.md — nobody owns it", "README.md")]);
+    decide(log, "judge-M1-triage-0", SOL);
+    expect(actionKey(of(raw(log), "judge")[0] as Action)).toBe("judge:M1:triage");
+    const refused = log.add("dispatch.refused", {
+      name: "judge-M1-triage-0",
+      unit: "M1",
+      code: "E_ADMIT_ORDER",
+      message: "later",
+    });
+    expect(confirms(refused)).toContain("judge:M1:triage");
+    expect(of(raw(log), "judge")).toEqual([]);
+    log.add("tick", {}, "2026-10-21T11:00:00.000Z");
+    expect(of(raw(log), "judge")).toMatchObject([{ input: { id: "M1-triage-0" } }]);
   });
 
   it("a decide keeps its key while the call is in flight, whatever happens meanwhile", () => {
