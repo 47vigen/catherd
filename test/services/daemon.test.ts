@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tryLock } from "../../src/infra/filelock.ts";
 import {
   beat,
@@ -15,7 +15,7 @@ import {
   runDaemon,
 } from "../../src/services/daemon.ts";
 import { pauseMachine, resumeMachine } from "../../src/services/pause.ts";
-import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
+import { appendEvent, eventsFile, readEvents } from "../../src/services/run-events-store.ts";
 import type { MilestonePlan, RunEventInput } from "../../src/domain/run-events.ts";
 import type { Action } from "../../src/domain/run-machine.ts";
 import { appendCheckRecord, type CheckRecord } from "../../src/services/milestone-check.ts";
@@ -261,6 +261,71 @@ describe("runDaemon", () => {
         until: () => slept > 50,
       }),
     ).rejects.toBe(err);
+    expect(daemonAlive(run)).toBe(false);
+  });
+
+  it("an effect that cannot write its effect.failed stops the loop, whatever the error", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { ...started, plan: [] });
+    await appendEvent(run, { type: "question.parked", unit: "run", question: "q", reason: "needs_user" });
+    const real = realEffects(fakeDeps(), run);
+    let slept = 0;
+    const result = await runDaemon(fakeDeps(), run.id, {
+      effects: {
+        async run(_a, s) {
+          chmodSync(eventsFile(run), 0o444);
+          try {
+            await real.run({ type: "integrate", milestone: "M1" }, s);
+          } finally {
+            chmodSync(eventsFile(run), 0o644);
+          }
+        },
+      },
+      clock: {
+        now: () => Date.now(),
+        async sleep() {
+          slept++;
+        },
+      },
+      until: () => slept > 50,
+    }).catch((e: unknown) => e);
+    expect(result).toBeInstanceOf(Error);
+    expect(daemonAlive(run)).toBe(false);
+  });
+
+  it("a watch in flight does not hold the lock after the loop fails", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { ...started, plan: [] });
+    await appendEvent(run, {
+      type: "dispatch.started",
+      dispatchId: "D1",
+      name: "worker-M1.L1",
+      role: "worker",
+      unit: "M1.L1",
+      lane: "M1.L1",
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+    });
+    await appendEvent(run, { type: "question.parked", unit: "run", question: "q", reason: "needs_user" });
+    const seen: string[] = [];
+    let slept = 0;
+    const result = await runDaemon(fakeDeps(), run.id, {
+      effects: {
+        run(a) {
+          seen.push(a.type);
+          return a.type === "watch" ? new Promise<void>(() => {}) : Promise.reject(new Error("E_IO_LOCK"));
+        },
+      },
+      clock: {
+        now: () => Date.now(),
+        async sleep() {
+          slept++;
+        },
+      },
+      until: () => slept > 50,
+    }).catch((e: unknown) => e);
+    expect(seen).toContain("watch");
+    expect(result).toBeInstanceOf(Error);
     expect(daemonAlive(run)).toBe(false);
   });
 

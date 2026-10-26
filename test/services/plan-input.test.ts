@@ -286,6 +286,34 @@ describe("the unit context", () => {
     expect(text).toContain("SPEC-9-MARK");
   });
 
+  it("a heading inside a fence does not end a cited section", async () => {
+    const files = briefFiles();
+    files["spec.md"] = files["spec.md"].replace(
+      "SPEC-4-MARK",
+      "SPEC-4-MARK\n\n```sh\n# install deps\nSPEC-4-TAIL-MARK\n```",
+    );
+    const run = await briefRun(files);
+    expect(unitContext(run, "worker", "M1.L1").join("\n\n")).toContain("SPEC-4-TAIL-MARK");
+  });
+
+  it("the whole unit context stays within the byte cap, naming where the rest is", async () => {
+    const files = briefFiles();
+    const big = `${"émoji 😀 line of a very large task\n".repeat(3_000)}`;
+    files["plan.md"] = files["plan.md"].replace(
+      "### Task 1: Implement the ledger\n",
+      `### Task 1: Implement the ledger\n${big}`,
+    );
+    const run = await briefRun(files);
+    const blocks = unitContext(run, "worker", "M1.L1");
+    const text = blocks.join("\n\n");
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(UNIT_CONTEXT_MAX + 400);
+    expect(text).toContain("cut: read plan-input/plan.md");
+    // the cut task block keeps its closing tag
+    expect(blocks.find((b) => b.startsWith("<plan-task"))).toEndWith("</plan-task>");
+    expect(text).toContain("Read on demand:");
+    expect(text).not.toContain("\uFFFD");
+  });
+
   it("the slim lane and the bloated lane render the same unit context", async () => {
     const slim = await briefRun();
     const files = briefFiles();

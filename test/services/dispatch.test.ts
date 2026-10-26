@@ -171,7 +171,7 @@ describe("dispatch", () => {
     expect(record.changedOwned).toEqual([]);
     expect(record.violations).toEqual(["src/other.ts"]);
     expect("extras" in record).toBe(false);
-    expect(hints).toEqual(["climb: unchanged", "violation: src/other.ts"]);
+    expect(hints).toEqual(["floor: unchanged", "violation: src/other.ts"]);
   });
 
   it("points a failed run at its stderr", async () => {
@@ -249,7 +249,7 @@ describe("dispatch returns at launch; its watcher settles it; result reads it (p
     await watchersSettled();
     const r = await read(deps, run.id);
     expect(r.record?.status).toBe("ok");
-    expect(r.hints).toEqual(["climb: unchanged"]);
+    expect(r.hints).toEqual(["floor: unchanged"]);
     expect(readFileSync(runPaths(run.dir).state, "utf8")).toContain("Running:\n- none");
   });
 

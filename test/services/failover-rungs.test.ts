@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { DEFAULT_MAX_EFFORT } from "../../src/domain/profile.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { writeRunIndex } from "../../src/services/catalog-service.ts";
-import { configuredBackends, failoverRung, indexedPairs } from "../../src/services/failover-rungs.ts";
+import { configuredBackends, failoverRung } from "../../src/services/failover-rungs.ts";
 import { profileFile } from "../../src/services/profile-store.ts";
 import { indexOf } from "../domain/shipped.ts";
 import { snapshotEnv } from "../helpers.ts";
@@ -71,16 +71,6 @@ describe("failoverRung", () => {
     deps.view.failover = { [unindexed]: OPUS };
     expect(failoverRung(deps, run, "worker", unindexed, ["codex"])).toBe(OPUS);
     expect(failoverRung(deps, run, "worker", unindexed, ["codex", "claude-code"])).toBeNull();
-  });
-});
-
-describe("indexedPairs", () => {
-  it("lists every indexed rung with its intelligence", () => {
-    const { deps } = setup();
-    freshRun();
-    const pairs = indexedPairs(deps);
-    expect(pairs.find((p) => p.rung === LUNA)?.intelligence).toBeGreaterThan(30);
-    expect(pairs.every((p) => typeof p.intelligence === "number")).toBe(true);
   });
 });
 

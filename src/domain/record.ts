@@ -70,6 +70,8 @@ export const RunRecordSchema = z.looseObject({
   costUsd: z.number().nullable(),
   changedOwned: z.array(z.string()),
   violations: z.array(z.string()),
+  /** a lane's changes to test files its Owns does not cover, a running sibling's included (B14); absent before 2.0 */
+  testEdits: z.array(z.string()).optional(),
   /** true when git failed at finalize: changedOwned and violations are then unknown, not empty */
   gitUnavailable: z.boolean().optional(),
   replyStatus: z.enum(REPLY_STATUSES).nullable(),

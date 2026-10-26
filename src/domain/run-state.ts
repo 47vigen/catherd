@@ -90,7 +90,6 @@ export interface LaneState {
   /** its last climb reached the top rung */
   top: boolean;
   /** failed or partial tries since the last ok end or climb */
-  attempts: number;
   checkFails: number;
   lastFails: string[] | null;
   /** the tree key the last check failure was seen on; old events use the milestone commit */
@@ -613,7 +612,6 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
           // a lane file the architect changed re-runs a done lane; the Owns line is not in the digest
           if (l.digest !== null && l.digest !== lp.digest && l.status === "done" && !isDone(m)) {
             l.status = "pending";
-            l.attempts = 0;
             l.checkFails = 0;
             // a milestone past its lanes goes back to them, as a fix round does
             const past = (st: MilestoneStatus | null) =>
@@ -639,7 +637,6 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
           rung: null,
           thread: null,
           top: false,
-          attempts: 0,
           checkFails: 0,
           lastFails: null,
           lastFailHead: null,
@@ -701,14 +698,12 @@ function laneDone(s: RunState, l: LaneState): void {
     l.notes = l.queued;
     l.queued = [];
     l.status = "pending";
-    l.attempts = 0;
     l.checkFails = 0;
     return;
   }
   l.status = "done";
   l.notes = [];
   l.checkFails = 0;
-  l.attempts = 0;
   l.failoverFrom = null;
   l.sameReason = 0;
   l.stopRun = 0;
@@ -816,7 +811,6 @@ function fixRound(
       const lane = s.lanes[id] as LaneState;
       lane.notes.push(f.text);
       lane.status = "pending";
-      lane.attempts = 0;
       lane.checkFails = 0;
       lane.fixedRound = m.counts.length;
       routed.add(lane);
@@ -1021,7 +1015,6 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
       l.notes.push(STATUS_ASK);
     } else {
       l.statusAsked = false;
-      l.attempts += 1;
       l.thread = null;
       failedOn(s, laneNameOf(l), x.rung, s.at);
     }
@@ -1038,14 +1031,12 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     l.status = "pending";
     failedOn(s, laneNameOf(l), x.rung, s.at);
   } else if (x.status === "ok" && x.replyStatus !== "partial") {
-    l.attempts = 0;
     l.thread = x.thread ?? l.thread;
     l.failoverFrom = null;
     l.failoverNow = false;
     if (l.kind === "research") laneDone(s, l);
     else l.status = "checking";
   } else {
-    l.attempts += 1;
     l.thread = null;
     l.status = "pending";
     failedOn(s, laneNameOf(l), x.rung, s.at);
@@ -1141,7 +1132,6 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
     lane.transportSince = null;
     // a lane that changed test files it does not own failed its rung's attempt, whatever else its reply said
     if (e.testEdits !== undefined && e.testEdits.length > 0 && e.status !== "limit") {
-      lane.attempts += 1;
       lane.thread = null;
       lane.status = "pending";
       lane.notes.push(`Restore these test files; you do not own them: ${e.testEdits.join(", ")}`);
@@ -1252,7 +1242,6 @@ function onClimbed(s: RunState, e: Extract<RunEvent, { type: "lane.climbed" }>):
   l.rung = e.rung;
   l.top = e.top;
   l.thread = null;
-  l.attempts = 0;
   l.checkFails = 0;
   l.failoverFrom = null;
   l.failoverNow = false;
@@ -1293,7 +1282,6 @@ function onExhausted(s: RunState, e: Extract<RunEvent, { type: "decision.exhaust
     const tooHard = l.tooHard;
     l.top = true;
     l.thread = null;
-    l.attempts = 0;
     l.checkFails = 0;
     l.failoverFrom = null;
     l.failoverNow = false;
@@ -1307,6 +1295,12 @@ function onExhausted(s: RunState, e: Extract<RunEvent, { type: "decision.exhaust
     reason: "effect",
     question: `${e.name} failed on ${e.floor} and no rung above it is left to try.`,
   };
+}
+
+/** New notes change a unit's briefs: a decision made before them judged a brief that is stale now. */
+function forgetDecisions(s: RunState, unit: string): void {
+  for (const name of Object.keys(s.decisions))
+    if (name.endsWith(`-${unit}`) || name.includes(`-${unit}-`)) delete s.decisions[name];
 }
 
 function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>): void {
@@ -1335,8 +1329,8 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
             continue;
           }
           target.notes.push(f.text);
+          forgetDecisions(s, target.id);
           target.status = "pending";
-          target.attempts = 0;
           target.fixedRound = m.counts.length;
         } else if (r.to === "architect") {
           sent.add(r.finding);
@@ -1377,6 +1371,7 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
     case "answer":
       if (lane) {
         lane.notes.push(`The judge answered: ${d.answer}`);
+        forgetDecisions(s, lane.id);
         lane.status = "pending";
         lane.awaiting = null;
         relaxTop(s, lane);
@@ -1470,7 +1465,10 @@ function onDecisionAnswered(
     }
     return;
   }
-  if (retry) return resume();
+  if (retry) {
+    delete s.picks[name];
+    return resume();
+  }
   if (rungs.includes(word)) {
     s.picks[name] = word;
     return resume();
@@ -1495,8 +1493,8 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
     // the owner's word starts the lane fresh: no rung failed it
     delete s.floors[laneNameOf(lane)];
     lane.notes.push(`The owner answered: ${e.answer}`);
+    forgetDecisions(s, lane.id);
     lane.status = "pending";
-    lane.attempts = 0;
     lane.checkFails = 0;
     lane.sameReason = 0;
     lane.stopRun = 0;
@@ -1526,6 +1524,7 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
   const failedHere = m.commit !== null && m.verifierFailedOn === m.commit;
   m.verifierFailedOn = null;
   m.notes.push(`The owner answered: ${e.answer}`);
+  forgetDecisions(s, m.id);
   const from = m.parkedFrom ?? "waiting";
   m.parkedFrom = null;
   m.tries = {};
@@ -1655,11 +1654,17 @@ function apply(s: RunState, e: RunEvent): void {
       };
       delete s.waiting[e.name];
       recomputeWake(s);
+      const asking = e.role === "verifier" ? milestoneOf(s, e.unit) : undefined;
+      if (asking?.verdictAsk && asking.verdictAsk !== e.thread) {
+        asking.verdictAsk = null;
+        asking.verifierNotes = asking.verifierNotes.filter((n) => n !== VERDICT_ASK);
+      }
       ok(`dispatch@${e.unit}`);
       ok(`duplicate:${e.name}@${e.unit}`);
       ok(`admit:${e.name}@${e.unit}`);
       ok(`redecide:${e.name}@${e.unit}`);
       if (e.role === "judge") {
+        ok(`judge@${e.unit}`);
         const id = e.name.replace(/^judge-/, "");
         s.judges[id] = { unit: e.unit, kind: e.judgeKind ?? "unexpected", tries: s.judges[id]?.tries ?? 0 };
       }
@@ -1839,6 +1844,7 @@ function apply(s: RunState, e: RunEvent): void {
         source: e.source,
       };
       s.decided[e.name] = e.n;
+      ok(`decide@${e.unit}`);
       delete s.decisionFails[e.name];
       delete s.picks[e.name];
       delete s.waiting[e.name];
@@ -1848,6 +1854,7 @@ function apply(s: RunState, e: RunEvent): void {
       return;
     }
     case "decision.failed":
+      ok(`decide@${e.unit}`);
       // the rules review is advisory: a decision it cannot get ends it, as a refused dispatch does
       if (
         e.name === judgeName("rules") &&

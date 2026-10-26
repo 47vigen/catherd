@@ -43,7 +43,7 @@ Side effects of this research on the owner's machine, for the record:
 ## 1. Environment and method
 
 - macOS 26 (Darwin 25.6.0), arm64. Bun 1.4.0. catherd 1.2.0 (`catherd --version`). Docker through OrbStack:
-  `/var/run/docker.sock -> /Users/vigen/.docker/run/docker.sock` (a symlink, which matters for grok, §3.6).
+  `/var/run/docker.sock -> ~/.docker/run/docker.sock` (a symlink, which matters for grok, §3.6).
 - Binaries were downloaded to the scratchpad:
   - Cursor: `https://downloads.cursor.com/lab/2026.09.28-64d2043/darwin/arm64/agent-cli-package.tar.gz`. The version
     comes from the current `https://cursor.com/install` script.

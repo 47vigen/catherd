@@ -99,3 +99,11 @@ test("Pagination elides distant pages", () => {
   expect(within(nav).queryByRole("button", { name: "Page 5" })).toBeNull();
   expect(within(nav).getByRole("button", { name: "Next" })).toBeEnabled();
 });
+
+test("Pagination steps back to the last page that has rows", () => {
+  const onPageChange = vi.fn<(n: number) => void>();
+  render(
+    <DataList.Pagination page={2} pageSize={25} total={25} onPageChange={onPageChange} onPageSizeChange={() => {}} />,
+  );
+  expect(onPageChange).toHaveBeenCalledExactlyOnceWith(1);
+});

@@ -639,7 +639,8 @@ test("a live entry joins page 1 only, once, and refreshes the run", async () => 
     ws.onopen?.();
   });
   const before = requests.filter((r) => describeRequest(r) === "GET /api/runs/r1").length;
-  const frame = JSON.stringify({ seq: 9, type: "report.posted", text: "M1 landed" });
+  const patch = { seq: model.seq, phase: "running", outcome: null, nodes: [], removed: [], edges: null };
+  const frame = JSON.stringify({ seq: 9, type: "report.posted", text: "M1 landed", patch });
   act(() => ws.onmessage?.({ data: frame }));
   act(() => ws.onmessage?.({ data: frame }));
   await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(4));
@@ -693,6 +694,37 @@ test("an event frame patches the graph without a refetch", async () => {
   );
   expect(await nodeButton(LANE)).toBeInTheDocument();
   expect(modelReads(requests)).toBe(1);
+});
+
+test("a failed background read of the model keeps the graph and the socket", async () => {
+  const { requests } = renderRoute("/runs/r1", (req, url) =>
+    url.pathname === "/api/runs/r1/model" && modelReads(requests) > 1
+      ? Response.json({ error: { message: "boom", type: "internal", code: "internal" } }, { status: 500 })
+      : api(req, url),
+  );
+  await nodeButton(LANE);
+  const ws = await openSocket();
+  // a null patch: the server could not diff, so the model is read again, and that read fails
+  act(() => ws.frame({ kind: "event", seq: 40, at: now(), type: "report.posted", text: "M1 landed", patch: null }));
+  await waitFor(() => expect(modelReads(requests)).toBe(2));
+  expect(await screen.findByText("M1 landed")).toBeInTheDocument();
+  expect(screen.queryByText("Could not load the graph of this run")).toBeNull();
+  expect(await nodeButton(LANE)).toBeInTheDocument();
+  expect(ws.readyState).toBe(1);
+});
+
+test("only a page of live entries is kept, newest first", async () => {
+  renderRoute("/runs/r1", api);
+  const list = await screen.findByRole("list", { name: "Timeline" });
+  const ws = await openSocket();
+  act(() => {
+    for (let seq = 10; seq < 50; seq++) ws.frame({ seq, at: now(), type: "report.posted", text: `live ${seq}` });
+  });
+  await waitFor(() => expect(within(list).getAllByRole("listitem")[0]).toHaveTextContent("live 49"));
+  const rows = within(list).getAllByRole("listitem");
+  expect(rows.filter((r) => r.classList.contains("row-arrive"))).toHaveLength(25);
+  expect(rows[24]).toHaveTextContent("live 25");
+  expect(screen.queryByText("live 24")).toBeNull();
 });
 
 test("a reconnect refetches the model once", async () => {

@@ -81,8 +81,6 @@ export interface Catalog {
   index: Record<string, Record<string, Pair>>;
   /** when the proxy fetched the index; null with no index */
   indexedAt: string | null;
-  /** ascending intelligences of every indexed pair of the shipped families: what the bars are percentiles of */
-  pool: number[];
   /** per backend id, the last `listModels()`; absent when never listed */
   listed: Record<string, { fetchedAt: string; models: Listed[] }>;
 }
@@ -105,16 +103,11 @@ export function buildCatalog(o: {
       costUsd: r.cost ?? null,
       lab: r.lab ?? null,
     };
-  const shippedKeys = new Set(o.models.families.map((f) => slopKey(f.id)));
-  const pool = [...shippedKeys]
-    .flatMap((k) => Object.values(index[k] ?? {}).map((p) => p.intelligence))
-    .sort((a, b) => a - b);
   return {
     families: o.models.families,
     backends: o.models.backends,
     index,
     indexedAt: o.index?.fetchedAt ?? null,
-    pool,
     listed: o.listed ?? {},
   };
 }

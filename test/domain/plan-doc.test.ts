@@ -290,3 +290,21 @@ describe("A-line owner tags", () => {
     expect(readsALine("architect", "verifier")).toBe(true);
   });
 });
+
+describe("fenced code in a plan", () => {
+  const fence = "```";
+  it("a heading inside a fence does not end a task, a section or a milestone", () => {
+    const d = parsePlanDoc(
+      "p.md",
+      `# P\n\n## M1 — one\n\n### Task 1: readme\nWrite it:\n${fence}md\n## Usage\n### Task 9: not a task\n${fence}\nTest: \`src/a.test.ts\` — "x"\n\n## M2 — two\n`,
+    );
+    expect(d.tasks.map((t) => t.id)).toEqual(["1"]);
+    expect(d.tasks[0]?.test).toBe(true);
+    const plan = `## M1 — one\n${fence}sh\n## setup\n~~~\n${fence}\nCheck: bun test\n## M2 — two\n`;
+    expect(milestoneCheck(plan, "M1")).toBe("bun test");
+    expect(milestoneSection(plan, "M1")).toContain("Check: bun test");
+    expect(baselineItems(`# P\n${fence}\n## M1 — fake\n${fence}\nBaseline: a\n## M1 — one\n`, "M1")).toEqual([
+      "a",
+    ]);
+  });
+});

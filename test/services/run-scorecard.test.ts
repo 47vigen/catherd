@@ -42,7 +42,8 @@ describe("the run scorecard (plan 44 task 20)", () => {
       }),
       dispatch("worker-b", "worker", "M1.L1", { brief: 30 * 1024, input: 300, cached: 150 }),
       dispatch("verifier-M1", "verifier", null, {
-        reply: "RAN: bun test — exit 0 — a.log\nRAN: bun run lint — exit 0 — b.log\nPASS\n",
+        reply:
+          "RAN: bun test — exit 0 — a.log\nRAN: bun run lint — exit 0 — b.log\nRAN: bun e2e — NOT RUN\nPASS\n",
       }),
     ];
     const card = roleScorecard(run, log.events, records);

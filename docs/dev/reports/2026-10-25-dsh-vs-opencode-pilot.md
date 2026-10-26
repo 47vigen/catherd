@@ -1,6 +1,6 @@
 # dsh vs opencode as a headless catherd worker — pilot, 2026-10-25
 
-Owner: Vigen. Box: codekesh (8 vCPU, 9 GB RAM). Everything lives under `/root/scratch/dsh-ab/` on the box.
+Owner: Vigen. Box: <a build box> (8 vCPU, 9 GB RAM). Everything lives under `/root/scratch/dsh-ab/` on the box.
 
 ## Setup
 

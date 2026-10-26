@@ -12,7 +12,8 @@ import type {
   RoleRouteRow,
   RouteRow,
 } from "../domain/route.ts";
-import { cell } from "../domain/util.ts";
+import { isLaneId } from "../domain/lane.ts";
+import { cell, natural } from "../domain/util.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { gitOrigin } from "../infra/git.ts";
 import { dataDir, originDir, repoDir, runsDir } from "../infra/paths.ts";
@@ -60,6 +61,19 @@ export interface Run {
   id: string;
   dir: string;
   meta: RunMeta;
+}
+
+/** lanes/<id>.md in the run folder. */
+export const laneFile = (run: Run, id: string): string => join(runPaths(run.dir).lanes, `${id}.md`);
+
+/** Every lane of the run, from lanes/<id>.md, in natural order; a stray file that is not a lane id is not one. */
+export function laneIds(run: Run): string[] {
+  const dir = runPaths(run.dir).lanes;
+  return (existsSync(dir) ? readdirSync(dir) : [])
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => f.slice(0, -3))
+    .filter(isLaneId)
+    .sort(natural);
 }
 
 /** Spec §4.1. */
@@ -430,24 +444,8 @@ export function supersededBy(run: Run): Superseded | null {
   }
 }
 
-const SERVER_OWNED = new Set([
-  "superseded.json",
-  "pin.json",
-  "workspace-contract.md",
-  "meta.json",
-  "state.md",
-  "state.json",
-  "ledger.md",
-  "runs.jsonl",
-  "routes.jsonl",
-  "decisions.jsonl",
-  "agents.jsonl",
-  "harness.jsonl",
-  "verifier.jsonl",
-  "questions.jsonl",
-  "outcomes.jsonl",
-  "sessions.jsonl",
-]);
+/** What a role may write (spec 2.0): its plan, its dossier and its lane files; every other run file is catherd's. */
+const ROLE_WRITABLE = /^(plan\.md|dossier\.md|lanes\/[^/]+\.md)$/;
 
 const present = (p: string) => {
   try {
@@ -460,7 +458,7 @@ const present = (p: string) => {
 
 /**
  * The absolute path of `path` inside the run folder. Refuses a path, or a symlink on its way, that
- * leaves the folder; for writes, also catherd's own files, compared case-folded (audit S7).
+ * leaves the folder; for writes, anything but a role's own files, compared case-folded (audit S7).
  */
 export function runFile(run: Run, path: string, mode: "read" | "write"): string {
   const full = resolve(run.dir, path);
@@ -469,16 +467,8 @@ export function runFile(run: Run, path: string, mode: "read" | "write"): string 
     throw new CatherdError("E_IO_PATH", `"${path}" is outside the run folder`, {
       fix: "pass a path relative to the run folder, like lanes/M1.L1.md",
     });
-  const folded = rel.toLowerCase();
-  if (
-    mode === "write" &&
-    (SERVER_OWNED.has(folded) ||
-      folded === "roles" ||
-      folded.startsWith(`roles${sep}`) ||
-      folded === "digests" ||
-      folded.startsWith(`digests${sep}`) ||
-      folded.endsWith(".lock"))
-  )
+  const folded = rel.toLowerCase().split(sep).join("/");
+  if (mode === "write" && !ROLE_WRITABLE.test(folded))
     throw new CatherdError("E_IO_PATH", `${rel} is written by catherd itself`, {
       fix: "write plan.md, lanes/<id>.md, a dossier or notes instead",
     });

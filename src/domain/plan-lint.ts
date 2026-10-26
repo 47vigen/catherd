@@ -172,7 +172,7 @@ export function lintPlan(planText: string, milestone: string, aLines: string[]):
         `${milestone}: Check item \`${item}\` is a shell loop: one 30-minute budget for every package; write one item per package`,
       );
   for (const line of [...(milestoneSection(planText, milestone) ?? "").split("\n"), ...aLines]) {
-    const id = /^\s*(A\d+)\b/.exec(line)?.[1];
+    const id = /^\s*(?:[-*]\s+)?(A\d+)\b/.exec(line)?.[1];
     const words = HISTORY.exec(line)?.[0];
     if (id && words)
       warnings.push(

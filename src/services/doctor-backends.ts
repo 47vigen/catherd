@@ -2,7 +2,7 @@ import type { OrchestrationHost } from "../domain/host.ts";
 import type { BackendAdapter, Probe } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
-import { ADAPTER_IDS, tryParseRung } from "../domain/ids.ts";
+import { ADAPTER_IDS, backendOf } from "../domain/ids.ts";
 import type { Profile } from "../domain/profile.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { standInFor, probeBackend } from "./backends.ts";
@@ -11,9 +11,6 @@ import { type Check, errText, fixOf, hostFlag } from "./doctor-checks.ts";
 import { failedProbe } from "./probe-cache.ts";
 
 // The backend rows of `catherd doctor` (spec §10.3) and the backends the linked profiles use.
-
-/** A rung's backend; null for a malformed rung, which validate reports. */
-const backendOf = (rung: string): string | null => tryParseRung(rung)?.backend ?? null;
 
 /** Every backend a linked profile runs a role on ("role"), or only fails over to ("failover"). */
 export function usedBackends(profiles: Profile[]): Map<string, "role" | "failover"> {
@@ -56,7 +53,7 @@ const shellWord = (w: string): string => (/^[\w./:=@,+-]+$/.test(w) ? w : `'${w.
 
 /**
  * Install `id`, or move the roles that run on it to `to`: one runnable `catherd profile set` per line, for
- * each linked profile, any default rung the new ladder would not hold reset first. The artist draws, which only Codex does, so
+ * each linked profile, any default rung the new rung list would not hold reset first. The artist draws, which only Codex does, so
  * off Codex it is turned off instead.
  */
 export function moveRolesFix(
@@ -81,7 +78,7 @@ export function moveRolesFix(
         continue;
       }
       const target = MOVE_TO[to] as string;
-      // the new ladder holds only `target`, so any other default would fail validation: reset it first
+      // the new rung list holds only `target`, so any other default would fail validation: reset it first
       if (rc.defaultRung !== undefined && rc.defaultRung !== null && rc.defaultRung !== target)
         commands.push(set(p, `roles.${role}.defaultRung`, "null"));
       commands.push(set(p, `roles.${role}.rungs`, target));

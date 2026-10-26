@@ -43,6 +43,21 @@ describe("validateProfile", () => {
     expect(check()).toEqual({ errors: [], warnings: [] });
   });
 
+  it("a stored decision.url over plain http warns that the key travels in the clear", () => {
+    const doc = ProfileDocSchema.parse({
+      schema: 1,
+      decision: { url: "http://decision.test/v1", model: "m" },
+    });
+    const v = validateProfile(
+      resolveProfile(doc, "p", "claude-code"),
+      catalog(),
+      BACKENDS,
+      doc,
+      "claude-code",
+    );
+    expect(v.warnings).toContainEqual(expect.objectContaining({ path: "decision.url" }));
+  });
+
   it("a profile without a decision model warns", () => {
     const v = check({}, catalog(), false);
     expect(v.errors).toEqual([]);

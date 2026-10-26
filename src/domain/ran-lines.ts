@@ -5,7 +5,9 @@ const unquote = (s: string): string =>
     .trim()
     .replace(/^`+|`+$/g, "")
     .trim();
-const collapse = (s: string): string => s.trim().replace(/\s+/g, " ");
+/** The `catherd lock [flags] --` a verifier's brief tells it to put before a heavy command. */
+const LOCK_WRAPPER = /^(?:bunx\s+catherd-cli@\S+|catherd)\s+lock\b.*?\s--\s+/;
+const collapse = (s: string): string => s.trim().replace(LOCK_WRAPPER, "").replace(/\s+/g, " ");
 
 /** A line's text after an optional list marker and a bold `TAG:` label, else null. */
 const labelled = (tag: string, line: string): string | null =>

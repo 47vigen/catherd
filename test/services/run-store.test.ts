@@ -9,6 +9,8 @@ import {
   appendRoute,
   createRun,
   findRun,
+  laneFile,
+  laneIds,
   LEDGER_HEADER,
   listRuns,
   readRecords,
@@ -148,6 +150,27 @@ describe("runFile", () => {
       expect(code(() => runFile(run, p, "write"))).toBe("E_IO_PATH");
   });
 
+  it("allows a role to write only plan.md, dossier.md and a lane file", () => {
+    const { run } = freshRun();
+    for (const p of ["plan.md", "Plan.md", "dossier.md", "lanes/M1.L1.md"])
+      expect(runFile(run, p, "write")).toBe(join(run.dir, p));
+    for (const p of [
+      "events.jsonl",
+      "EVENTS.jsonl",
+      "trees/M1/.git",
+      "trees/M1.ready",
+      "scratch/x",
+      "decisions/x",
+      "admission/x",
+      "daemon.log",
+      "lanes/M1.L1.md/../../events.jsonl",
+      "lanes/a/b.md",
+      "lanes/M1.L1.txt",
+    ])
+      expect(code(() => runFile(run, p, "write"))).toBe("E_IO_PATH");
+    expect(runFile(run, "events.jsonl", "read")).toBe(join(run.dir, "events.jsonl"));
+  });
+
   it("refuses a role write to the run's pin or supersede pointer (the pin's access is laid over the profile)", () => {
     const { run } = freshRun();
     for (const p of ["pin.json", "PIN.JSON", "superseded.json"])
@@ -158,5 +181,16 @@ describe("runFile", () => {
     const { run } = freshRun();
     symlinkSync(mkdtempSync(join(tmpdir(), "catherd-out-")), join(run.dir, "lanes", "out"));
     expect(code(() => runFile(run, "lanes/out/x.md", "write"))).toBe("E_IO_PATH");
+  });
+});
+
+describe("the run's lanes", () => {
+  it("are the lanes/<Mx.Ly>.md files in natural order; a stray .md is no lane", () => {
+    const { run } = freshRun();
+    mkdirSync(runPaths(run.dir).lanes, { recursive: true });
+    for (const f of ["M1.L10.md", "M1.L2.md", "M2.L1.md", "notes.md", "M1.md", "README.txt"])
+      writeFileSync(join(runPaths(run.dir).lanes, f), "x\n");
+    expect(laneIds(run)).toEqual(["M1.L2", "M1.L10", "M2.L1"]);
+    expect(laneFile(run, "M1.L2")).toBe(join(run.dir, "lanes", "M1.L2.md"));
   });
 });

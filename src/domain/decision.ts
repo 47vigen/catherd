@@ -55,19 +55,15 @@ export const DecisionFileSchema = z.looseObject({
           if (!(id in d.nouls))
             ctx.addIssue({ code: "custom", message: `${id} is no noul question of difficulty` });
       }),
-    finding: VerdictSet,
-    "same-defect": VerdictSet,
     stop: VerdictSet,
     "failure-class": VerdictSet,
   }),
 });
 export type DecisionFile = z.infer<typeof DecisionFileSchema>;
-export type VerdictSetName = "finding" | "same-defect" | "stop" | "failure-class";
+export type VerdictSetName = "stop" | "failure-class";
 
 /** The answers each verdict set's caller accepts; a set's `fallback` must be one of them. */
 export const VERDICT_OPTIONS = {
-  finding: ["design", "code", "unclear"],
-  "same-defect": ["yes", "no"],
   stop: [...BLOCKED_REASONS, "other"],
   "failure-class": ["product", "harness"],
 } as const;
@@ -137,7 +133,9 @@ export function parseReply(questions: Record<string, DecisionQuestion>, body: un
     if (
       a.data.type === "score" &&
       q.type === "score" &&
-      Object.keys(a.data.probabilities).some((l) => !/^\d+$/.test(l) || Number(l) >= q.criteria.length)
+      (Object.keys(a.data.probabilities).some((l) => !/^\d+$/.test(l) || Number(l) >= q.criteria.length) ||
+        // no probability mass is no answer: it would pick the strongest level
+        Object.values(a.data.probabilities).reduce((x, y) => x + y, 0) < 1e-6)
     )
       return { ok: false, error: `no valid answer to ${id}` };
     answers[id] = a.data;
@@ -154,7 +152,7 @@ export interface Verdict<T extends string> {
   source: "model" | "default";
 }
 
-/** `finding` and `same-defect` keep their 0.x meaning, with thresholds on probability. */
+/** A verdict set's chosen answer, unless the model is less sure than the rule's `min`: then the rule's fallback. */
 export function judgeVerdict<T extends string>(
   rule: VerdictRule,
   id: string,
@@ -217,17 +215,25 @@ export function levelsOf(cands: readonly { rung: string; intelligence: number }[
 }
 
 /**
- * The levels the floor rung allows, renumbered from 0: the floor's own level stays, unless `strict`
- * drops it. A null or unknown floor allows every level.
+ * The levels the floor rung allows, renumbered from 0: the floor's own level stays, unless `strict` drops it.
+ * A floor that is no candidate (a stand-in of another backend, a rung gone from the listing) is placed by its
+ * `floorIntelligence`; with none known, a strict floor allows nothing and a plain one every level.
  */
-export function aboveFloor(levels: readonly Level[], floor: string | null, strict: boolean): Level[] {
+export function aboveFloor(
+  levels: readonly Level[],
+  floor: string | null,
+  strict: boolean,
+  floorIntelligence: number | null = null,
+): Level[] {
+  const renumber = (ls: readonly Level[]): Level[] => ls.map((l, level) => ({ ...l, level }));
+  if (floor === null) return renumber(levels);
   // the daemon records a `claude:` rung as `claude-code:`, so the floor matches in either spelling
-  const at =
-    floor === null
-      ? -1
-      : levels.findIndex((l) => l.rungs.some((r) => headlessRung(r) === headlessRung(floor)));
-  if (at < 0) return levels.map((l, level) => ({ ...l, level }));
-  return levels.slice(strict ? at + 1 : at).map((l, level) => ({ ...l, level }));
+  const at = levels.findIndex((l) => l.rungs.some((r) => headlessRung(r) === headlessRung(floor)));
+  if (at >= 0) return renumber(levels.slice(strict ? at + 1 : at));
+  if (floorIntelligence === null) return strict ? [] : renumber(levels);
+  return renumber(
+    levels.filter((l) => (strict ? l.intelligence > floorIntelligence : l.intelligence >= floorIntelligence)),
+  );
 }
 
 /** Level k of n as an index into the six texts. */

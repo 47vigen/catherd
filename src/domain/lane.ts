@@ -25,6 +25,9 @@ export interface LaneHeader {
 /** An After: entry: a lane id (Mx.Ly, the shape lanes/<id>.md takes) or a whole milestone (Mx). */
 const LANE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9][A-Za-z0-9._-]*)?$/;
 
+/** A lane id, as lanes/<id>.md names it: `Mx.Ly`, a dot in it (a bare `Mx` is a milestone). */
+export const isLaneId = (id: string): boolean => id.includes(".") && LANE_ID.test(id);
+
 /** An Allow: entry: a repo-relative path, optionally `:<line>`. */
 const ALLOW_ENTRY = /^([^\s:]+)(?::(\d+))?$/;
 

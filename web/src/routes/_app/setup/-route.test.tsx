@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { getSetupQueryKey } from "../../../client/@tanstack/react-query.gen";
 import { client } from "../../../client/client.gen";
 import { describeRequest, renderRoute } from "../../../test/render-route";
 
@@ -232,6 +233,32 @@ test("Re-check probes again", async () => {
   const { requests } = renderRoute("/setup", api());
   await userEvent.click(await screen.findByRole("button", { name: "Re-check" }));
   await waitFor(() => expect(count(requests, "POST /api/setup/recheck")).toBe(1));
+});
+
+test("a re-check that lands after the repo changed is stored under the repo it probed", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const { requests, router, queryClient } = renderRoute("/setup?repo=%2Fwork%2Fa", async (req, url) => {
+    const repo = url.searchParams.get("repo");
+    if (req.method === "GET" && url.pathname === "/api/setup") return Response.json(setup({ repo }));
+    if (req.method === "POST" && url.pathname === "/api/setup/recheck") {
+      await gate;
+      return Response.json(setup({ repo }));
+    }
+  });
+  await userEvent.click(await screen.findByRole("button", { name: "Re-check" }));
+  await waitFor(() => expect(count(requests, "POST /api/setup/recheck")).toBe(1));
+  await router.navigate({ to: "/setup", search: { repo: "/work/b" } });
+  await waitFor(() => expect(requests.map(searchOf)).toContain("/work/b"));
+  release();
+  await waitFor(() =>
+    expect(queryClient.getQueryData<{ repo: string }>(getSetupQueryKey({ query: { repo: "/work/a" } }))?.repo).toBe(
+      "/work/a",
+    ),
+  );
+  expect(queryClient.getQueryData<{ repo: string }>(getSetupQueryKey({ query: { repo: "/work/b" } }))?.repo).toBe(
+    "/work/b",
+  );
 });
 
 test("the repo picker sends repo to every setup call", async () => {

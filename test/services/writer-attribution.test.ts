@@ -94,4 +94,29 @@ describe("a writer's implicit docs lane (spec 1.5 plan 21)", () => {
     expect(w.changedOwned).toEqual(["README.md", "docs/guide.md"]);
     expect(w.violations).toEqual([]);
   });
+
+  it("refuses a lane's edit to a test file a running sibling lane owns (B14)", async () => {
+    const { repo, run } = freshRun();
+    const ended = {
+      code: 0,
+      signal: null,
+      reason: "exited" as const,
+      endedAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    const l1 = await fakeDispatch(
+      run,
+      { name: "worker-M1.L1", lane: "M1.L1", owns: ["src/a.ts"] },
+      { proc: "dead", exit: ended },
+    );
+    await fakeDispatch(
+      run,
+      { name: "worker-M1.L2", lane: "M1.L2", owns: ["test/x.test.ts"] },
+      { proc: "dead", exit: ended },
+    );
+    mkdirSync(join(repo, "test"), { recursive: true });
+    writeFileSync(join(repo, "test", "x.test.ts"), "changed\n");
+    const record = await finalizeDispatch(run, l1);
+    expect(record.violations).toEqual([]);
+    expect(record.testEdits).toEqual(["test/x.test.ts"]);
+  });
 });

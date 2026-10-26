@@ -59,7 +59,6 @@ describe("loadCatalog", () => {
     rmSync(indexPath());
     const c = loadCatalog();
     expect(c.indexedAt).toBeNull();
-    expect(c.pool).toEqual([]);
     expect(c.families.length).toBeGreaterThan(0);
   });
 });

@@ -81,7 +81,7 @@ describe("a role's writes into the run", () => {
     const { run } = freshRun();
     for (const path of ["plan-input/p.md", "plan-approved.md"])
       expect(() => writeRunFile({ run: run.id, path, content: "x" })).toThrow(
-        `${path} holds the owner's approved plan; roles never write it`,
+        `${path} is written by catherd itself`,
       );
     expect(writeRunFile({ run: run.id, path: "plan.md", content: "x" }).bytes).toBe(1);
   });
@@ -89,7 +89,7 @@ describe("a role's writes into the run", () => {
   it("refuses those writes under another letter case, as a case-insensitive disk would take them", () => {
     const { run } = freshRun();
     for (const path of ["Plan-Input/p.md", "PLAN-APPROVED.md"])
-      expect(() => writeRunFile({ run: run.id, path, content: "x" })).toThrow("roles never write it");
+      expect(() => writeRunFile({ run: run.id, path, content: "x" })).toThrow("is written by catherd itself");
   });
 });
 

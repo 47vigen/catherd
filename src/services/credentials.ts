@@ -16,6 +16,8 @@ const CredentialsSchema = z.looseObject({
   schema: z.literal(1).default(1),
   typesafeApiKey: z.string().optional(),
   decisionKey: z.string().optional(),
+  /** set when `migrateCredentials` moved a TypeSafe key into `decisionKey`; a later save clears it */
+  decisionKeyFrom: z.literal("typesafe").optional(),
 });
 export type CredentialField = "typesafeApiKey" | "decisionKey";
 
@@ -54,8 +56,21 @@ export function saveCredential(field: CredentialField, key: string): void {
     const cur: z.infer<typeof CredentialsSchema> = existsSync(credentialsPath())
       ? readCredentials()
       : { schema: 1 };
-    writeJsonAtomic(credentialsPath(), { ...cur, schema: 1, [field]: key.trim() }, { mode: 0o600 });
+    const next = { ...cur, schema: 1, [field]: key.trim() };
+    if (field === "decisionKey") delete next.decisionKeyFrom;
+    writeJsonAtomic(credentialsPath(), next, { mode: 0o600 });
   });
+}
+
+/** True while a TypeSafe key is on file: not yet moved, or moved and not replaced since. */
+export function holdsTypesafeKey(): boolean {
+  if (!existsSync(credentialsPath())) return false;
+  try {
+    const c = readCredentials();
+    return !!c.typesafeApiKey?.trim() || (c.decisionKeyFrom === "typesafe" && !!c.decisionKey?.trim());
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -69,7 +84,7 @@ export function migrateCredentials(): { moved: boolean } {
     if (!typesafeApiKey || rest.decisionKey) return { moved: false };
     writeJsonAtomic(
       credentialsPath(),
-      { ...rest, schema: 1, decisionKey: typesafeApiKey.trim() },
+      { ...rest, schema: 1, decisionKey: typesafeApiKey.trim(), decisionKeyFrom: "typesafe" },
       { mode: 0o600 },
     );
     return { moved: true };

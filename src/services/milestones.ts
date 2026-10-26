@@ -173,12 +173,6 @@ export function replyVerdict(run: Run, r: RunRecord): string | null {
   );
 }
 
-/** A headless verifier's reply opens with VERDICT: PASS: its first non-blank line; no reply is no verdict. */
-export function replyPasses(run: Run, r: RunRecord): boolean {
-  const first = replyVerdict(run, r);
-  return first !== null && VERDICT_PASS.test(first);
-}
-
 /** The milestone's latest verifier attempt: a native Claude subagent or a headless dispatch, passed or not. */
 export interface MilestoneVerifier {
   name: string;
@@ -249,10 +243,6 @@ export function milestoneVerifier(
   // a stable sort: attempts at the same instant keep their file order, the later row winning
   return found.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).at(-1) ?? null;
 }
-
-/** The milestone's latest verifier attempt since its lanes started passed (see milestoneVerifier). */
-export const verifierPassed = (run: Run, m: string, start = milestoneStart(run, m)): boolean =>
-  milestoneVerifier(run, m, start)?.passed === true;
 
 /** The commits of the landed milestones, oldest first, from the ledger. */
 export function landedCommits(run: Run): string[] {

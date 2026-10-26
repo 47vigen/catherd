@@ -1,12 +1,11 @@
 import type { HostContext } from "../domain/host.ts";
 import type { QueueCapability } from "../infra/codex-queue.ts";
 import { inspectionHost, inspectDeliveries, type DeliveryInspection } from "./run-debug.ts";
-import { resolve } from "node:path";
 import { type BudgetStatus, budgetStatus } from "../domain/budget.ts";
 import { errorMessage, isCatherdError } from "../domain/errors.ts";
 import type { RunRecord, Tokens } from "../domain/record.ts";
 import type { QuotaRow } from "../domain/scorecard.ts";
-import { coveredMs, median } from "../domain/util.ts";
+import { coveredMs } from "../domain/util.ts";
 import { nonBlankLines, readJsonl } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
 import { ensureDaemon } from "./daemon.ts";
@@ -25,7 +24,6 @@ import {
   listRuns,
   readAgentRuns,
   readRecords,
-  readRoutes,
   type Run,
   runPaths,
   supersededBy,
@@ -242,62 +240,6 @@ export function status(
   };
 }
 
-export interface RungStats {
-  role: string;
-  rung: string;
-  runs: number;
-  ok: number;
-  refusals: number;
-  climbsFrom: number;
-  secs: number;
-  tokens: Tokens;
-}
-
-export interface HarnessCost {
-  backend: string;
-  nativeRuns: number;
-  isolatedRuns: number;
-  nativeMedian: number | null;
-  isolatedMedian: number | null;
-  extraPerRun: number | null;
-}
-
-/** A median in whole tokens: an even count's mean of the two middle values is rounded. */
-function tokenMedian(xs: number[]): number | null {
-  const m = median(xs);
-  return m === null ? null : Math.round(m);
-}
-
-/** Fewer first-turn samples than this on either side, and the harness line gives no figure. */
-const HARNESS_MIN_RUNS = 3;
-
-/**
- * What the user's own harness setup costs per run: median first-turn input, native against isolated.
- * No figure below HARNESS_MIN_RUNS a side, nor when native is not dearer: noise, not a cost.
- */
-function harnessCosts(runs: Run[]): HarnessCost[] {
-  type Row = { backend: string; isolated: boolean; firstTurnInput: number };
-  const rows = runs.flatMap((r) => readJsonl<Row>(runPaths(r.dir).harness).rows);
-  return [...new Set(rows.map((r) => r.backend))].sort().map((backend) => {
-    const pick = (isolated: boolean) =>
-      rows.filter((r) => r.backend === backend && r.isolated === isolated).map((r) => r.firstTurnInput);
-    const nativeRuns = pick(false).length;
-    const isolatedRuns = pick(true).length;
-    const native = tokenMedian(pick(false));
-    const isolated = tokenMedian(pick(true));
-    const enough = nativeRuns >= HARNESS_MIN_RUNS && isolatedRuns >= HARNESS_MIN_RUNS;
-    const extra = native !== null && isolated !== null ? native - isolated : 0;
-    return {
-      backend,
-      nativeRuns,
-      isolatedRuns,
-      nativeMedian: native,
-      isolatedMedian: isolated,
-      extraPerRun: enough && extra > 0 ? extra : null,
-    };
-  });
-}
-
 /** Plan 28: tokens and usage limits per backend over `records`, sorted by backend. */
 export function quotaByBackend(records: RunRecord[]): QuotaRow[] {
   const by = new Map<string, QuotaRow>();
@@ -311,69 +253,4 @@ export function quotaByBackend(records: RunRecord[]): QuotaRow[] {
     by.set(r.backend, q);
   }
   return [...by.values()].sort((a, b) => a.backend.localeCompare(b.backend));
-}
-
-/** Per role and rung over past runs: runs, ok, refusals, climbs from it, seconds and tokens. Reads only. */
-export function runsSummary(f: { run?: string; repo?: string; role?: string; sinceDays?: number }): {
-  rungs: RungStats[];
-  agents: { rung: string; runs: number; totalTokens: number; secs: number }[];
-  harness: HarnessCost[];
-} {
-  const since = f.sinceDays ? Date.now() - f.sinceDays * 86_400_000 : 0;
-  const repo = f.repo ? resolve(f.repo) : null;
-  const all = listRuns().runs.filter(
-    (r) => (!repo || r.meta.repo === repo) && Date.parse(r.meta.createdAt) >= since,
-  );
-  const runs = all.filter((r) => !f.run || r.id === f.run);
-  // with a run given, the harness line compares like with like: every run of that run's repo
-  const harnessRepo = f.run ? runs[0]?.meta.repo : undefined;
-  const harnessRuns = f.run ? all.filter((r) => r.meta.repo === harnessRepo) : runs;
-  const stats = new Map<string, RungStats>();
-  const at = (role: string, rung: string): RungStats => {
-    const key = `${role} ${rung}`;
-    let s = stats.get(key);
-    if (!s) {
-      s = {
-        role,
-        rung,
-        runs: 0,
-        ok: 0,
-        refusals: 0,
-        climbsFrom: 0,
-        secs: 0,
-        tokens: { input: 0, cached: 0, output: 0 },
-      };
-      stats.set(key, s);
-    }
-    return s;
-  };
-  const agents = new Map<string, { rung: string; runs: number; totalTokens: number; secs: number }>();
-  for (const run of runs) {
-    for (const r of readRecords(run).records) {
-      if (f.role && r.role !== f.role) continue;
-      const s = at(r.role, r.rung);
-      s.runs++;
-      if (r.status === "ok") s.ok++;
-      if (r.replyStatus === "refused" || r.replyStatus === "blocked") s.refusals++;
-      s.secs += r.secs;
-      s.tokens.input += r.tokens.input;
-      s.tokens.cached += r.tokens.cached;
-      s.tokens.output += r.tokens.output;
-    }
-    for (const c of readRoutes(run))
-      if (c.source === "climb" && c.from && (!f.role || c.role === f.role)) at(c.role, c.from).climbsFrom++;
-    for (const a of readAgentRuns(run)) {
-      if (f.role && a.role !== f.role) continue;
-      const s = agents.get(a.rung) ?? { rung: a.rung, runs: 0, totalTokens: 0, secs: 0 };
-      s.runs++;
-      s.totalTokens += a.totalTokens;
-      s.secs += a.secs ?? 0;
-      agents.set(a.rung, s);
-    }
-  }
-  return {
-    rungs: [...stats.values()].sort((a, b) => a.role.localeCompare(b.role) || a.rung.localeCompare(b.rung)),
-    agents: [...agents.values()].sort((a, b) => a.rung.localeCompare(b.rung)),
-    harness: harnessCosts(harnessRuns),
-  };
 }

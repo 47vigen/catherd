@@ -4,6 +4,7 @@ import { parseRanLines } from "../domain/ran-lines.ts";
 import type { RunRecord } from "../domain/record.ts";
 import type { RunEvent } from "../domain/run-events.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
+import { median as medianOf } from "../domain/util.ts";
 import type { Run } from "./run-store.ts";
 
 /** One row of the run report's `## Scorecard` (plan 44 B16). */
@@ -24,12 +25,7 @@ export interface RoleScore {
   verifierRan: number | null;
 }
 
-const median = (xs: number[]): number => {
-  if (xs.length === 0) return 0;
-  const s = [...xs].sort((a, b) => a - b);
-  const mid = s.length >> 1;
-  return s.length % 2 ? (s[mid] as number) : ((s[mid - 1] as number) + (s[mid] as number)) / 2;
-};
+const median = (xs: number[]): number => medianOf(xs) ?? 0;
 
 const STOP_STATUSES = new Set(["limit", "failed", "timeout"]);
 
@@ -69,7 +65,8 @@ export function roleScorecard(run: Run, events: RunEvent[], records: RunRecord[]
       } catch {
         // a dispatch with no brief file is skipped
       }
-      if (role === "verifier") ran.push(parseRanLines(read(join(run.dir, r.replyPath)) ?? "").length);
+      if (role === "verifier")
+        ran.push(parseRanLines(read(join(run.dir, r.replyPath)) ?? "").filter((l) => l.exit !== null).length);
     }
     const input = mine.reduce((n, r) => n + r.tokens.input, 0);
     const cached = mine.reduce((n, r) => n + r.tokens.cached, 0);

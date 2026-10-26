@@ -7,7 +7,7 @@ import type { SuperviseClock } from "../infra/supervisor.ts";
 import { lockHeld, tryLock, withFileLockSync } from "../infra/filelock.ts";
 import { heavyLimits } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
-import { processStartTime } from "../infra/proc.ts";
+import { selfIdentity } from "../infra/proc.ts";
 import { readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import type { Deps } from "./ports.ts";
 import type { RunEvent } from "../domain/run-events.ts";
@@ -93,11 +93,11 @@ export function ensureDaemon(run: Run): "alive" | "revived" | "ended" | "1.5" {
 
 /** Writes the heartbeat: who holds the lock, since when, and how far it has read. */
 export function beat(run: Run, deps: Deps, seq: number): void {
-  const pid = process.pid;
+  const { pid, startTime } = selfIdentity();
   writeJsonAtomic(heartbeatFile(run), {
     schema: 1,
     pid,
-    startTime: processStartTime(pid),
+    startTime,
     beatAt: new Date(deps.now()).toISOString(),
     seq,
     version: deps.version,
@@ -131,9 +131,11 @@ const isEnospc = (e: unknown): boolean =>
 
 /**
  * Waits for the effects in flight, at most `drainMs`: their git and check runs are killed by their own timeouts
- * (`effectLimits`) well within it, so a daemon started after this one never overlaps them.
+ * (`effectLimits`) well within it, so a daemon started after this one never overlaps them. A `watch` lasts as
+ * long as its worker, so it is not waited for: the next daemon issues it again on `daemon.started`.
  */
-async function drain(inFlight: Set<Promise<void>>): Promise<void> {
+async function drain(inFlight: Set<Promise<void>>, watches: Set<Promise<void>>): Promise<void> {
+  inFlight = new Set([...inFlight].filter((p) => !watches.has(p)));
   if (inFlight.size === 0) return;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<boolean>((r) => (timer = setTimeout(() => r(true), daemonLimits.drainMs)));
@@ -162,6 +164,7 @@ export async function runDaemon(
   const release = tryLock(daemonLockTarget(run));
   if (!release) return "lost-lock";
   const inFlight = new Set<Promise<void>>();
+  const watches = new Set<Promise<void>>();
   try {
     if (!isDaemonRun(run) || hasEnded(run)) return "ended";
     const clock = o.clock ?? REAL_CLOCK;
@@ -176,7 +179,7 @@ export async function runDaemon(
     beat(run, deps, hello.seq);
     /** action key → the key `effect.failed` frees it by */
     const issued = new Map<string, string>();
-    /** the full-disk error that stops the loop; the effects in flight settle before the lock is released */
+    /** the error of an effect that could not record its failure; it stops the loop, and the effects in flight settle before the lock is released */
     let stopError: unknown = null;
     const issue = (a: Action): void => {
       const key = actionKey(a);
@@ -186,14 +189,17 @@ export async function runDaemon(
         .run(a, state)
         .catch((e: unknown) => {
           log("error", "daemon", { run: run.id, action: a.type, error: errorMessage(e) });
-          if (isEnospc(e)) stopError ??= e;
+          // an effect that could not record its failure leaves its key issued: a new daemon must replay it
+          stopError ??= e;
         })
         .finally(() => {
           inFlight.delete(p);
+          watches.delete(p);
           // Notices, stale reminders and empty merge checks leave no event to free their key.
           if (a.type === "notify" || a.type === "remind" || a.type === "checkMerged") issued.delete(key);
         });
       inFlight.add(p);
+      if (a.type === "watch") watches.add(p);
     };
     const take = (e: RunEvent): void => {
       state = reduce(state, e);
@@ -229,7 +235,7 @@ export async function runDaemon(
     log("error", "daemon", { run: runId, error: errorMessage(e) });
     throw e;
   } finally {
-    await drain(inFlight);
+    await drain(inFlight, watches);
     release();
   }
 }

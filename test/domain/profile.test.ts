@@ -485,6 +485,40 @@ describe("the decision model in the profile (plan 44 D25)", () => {
     expect(migrateProfileDoc({ ...old, decision: own }, true).doc.decision).toEqual(own);
   });
 
+  it("a profile whose Jev was off does not move to TypeSafe", () => {
+    const off = { ...old, jev: { use: "off" } };
+    const m = migrateProfileDoc(off, true);
+    expect(m.doc.decision).toBeUndefined();
+    expect(m.doc.jev).toBeUndefined();
+  });
+
+  it("decision.url must be https, or http on loopback", () => {
+    for (const url of [
+      "https://decision.test/v1",
+      "http://127.0.0.1:8080/v1",
+      "http://localhost/v1",
+      "http://[::1]:1/v1",
+    ])
+      expect(ProfilePatchSchema.safeParse({ decision: { url } }).success).toBe(true);
+    for (const url of [
+      "http://decision.test/v1",
+      "http://localhost.evil.test/v1",
+      "http://127.0.0.1.evil.test/v1",
+      "ftp://x/y",
+    ])
+      expect(ProfilePatchSchema.safeParse({ decision: { url } }).success).toBe(false);
+  });
+
+  it("drops a trailing slash from decision.url, and warns about a confidence it cannot use", () => {
+    const doc = {
+      schema: 1 as const,
+      decision: { url: "https://decision.test/v1//", model: "m", minConfidence: 2 },
+    };
+    const p = resolveProfile(doc, "p", "claude-code");
+    expect([p.decision.url, p.decision.minConfidence]).toEqual(["https://decision.test/v1", 0.8]);
+    expect(unknownValues(doc)).toContainEqual({ path: "decision.minConfidence", value: "2", readAs: "0.8" });
+  });
+
   it("a stored 1.5 profile still resolves", () => {
     const p = resolveProfile(old, "old", "claude-code");
     for (const field of ["jev", "bars", "objective"]) expect(p).not.toHaveProperty(field);

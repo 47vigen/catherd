@@ -232,16 +232,6 @@ export function writeRunFile(i: { run: string; path: string; content: string }):
   const run = findRun(i.run);
   const file = runFile(run, i.path, "write");
   const rel = relative(run.dir, file).split(sep).join("/");
-  // macOS disks ignore case, so Plan-Input/ is the same folder
-  const low = rel.toLowerCase();
-  if (low === "plan-approved.md" || low === "plan-input" || low.startsWith("plan-input/"))
-    throw new CatherdError(
-      "E_INPUT_INVALID",
-      `${rel} holds the owner's approved plan; roles never write it`,
-      {
-        fix: "write plan.md or a lane file",
-      },
-    );
   // spec 1.5 "Lane editing": a lane's header values are checked when it is written, not first at preflight
   const lane = /^lanes\/([^/]+)\.md$/.exec(rel);
   if (lane) {

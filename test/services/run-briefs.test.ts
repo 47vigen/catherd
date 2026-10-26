@@ -763,6 +763,42 @@ describe("a brief's size (plan 44 D6, D7)", () => {
     expect(text).toContain("notes/");
   });
 
+  it("the judge's context and findings are capped, the rest named by file", () => {
+    const { run } = freshRun();
+    const text = judgeBrief(run, {
+      id: "8",
+      kind: "triage",
+      unit: "M1",
+      context: `Milestone M1: ${"c".repeat(50_000)}`,
+      findings: Array.from({ length: 60 }, (_, i) => `BUG a.ts:${i} — finding ${i}`),
+      lanes: [{ id: "M1.L1", owns: ["src/a/"] }],
+    });
+    expect(text.length).toBeLessThan(9_000);
+    expect(text).toContain("20. BUG a.ts:19");
+    expect(text).not.toContain("21. BUG");
+    expect(text).toMatch(/\+40 more.*notes\//);
+    const [, rel] = /\+40 more.*?(notes\/\w+\.md)/.exec(text) ?? [];
+    expect(readFileSync(join(run.dir, rel as string), "utf8")).toContain("BUG a.ts:59");
+  });
+
+  it("the whole unit context of a rendered brief stays within 20 KB, the lane's header whole", async () => {
+    const { run, repo } = freshRun();
+    writeLane(
+      run,
+      "M1.L1",
+      ["src/a/"],
+      "bun test src/a",
+      `Kind: repo_code\nDifficulty: build\n\n${"lane body line é\n".repeat(5_000)}`,
+    );
+    await addKnowledge(repo, "[worker] rule ".repeat(4_000));
+    const text = await renderBrief(run, runningLog().state(), act({}), false);
+    const unit = text.slice(text.indexOf("<unit-context>"), text.indexOf("</unit-context>"));
+    expect(Buffer.byteLength(unit)).toBeLessThan(21_000);
+    expect(unit).toContain("Owns: src/a/");
+    expect(unit).toContain("Fast check: bun test src/a");
+    expect(unit).toContain("cut: read lanes/M1.L1.md");
+  });
+
   it("a long finding in a fix round is cut, with a pointer to notes/", () => {
     const { run } = freshRun();
     writeLane(run, "M1.L1", ["src/a/"]);

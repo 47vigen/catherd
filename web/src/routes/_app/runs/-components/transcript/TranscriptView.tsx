@@ -1,7 +1,7 @@
 import { Alert, Label, SearchField, Switch } from "@heroui/react";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 
-import type { TranscriptFrame } from "../../-hooks/useLiveRun";
+import type { LiveFrame } from "../../-hooks/useLiveRun";
 import { LiveLogContext } from "../../-lib/live-log";
 import { getDispatchStream } from "../../../../../client";
 import { errorMessage } from "../../../../../lib/api";
@@ -26,7 +26,7 @@ function useStreamPages(runId: string, dispatchId: string, raw: boolean, enabled
   const [store, setStore] = useState<{ key: string; pages: Pages }>({ key, pages: EMPTY });
   const pages = store.key === key ? store.pages : EMPTY;
   const pull = useRef<() => Promise<void>>(async () => {});
-  const frame = useRef<(f: TranscriptFrame) => void>(() => {});
+  const frame = useRef<(f: LiveFrame) => void>(() => {});
   const at = useRef(0);
 
   useEffect(() => {
@@ -54,6 +54,11 @@ function useStreamPages(runId: string, dispatchId: string, raw: boolean, enabled
       if (stopped) return;
       if (!data) {
         setPages((p) => ({ ...p, loaded: true, error: errorMessage(error) }));
+        // a frame that came during the failed read still wants its catch-up
+        if (again) {
+          again = false;
+          void run();
+        }
         return;
       }
       const full = data.next - start >= PAGE;
@@ -81,6 +86,7 @@ function useStreamPages(runId: string, dispatchId: string, raw: boolean, enabled
     };
     pull.current = run;
     frame.current = (f) => {
+      if (f.kind === "error") return setPages((p) => ({ ...p, error: f.message }));
       if (raw) return void run();
       const held = at.current;
       if (f.next <= held) return;
@@ -106,7 +112,7 @@ function useStreamPages(runId: string, dispatchId: string, raw: boolean, enabled
     wasLive.current = live;
   }, [live]);
 
-  const onFrame = useCallback((f: TranscriptFrame) => frame.current(f), []);
+  const onFrame = useCallback((f: LiveFrame) => frame.current(f), []);
   return { ...pages, onFrame, at };
 }
 

@@ -45,6 +45,10 @@ import {
 } from "./openapi.ts";
 
 export const PANEL_COOKIE = "catherd_panel";
+/** A session unused this long ends; the sign-in token is single-use, so the way back is a new `catherd panel`. */
+const SESSION_IDLE_MS = 12 * 3600_000;
+/** The largest request the panel reads: the API takes small JSON, and the login route is open to any local page. */
+const MAX_BODY_BYTES = 1024 * 1024;
 
 export interface PanelOptions {
   deps: Deps;
@@ -56,6 +60,10 @@ export interface PanelOptions {
   /** What opens the sign-in page: a test replaces it. */
   opener?: (target: string) => void;
   pollMs?: number;
+  /** The test rig's server signs in many browsers with one token: it is not retired. */
+  reusableToken?: boolean;
+  /** The clock of the session idle timeout: a test replaces it. */
+  now?: () => number;
 }
 export interface Panel {
   url: string;
@@ -364,7 +372,10 @@ const WatchSchema = z.object({
 export function servePanel(o: PanelOptions): Panel {
   /** `setHost` swaps it: a scoped copy whose profile port reads the new host, as `daemonDeps` does. */
   let deps = o.deps;
-  const sessions = new Set<string>();
+  const now = o.now ?? Date.now;
+  /** session → when it was last used */
+  const sessions = new Map<string, number>();
+  let tokenSpent = false;
   const sockets = new Set<ServerWebSocket<SocketData>>();
   /** Ends a session and the run sockets it opened: a socket outlives its cookie otherwise. */
   const revoke = (session: string): void => {
@@ -381,10 +392,18 @@ export function servePanel(o: PanelOptions): Panel {
 
   const hostOk = (req: Request): string | null => panelHost(req.headers.get("host"), server.port as number);
   const originOk = (req: Request, host: string): boolean => panelOriginOk(req.headers.get("origin"), host);
-  const signedIn = (req: Request): boolean => {
-    const c = cookieOf(req);
-    return c !== undefined && sessions.has(c);
+  /** True for a live session, and counts the use; an idle one is revoked. */
+  const sessionLive = (c: string | undefined): c is string => {
+    const at = c === undefined ? undefined : sessions.get(c);
+    if (c === undefined || at === undefined) return false;
+    if (now() - at > SESSION_IDLE_MS) {
+      revoke(c);
+      return false;
+    }
+    sessions.set(c, now());
+    return true;
   };
+  const signedIn = (req: Request): boolean => sessionLive(cookieOf(req));
 
   const staticFile = (req: Request, rawPath: string): Response => {
     let path: string;
@@ -457,10 +476,11 @@ export function servePanel(o: PanelOptions): Panel {
     }
     try {
       if (op.id === "login") {
-        if (!sameToken((body as z.infer<typeof LoginBodySchema>).token, o.token))
+        if (tokenSpent || !sameToken((body as z.infer<typeof LoginBodySchema>).token, o.token))
           return errorResponse("unauthorized", "wrong token");
+        tokenSpent = !o.reusableToken;
         const session = randomBytes(32).toString("base64url");
-        sessions.add(session);
+        sessions.set(session, now());
         dropSignInPage();
         return new Response(null, {
           status: 204,
@@ -510,8 +530,7 @@ export function servePanel(o: PanelOptions): Panel {
     const live = LIVE.exec(url.pathname);
     if (live && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
       const session = cookieOf(req);
-      if (session === undefined || !sessions.has(session))
-        return withHeaders(errorResponse("unauthorized", "sign in first"));
+      if (!sessionLive(session)) return withHeaders(errorResponse("unauthorized", "sign in first"));
       if (!originOk(req, host)) return withHeaders(errorResponse("forbidden", "cross-origin socket refused"));
       let id: string;
       try {
@@ -551,6 +570,7 @@ export function servePanel(o: PanelOptions): Panel {
     server = Bun.serve<SocketData>({
       hostname: "127.0.0.1",
       port: o.port,
+      maxRequestBodySize: MAX_BODY_BYTES,
       fetch,
       websocket: {
         open(ws: ServerWebSocket<SocketData>) {

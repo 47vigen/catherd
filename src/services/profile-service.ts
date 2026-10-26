@@ -34,7 +34,7 @@ import { configDir } from "../infra/paths.ts";
 import { ensurePrivateDir, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import { apply, plan, pruneProfileAgents, type Synced } from "./agent-links.ts";
 import { loadCatalog } from "./catalog-service.ts";
-import { savedCredential } from "./credentials.ts";
+import { holdsTypesafeKey } from "./credentials.ts";
 import type { ProfilePort, ProfileSaved, ProfileView } from "./ports.ts";
 import {
   activeName,
@@ -70,8 +70,7 @@ const writeDoc = (name: string, doc: ProfileDoc) => writeJsonAtomic(profileFile(
  * Plan 44 D25: the stored 1.5 document in the 2.0 shape; a TypeSafe key (saved or moved) keeps its endpoint. Only
  * saved credentials count: `CATHERD_DECISION_KEY` is a gateway key and must never name the TypeSafe url.
  */
-const hadKey = (): boolean =>
-  savedCredential("typesafeApiKey").key !== null || savedCredential("decisionKey").key !== null;
+const hadKey = holdsTypesafeKey;
 const migrated = (doc: ProfileDoc): ProfileDoc => migrateProfileDoc(doc, hadKey()).doc;
 
 /**

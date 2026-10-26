@@ -18,7 +18,7 @@ import { log } from "../infra/log.ts";
 import { isAlive, isSurelyAlive, killGroup } from "../infra/proc.ts";
 import { groupAlive, stopGroup } from "../infra/supervisor.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
-import { admit, fullBriefPath, killLimits, laneFile, launch } from "./admission.ts";
+import { admit, fullBriefPath, killLimits, launch } from "./admission.ts";
 import { standInFor } from "./backends.ts";
 import {
   type Dispatch,
@@ -36,7 +36,7 @@ import { finalizeDispatch, finalizingElsewhere, waitForFinish } from "./finalize
 import type { Deps } from "./ports.ts";
 import { isDaemonRun } from "./run-events-store.ts";
 import { currentRoute } from "../domain/route.ts";
-import { appendRoute, findRun, readRecords, readRoutes, type Run } from "./run-store.ts";
+import { appendRoute, findRun, laneFile, readRecords, readRoutes, type Run } from "./run-store.ts";
 import { sessionKey } from "../domain/host.ts";
 import { claimRun, currentSession, ownsRun, runOwner, type SessionRef } from "./sessions.ts";
 import { pinChanges, runProfile } from "./run-pin.ts";

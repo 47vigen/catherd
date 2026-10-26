@@ -178,8 +178,13 @@ function Pagination({
   onPageChange(n: number): void;
   onPageSizeChange(n: number): void;
 }) {
-  if (total === 0) return null;
   const count = pageCount(total, pageSize);
+  // The last page emptied (its only row went): step back to the last one that has rows.
+  const clamp = useEffectEvent(() => onPageChange(count));
+  useEffect(() => {
+    if (total > 0 && page > count) clamp();
+  }, [total, page, count]);
+  if (total === 0) return null;
   const first = (page - 1) * pageSize + 1;
   const last = Math.min(total, page * pageSize);
 

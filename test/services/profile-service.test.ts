@@ -42,7 +42,7 @@ import {
   validateNamed,
 } from "../../src/services/profile-store.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
-import { saveCredential } from "../../src/services/credentials.ts";
+import { migrateCredentials, saveCredential } from "../../src/services/credentials.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
@@ -824,6 +824,27 @@ describe("1.5 profiles", () => {
     const before = lstatSync(file("old")).mtimeMs;
     expect(migrateProfiles()).toEqual([]);
     expect(lstatSync(file("old")).mtimeMs).toBe(before);
+  });
+
+  it("a moved TypeSafe key keeps the url; a gateway key saved after the move does not", () => {
+    seed();
+    saveCredential("typesafeApiKey", "k");
+    migrateCredentials();
+    migrateProfiles();
+    expect(JSON.parse(readFileSync(file("old"), "utf8")).decision.url).toBe("https://api.typesafe.ai/v1");
+    seed();
+    saveCredential("decisionKey", "gateway-key");
+    migrateProfiles();
+    expect(JSON.parse(readFileSync(file("old"), "utf8")).decision).toBeUndefined();
+  });
+
+  it("replacing a moved key with another clears its TypeSafe origin", () => {
+    seed();
+    saveCredential("typesafeApiKey", "k");
+    migrateCredentials();
+    saveCredential("decisionKey", "gateway-key");
+    migrateProfiles();
+    expect(JSON.parse(readFileSync(file("old"), "utf8")).decision).toBeUndefined();
   });
 
   it("a gateway key in the env does not name the TypeSafe url", () => {

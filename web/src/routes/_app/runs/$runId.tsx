@@ -1,5 +1,5 @@
 import { Alert, cn, Modal, Spinner } from "@heroui/react";
-import { replaceEqualDeep, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, replaceEqualDeep, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -25,7 +25,7 @@ import { RunHeader } from "./-components/RunHeader";
 import { Milestones, Models } from "./-components/RunSide";
 import { Timeline, TimelineFilter } from "./-components/Timeline";
 import { useIsDesktop } from "./-hooks/useIsDesktop";
-import { type TranscriptFrame, useLiveRun } from "./-hooks/useLiveRun";
+import { type LiveFrame, useLiveRun } from "./-hooks/useLiveRun";
 import { useTicker } from "./-hooks/useTicker";
 import { applyPatch } from "./-lib/apply-patch";
 import { type LiveLog, LiveLogContext } from "./-lib/live-log";
@@ -96,11 +96,12 @@ function RunDetail({ runId }: { runId: string }) {
       query: { limit: pageSize, offset: (page - 1) * pageSize, ...(types ? { types } : {}) },
     }),
     enabled: run.isSuccess,
+    placeholderData: keepPreviousData,
   });
 
   // Live entries sit before the fetched ones on page 1; a frame the page already holds is dropped by its seq.
   const [liveEntries, setLiveEntries] = useState<TimelineEntry[]>([]);
-  const transcriptListeners = useRef(new Set<(f: TranscriptFrame) => void>());
+  const transcriptListeners = useRef(new Set<(f: LiveFrame) => void>());
   const modelKey = getRunModelQueryKey({ path: { id: runId } });
   // The socket opens once the model (and page 1, when shown) is in hand, and replays everything after the older of
   // the two: a replayed patch the model already holds changes nothing (the timeline list is newest first). A filtered
@@ -108,18 +109,20 @@ function RunDetail({ runId }: { runId: string }) {
   const newest = page === 1 ? timeline.data?.items[0]?.seq : undefined;
   const { isConnected, watch } = useLiveRun(
     runId,
-    live === true && model.isSuccess && (page !== 1 || timeline.isSuccess),
+    live === true && model.data !== undefined && (page !== 1 || timeline.data !== undefined),
     (e) => {
-      setLiveEntries((all) => (all.some((x) => x.seq === e.seq) ? all : [e, ...all].sort((a, b) => b.seq - a.seq)));
-      // The header's facts (live roles, milestones, holds) are not in a patch: one read at a time keeps them fresh.
-      void queryClient.invalidateQueries(
-        { queryKey: getRunQueryKey({ path: { id: runId } }) },
-        { cancelRefetch: false },
-      );
+      // Frames come in seq order: a newer one goes first, and only a page's worth that the filter shows is kept.
+      if (matchesTypes(types, e.type))
+        setLiveEntries((all) => (all[0] && e.seq <= all[0].seq ? all : [e, ...all].slice(0, pageSize)));
     },
     Math.min(model.data?.seq ?? 0, newest ?? Number.MAX_SAFE_INTEGER),
     {
       onPatch: (p) => {
+        // The header's facts (live roles, milestones, holds) are not in a patch; a batch's last frame carries one.
+        void queryClient.invalidateQueries(
+          { queryKey: getRunQueryKey({ path: { id: runId } }) },
+          { cancelRefetch: false },
+        );
         // null: the server could not diff this event, so the model is read again
         if (p === null) void queryClient.invalidateQueries({ queryKey: modelKey });
         else queryClient.setQueryData<RunModel>(modelKey, (m) => (m ? applyPatch(m, p) : m));
@@ -226,7 +229,7 @@ function RunDetail({ runId }: { runId: string }) {
               <div className="flex h-60 items-center justify-center">
                 <Spinner size="sm" />
               </div>
-            ) : model.isError ? (
+            ) : model.data === undefined ? (
               <div className="p-4">
                 <LoadError title="Could not load the graph of this run" error={model.error} />
               </div>

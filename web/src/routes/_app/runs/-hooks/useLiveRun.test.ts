@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 
 import type { RunModelPatch, TimelineEntry } from "../../../../client";
 import { getSocket, stopWebSocket } from "../../../../lib/live-socket";
-import { type TranscriptFrame, useLiveRun } from "./useLiveRun";
+import { type LiveFrame, useLiveRun } from "./useLiveRun";
 
 class FakeSocket {
   static instances: FakeSocket[] = [];
@@ -89,7 +89,7 @@ test("a dropped connection reconnects with backoff", () => {
 
 test("a transcript frame reaches onTranscript, not onEntry", () => {
   const onEntry = vi.fn<(e: TimelineEntry) => void>();
-  const onTranscript = vi.fn<(f: TranscriptFrame) => void>();
+  const onTranscript = vi.fn<(f: LiveFrame) => void>();
   const onPatch = vi.fn<(p: RunModelPatch | null) => void>();
   const { result } = renderHook(() => useLiveRun("r1", true, onEntry, 0, { onTranscript, onPatch }));
   const ws = FakeSocket.instances[0]!;
@@ -105,6 +105,21 @@ test("a transcript frame reaches onTranscript, not onEntry", () => {
   act(() => ws.onmessage?.({ data: JSON.stringify({ ...entry, kind: "event", patch }) }));
   expect(onEntry).toHaveBeenCalledOnce();
   expect(onPatch).toHaveBeenCalledExactlyOnceWith(patch);
+});
+
+test("an error frame for the watched dispatch reaches onTranscript, one for another is dropped", () => {
+  const onEntry = vi.fn<(e: TimelineEntry) => void>();
+  const onTranscript = vi.fn<(f: LiveFrame) => void>();
+  const { result } = renderHook(() => useLiveRun("r1", true, onEntry, 0, { onTranscript }));
+  const ws = FakeSocket.instances[0]!;
+  act(() => ws.open());
+  act(() => result.current.watch("d1", 0));
+  const frame = { kind: "error", dispatchId: "d1", code: "internal", message: "gone" };
+  act(() => ws.onmessage?.({ data: JSON.stringify(frame) }));
+  act(() => ws.onmessage?.({ data: JSON.stringify({ ...frame, dispatchId: "d0" }) }));
+  act(() => ws.onmessage?.({ data: JSON.stringify({ kind: "error", dispatchId: "d1" }) }));
+  expect(onTranscript).toHaveBeenCalledExactlyOnceWith(frame);
+  expect(onEntry).not.toHaveBeenCalled();
 });
 
 test("watch sends the message and resends it after a reconnect", () => {

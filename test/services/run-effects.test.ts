@@ -34,7 +34,7 @@ import {
 import { heavyLimits } from "../../src/infra/heavy-lock.ts";
 import { addKnowledge, knowledgePath } from "../../src/services/run-service.ts";
 import { reapprovalQuestion } from "../../src/domain/plan-doc.ts";
-import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
+import { appendEvent, eventsFile, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
 import { appendRecord, type Run, runPaths } from "../../src/services/run-store.ts";
 import { commitInClone, repoWithOrigin, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
@@ -350,6 +350,29 @@ describe("dispatching", () => {
       }
     });
 
+    it("a stand-in that is the strict floor is exhausted, not dispatched again", async () => {
+      const { run, fx } = setup();
+      const stand = "codex:gpt-6-sol#medium";
+      const spy = spyOn(failoverRungs, "failoverRung").mockReturnValue(stand);
+      try {
+        writeLane(run, "M1.L1", ["src/a/"]);
+        await seed(run);
+        await fx.run(
+          decideAction({
+            next: dispatchAction({ rung: null, failoverFrom: "opencode:opencode-go/gpt-6-luna#high" }),
+            failoverFrom: "opencode:opencode-go/gpt-6-luna#high",
+            floor: stand,
+            strict: true,
+          }),
+          stateWithHolds(run, { "opencode-go": until() }),
+        );
+        expect(lastOf(run, "decision.exhausted")).toMatchObject({ floor: stand });
+        expect(types(run)).not.toContain("decision.made");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it("lists only the live holds on a failover row, not an expired one", async () => {
       const { run, fx } = setup();
       const spy = spyOn(failoverRungs, "failoverRung").mockReturnValue(null);
@@ -487,6 +510,36 @@ describe("dispatching", () => {
     });
     // a second watch of an ended dispatch does nothing
     await fx.run({ type: "watch", dispatchId: d.admit.dispatchId }, replayRun(run));
+    expect(types(run).filter((t) => t === "dispatch.ended")).toHaveLength(1);
+  });
+
+  it("a second effects instance settling the same dispatch at once adds nothing", async () => {
+    const { run, fx, deps } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    const d = await fakeDispatch(
+      run,
+      { name: "worker-M1.L1", lane: "M1.L1", owns: ["src/a/"] },
+      {
+        proc: "dead",
+        exit: { code: 0, signal: null, reason: "exited", endedAt: new Date().toISOString() },
+        reply: "Done.\nSTATUS: complete — ok",
+        events: "",
+        collect: true,
+      },
+    );
+    await seed(run, {
+      type: "dispatch.started",
+      dispatchId: d.admit.dispatchId,
+      name: "worker-M1.L1",
+      role: "worker",
+      unit: "M1.L1",
+      lane: "M1.L1",
+      rung: d.admit.rung,
+      thread: null,
+    });
+    const stale = replayRun(run);
+    const watch = { type: "watch", dispatchId: d.admit.dispatchId } as const;
+    await Promise.all([fx.run(watch, stale), realEffects(deps, run).run(watch, stale)]);
     expect(types(run).filter((t) => t === "dispatch.ended")).toHaveLength(1);
   });
 
@@ -777,6 +830,13 @@ describe("what a stop says (30b)", () => {
       "Done.\nSTATUS: complete — ok",
     );
     expect(endedEvent(run, record, "M1.L1")).toMatchObject({ testEdits: ["test/b.test.ts"] });
+    // a sibling-owned test file is no violation, so the record names it itself
+    const sibling = withReply(
+      run,
+      { role: "worker", name: "worker-M1.L1", lane: "M1.L1", violations: [], testEdits: ["test/s.test.ts"] },
+      "Done.\nSTATUS: complete — ok",
+    );
+    expect(endedEvent(run, sibling, "M1.L1")).toMatchObject({ testEdits: ["test/s.test.ts"] });
     const clean = withReply(run, { role: "worker", name: "worker-M1.L1", lane: "M1.L1" }, "Done.");
     expect(endedEvent(run, clean, "M1.L1")).not.toHaveProperty("testEdits");
   });
@@ -983,6 +1043,18 @@ describe("the decide effect (plan 44 task 16)", () => {
       rung: "codex:gpt-6-sol#medium",
     });
     expect(calls).toHaveLength(0);
+  });
+
+  it("the coordinator's rung on a held quota waits instead of reaching start", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    const s = replayRun(run);
+    s.holds = { codex: new Date(Date.now() + 600_000).toISOString() };
+    s.at = new Date().toISOString();
+    await fx.run(decideAction({ pick: "codex:gpt-6-sol#medium" }), s);
+    expect(lastOf(run, "decision.failed")).toMatchObject({ code: "E_ALL_HELD" });
+    expect(types(run)).not.toContain("decision.made");
   });
 
   it("a decision model with no answer is decision.failed, a strict floor with nothing above is exhausted", async () => {
@@ -2240,6 +2312,18 @@ describe("parking, reporting, finishing", () => {
     await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
     expect(lastOf(run, "effect.failed")).toMatchObject({ action: "integrate", unit: "M1" });
     expect(lastOf(run, "effect.failed")?.message).toContain("no base branch");
+  });
+
+  it("rethrows when the effect.failed event cannot be written, so the daemon hears of it", async () => {
+    const { run, fx } = setup();
+    await seed(run);
+    chmodSync(eventsFile(run), 0o444);
+    try {
+      await expect(fx.run({ type: "integrate", milestone: "M1" }, replayRun(run))).rejects.toThrow();
+    } finally {
+      chmodSync(eventsFile(run), 0o644);
+    }
+    expect(types(run)).not.toContain("effect.failed");
   });
 });
 

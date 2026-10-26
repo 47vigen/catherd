@@ -14,6 +14,7 @@ import { parseLaneHeader } from "../domain/lane.ts";
 import type { RunEvent } from "../domain/run-events.ts";
 import { replay } from "../domain/run-state.ts";
 import { baselineItems, isAccept, milestoneCheck } from "../domain/plan-doc.ts";
+import { withFileLock } from "../infra/filelock.ts";
 import { git } from "../infra/git.ts";
 import {
   heavySlots,
@@ -157,6 +158,8 @@ async function runLogged(job: CheckJob, log: string, tmp: string | null): Promis
   }, checkLimits.itemMs);
   const code = (await p.exited) ?? 1;
   clearTimeout(timer);
+  // whatever the command left running (`dev & sleep 5 && curl`) must not outlive it, or it keeps the port
+  killGroup(p.pid, "SIGKILL");
   if (!timedOut) return code;
   appendFileSync(log, `FAIL catherd: timed out after ${Math.round(checkLimits.itemMs / 60_000)} min\n`);
   return TIMED_OUT;
@@ -681,34 +684,49 @@ async function runCheckItem(
   };
   const file = flightOf(job);
   ensurePrivateDir(checkLogDir(repo));
-  let started: string | null = null;
-  for (let tries = 0; tries < 3 && started === null; tries++) {
-    const at = new Date().toISOString();
-    try {
-      writeFileSync(file, JSON.stringify({ schema: 1, pid: -1, startTime: null, at, job } satisfies Flight), {
-        flag: "wx",
-        mode: 0o600,
-      });
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      const other = readFlight(file);
-      if (other && flightLive(other)) {
-        started = other.at;
-        break;
-      }
+  // Checking for a stale flight, removing it and creating the fresh one is one step: two callers must not each
+  // remove the other's new flight and start the same check twice.
+  const started = await withFileLock(file, () => {
+    let at: string | null = null;
+    for (let tries = 0; tries < 3 && at === null; tries++) {
+      const now = new Date().toISOString();
       try {
-        unlinkSync(file);
-      } catch {
-        // another caller removed it first
+        writeFileSync(
+          file,
+          JSON.stringify({ schema: 1, pid: -1, startTime: null, at: now, job } satisfies Flight),
+          {
+            flag: "wx",
+            mode: 0o600,
+          },
+        );
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+        const other = readFlight(file);
+        if (other && flightLive(other)) {
+          at = other.at;
+          break;
+        }
+        try {
+          unlinkSync(file);
+        } catch {
+          // the worker removed it first
+        }
+        continue;
       }
-      continue;
+      const pid = launchCheckWorker(file);
+      // the worker may be done and its flight removed already: never write the file back
+      if (existsSync(file))
+        writeJsonAtomic(file, {
+          schema: 1,
+          pid,
+          startTime: processStartTime(pid),
+          at: now,
+          job,
+        } satisfies Flight);
+      at = now;
     }
-    const pid = launchCheckWorker(file);
-    // the worker may be done and its flight removed already: never write the file back
-    if (existsSync(file))
-      writeJsonAtomic(file, { schema: 1, pid, startTime: processStartTime(pid), at, job } satisfies Flight);
-    started = at;
-  }
+    return at;
+  });
   if (started === null)
     throw new CatherdError("E_IO_UNEXPECTED", "the check could not be started", { fix: `remove ${file}` });
   const deadline = Date.now() + checkLimits.waitMs;
@@ -716,12 +734,19 @@ async function runCheckItem(
     const f = existsSync(file) ? readFlight(file) : null;
     if (!f) break;
     if (!flightLive(f)) {
-      try {
-        unlinkSync(file);
-      } catch {
-        // already gone
-      }
-      break;
+      // a caller may have replaced it with a fresh one since the read: only a flight still dead is removed
+      const gone = await withFileLock(file, () => {
+        const g = readFlight(file);
+        if (g && flightLive(g)) return false;
+        try {
+          unlinkSync(file);
+        } catch {
+          // already gone
+        }
+        return true;
+      });
+      if (gone) break;
+      continue;
     }
     if (Date.now() >= deadline)
       return {

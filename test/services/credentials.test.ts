@@ -99,7 +99,11 @@ describe("migrating a TypeSafe key (plan 44 D26)", () => {
     mkdirSync(dirname(credentialsPath()), { recursive: true });
     writeFileSync(credentialsPath(), JSON.stringify({ schema: 1, typesafeApiKey: "k" }));
     expect(migrateCredentials()).toEqual({ moved: true });
-    expect(JSON.parse(readFileSync(credentialsPath(), "utf8"))).toEqual({ schema: 1, decisionKey: "k" });
+    expect(JSON.parse(readFileSync(credentialsPath(), "utf8"))).toEqual({
+      schema: 1,
+      decisionKey: "k",
+      decisionKeyFrom: "typesafe",
+    });
     expect(statSync(credentialsPath()).mode & 0o777).toBe(0o600);
     expect(migrateCredentials()).toEqual({ moved: false });
   });
@@ -117,6 +121,7 @@ describe("migrating a TypeSafe key (plan 44 D26)", () => {
     expect(JSON.parse(readFileSync(credentialsPath(), "utf8"))).toEqual({
       schema: 1,
       decisionKey: "k",
+      decisionKeyFrom: "typesafe",
       other: 1,
     });
   });
