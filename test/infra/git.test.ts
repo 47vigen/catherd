@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   symlinkSync,
   unlinkSync,
+  readFileSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -18,11 +19,13 @@ import {
   fetchBase,
   git,
   gitHead,
+  gitRun,
   gitToplevel,
   isAncestor,
   statusSnapshot,
   worktreeIdentity,
 } from "../../src/infra/git.ts";
+import { isAlive } from "../../src/infra/proc.ts";
 import { commitInClone, repoWithOrigin, snapshotEnv, tempRepo } from "../helpers.ts";
 
 afterEach(snapshotEnv());
@@ -316,5 +319,16 @@ describe("git failures", () => {
       code: "E_IO_UNEXPECTED",
     });
     await expect(statusSnapshot(repo, 200)).rejects.toMatchObject({ code: "E_IO_UNEXPECTED" });
+  });
+
+  it("gitRun on a timeout kills what git started too, such as a commit hook", async () => {
+    const repo = tempRepo();
+    const pidFile = join(mkdtempSync(join(tmpdir(), "catherd-hook-")), "pid");
+    fakeGit(`sleep 300 &\necho $! > ${pidFile}\nwait`);
+    const r = await gitRun(repo, ["commit"], 1500);
+    expect(r.timedOut).toBe(true);
+    const hook = Number(readFileSync(pidFile, "utf8"));
+    for (let i = 0; i < 500 && isAlive(hook, null); i++) await Bun.sleep(10);
+    expect(isAlive(hook, null)).toBe(false);
   });
 });

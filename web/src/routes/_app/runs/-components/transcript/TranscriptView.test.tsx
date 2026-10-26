@@ -2,7 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import "../../../../../test/dom-shims";
-import type { TranscriptFrame } from "../../-hooks/useLiveRun";
+import type { LiveFrame, TranscriptFrame } from "../../-hooks/useLiveRun";
 import { LiveLogContext } from "../../-lib/live-log";
 import type { TranscriptItem, TranscriptPage } from "../../../../../client";
 import { client } from "../../../../../client/client.gen";
@@ -83,9 +83,9 @@ test("a failed request says why, and a missing dispatch is not an error page", a
 
 test("a live log tails the stream over the run socket from the last line read, and stops when left", async () => {
   const seen = fakeStream((from) => ({ items: [text(0, "one")], next: 1, ended: from > 0 }));
-  const subs = new Set<(f: TranscriptFrame) => void>();
+  const subs = new Set<(f: LiveFrame) => void>();
   const watch = vi.fn<(dispatchId: string | null, from: number) => void>();
-  const subscribe = (fn: (f: TranscriptFrame) => void) => {
+  const subscribe = (fn: (f: LiveFrame) => void) => {
     subs.add(fn);
     return () => void subs.delete(fn);
   };
@@ -94,7 +94,7 @@ test("a live log tails the stream over the run socket from the last line read, a
       <TranscriptView runId="r" dispatchId="d" live={live} />
     </LiveLogContext>
   );
-  const send = (f: TranscriptFrame) => act(() => subs.forEach((fn) => fn(f)));
+  const send = (f: LiveFrame) => act(() => subs.forEach((fn) => fn(f)));
   const frame = (dispatchId: string, line: number, t: string): TranscriptFrame => ({
     kind: "transcript",
     dispatchId,
@@ -116,4 +116,56 @@ test("a live log tails the stream over the run socket from the last line read, a
   await waitFor(() => expect(seen).toHaveLength(2));
   expect(seen[1]).toContain("from=2");
   expect(watch).toHaveBeenLastCalledWith(null, 0);
+});
+
+function liveLog() {
+  const subs = new Set<(f: LiveFrame) => void>();
+  const watch = vi.fn<(dispatchId: string | null, from: number) => void>();
+  const subscribe = (fn: (f: LiveFrame) => void) => {
+    subs.add(fn);
+    return () => void subs.delete(fn);
+  };
+  const send = (f: LiveFrame) => act(() => subs.forEach((fn) => fn(f)));
+  const view = (children: React.ReactNode) => <LiveLogContext value={{ watch, subscribe }}>{children}</LiveLogContext>;
+  return { watch, send, view };
+}
+
+test("an error frame from the socket shows the log alert", async () => {
+  fakeStream(() => ({ items: [text(0, "one")], next: 1, ended: false }));
+  const { watch, send, view } = liveLog();
+  render(view(<TranscriptView runId="r" dispatchId="d" live />));
+  await screen.findByText("one");
+  await waitFor(() => expect(watch).toHaveBeenCalledWith("d", 1));
+  send({ kind: "error", dispatchId: "other", code: "internal", message: "not this one" });
+  expect(screen.queryByText("The log could not be read")).toBeNull();
+  send({ kind: "error", dispatchId: "d", code: "E_INPUT_INVALID", message: "No such dispatch." });
+  expect(await screen.findByText("The log could not be read")).toBeInTheDocument();
+  expect(screen.getByText("No such dispatch.")).toBeInTheDocument();
+});
+
+test("a frame that came during a failed raw read is caught up afterwards", async () => {
+  const rawReads: Array<() => void> = [];
+  client.setConfig({
+    baseUrl: "http://localhost",
+    fetch: async (input: RequestInfo | URL) => {
+      const url = new URL((input as Request).url);
+      if (url.searchParams.get("raw") !== "1")
+        return Response.json({ items: [text(0, "one")], raw: null, next: 1, ended: false });
+      await new Promise<void>((r) => rawReads.push(r));
+      return rawReads.length === 1
+        ? Response.json({ error: { message: "disk gone", type: "x", code: "internal" } }, { status: 500 })
+        : Response.json({ items: [], raw: ["line"], next: 1, ended: false });
+    },
+  });
+  const { watch, send, view } = liveLog();
+  render(view(<TranscriptView runId="r" dispatchId="d" live />));
+  await screen.findByText("one");
+  await waitFor(() => expect(watch).toHaveBeenCalledWith("d", 1));
+  await userEvent.click(screen.getByRole("switch", { name: "Raw" }));
+  await waitFor(() => expect(rawReads).toHaveLength(1));
+  send({ kind: "transcript", dispatchId: "d", items: [text(1, "two")], raw: ["two"], next: 2 });
+  rawReads[0]!();
+  await waitFor(() => expect(rawReads).toHaveLength(2));
+  rawReads[1]!();
+  expect(await screen.findByText("line")).toBeInTheDocument();
 });

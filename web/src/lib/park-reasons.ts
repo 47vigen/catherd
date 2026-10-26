@@ -5,7 +5,7 @@ type Reason = ParkedView["reason"];
 /** Why a unit stopped and waits for you, in plain words. */
 export const REASON_TEXT: Record<Reason, string> = {
   needs_user: "A worker needs a decision only you can make before it can go on.",
-  too_hard: "The task proved too hard for every rung on the ladder, so catherd stopped to ask.",
+  too_hard: "The task proved too hard for every open rung, so catherd stopped to ask.",
   provider_error: "The provider kept failing, so the work could not go on without you.",
   no_access: "A worker lacked the access it needs, such as a tool, a file or a network call.",
   check_broken: "The fast check itself is broken, so a pass or a fail would mean nothing.",

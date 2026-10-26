@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { parsePorcelainZ, type Snapshot } from "../domain/changes.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { scrubSecrets } from "./env.ts";
+import { killGroup } from "./proc.ts";
 
 /** How one git command ended: its stdout, a failure (exit null when git could not start), or a timeout. */
 export type GitResult =
@@ -156,7 +157,8 @@ export interface GitOutput {
 
 /**
  * `git -C repo <args>` with both streams, for a command that may run hooks (a commit): a long timeout, and no
- * optional lock avoidance, since this one writes the index.
+ * optional lock avoidance, since this one writes the index. It leads its own process group, so a timeout kills the
+ * hooks it started too: one left running would go on changing the index while the caller retries.
  */
 export async function gitRun(repo: string, args: string[], timeoutMs = 300_000): Promise<GitOutput> {
   let p: Bun.Subprocess<"ignore", "pipe", "pipe">;
@@ -166,6 +168,7 @@ export async function gitRun(repo: string, args: string[], timeoutMs = 300_000):
       stdout: "pipe",
       stderr: "pipe",
       env: { ...scrubSecrets(process.env), LC_ALL: "C" },
+      detached: true,
     });
   } catch (e) {
     return { code: null, out: "", err: (e as Error).message, timedOut: false };
@@ -173,7 +176,7 @@ export async function gitRun(repo: string, args: string[], timeoutMs = 300_000):
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
-    p.kill("SIGKILL");
+    killGroup(p.pid, "SIGKILL");
   }, timeoutMs);
   const out = new Response(p.stdout).text().catch(() => "");
   const err = new Response(p.stderr).text().catch(() => "");

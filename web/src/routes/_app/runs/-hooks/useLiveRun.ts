@@ -31,8 +31,11 @@ export type TranscriptFrame = {
   raw: string[];
   next: number;
 };
+/** The server could not tail the dispatch the page asked to watch. */
+export type TranscriptError = { kind: "error"; dispatchId: string; code: string; message: string };
+export type LiveFrame = TranscriptFrame | TranscriptError;
 type EventFrame = TimelineEntry & { kind?: "event"; patch?: RunModelPatch | null };
-type Frame = EventFrame | TranscriptFrame;
+type Frame = EventFrame | LiveFrame;
 
 // The socket, heartbeat and reconnect bookkeeping live in lib/live-socket so a
 // close event that fires after this hook unmounted consults that shared state
@@ -63,18 +66,18 @@ function watch(dispatchId: string | null, from: number): void {
  * the page's fetch and the upgrade, or during a gap, is missed. Turning it off, changing the run or leaving the page
  * closes the socket.
  * An event frame's `patch` also goes to `onPatch` (null: the server could not diff, so read the model again); a
- * transcript frame goes to `onTranscript` only. `watch` picks the dispatch whose stream the socket tails.
+ * transcript or error frame goes to `onTranscript` only. `watch` picks the dispatch whose stream the socket tails.
  */
 export function useLiveRun(
   runId: string,
   enabled: boolean,
   onEntry: (e: TimelineEntry) => void,
   after: number,
-  o: { onPatch?: (p: RunModelPatch | null) => void; onTranscript?: (f: TranscriptFrame) => void } = {},
+  o: { onPatch?: (p: RunModelPatch | null) => void; onTranscript?: (f: LiveFrame) => void } = {},
 ): { isConnected: boolean; watch: (dispatchId: string | null, from: number) => void } {
   const [isConnected, setIsConnected] = useState(false);
   const deliver = useEffectEvent((frame: Frame) => {
-    if (frame.kind === "transcript") {
+    if (frame.kind === "transcript" || frame.kind === "error") {
       o.onTranscript?.(frame);
       return;
     }
@@ -91,9 +94,9 @@ export function useLiveRun(
     let detachAdopted: (() => void) | null = null;
     let last = 0;
     const listener = (frame: Frame) => {
-      if (frame.kind === "transcript") {
+      if (frame.kind === "transcript" || frame.kind === "error") {
         if (watching?.dispatchId !== frame.dispatchId) return; // a stream no longer watched
-        watching.from = Math.max(watching.from, frame.next);
+        if (frame.kind === "transcript") watching.from = Math.max(watching.from, frame.next);
       } else last = Math.max(last, frame.seq);
       deliver(frame);
     };
@@ -145,7 +148,9 @@ export function useLiveRun(
         const ok =
           frame.kind === "transcript"
             ? typeof frame.dispatchId === "string" && Array.isArray(frame.items) && typeof frame.next === "number"
-            : typeof frame.seq === "number" && typeof frame.type === "string";
+            : frame.kind === "error"
+              ? typeof frame.dispatchId === "string" && typeof frame.message === "string"
+              : typeof frame.seq === "number" && typeof frame.type === "string";
         if (ok) listeners.forEach((handler) => handler(frame));
       };
 

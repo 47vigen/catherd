@@ -124,18 +124,19 @@ function SetupPage() {
 
   const recheck = useMutation({
     ...recheckSetupMutation(),
-    onSuccess: (data) => qc.setQueryData(getSetupQueryKey({ query }), data),
+    onSuccess: (data, vars) => qc.setQueryData(getSetupQueryKey({ query: vars.query }), data),
     onError: (e) => toast.danger(errorMessage(e)),
   });
   const preview = useMutation({
     ...previewProfileMutation(),
     onError: (e) => toast.danger(errorMessage(e)),
   });
-  const propose = (patch: ProfilePatch, note?: string) =>
+  const proposeFor = (q: { repo?: string } | undefined, patch: ProfilePatch, note?: string) =>
     preview.mutate(
-      { query, body: { patch } },
+      { query: q, body: { patch } },
       { onSuccess: (p) => setPending({ patch, review: { preview: p, refused: [], note } }) },
     );
+  const propose = (patch: ProfilePatch, note?: string) => proposeFor(query, patch, note);
   const save = useMutation({
     ...saveProfileMutation(),
     onSuccess: async (r, vars) => {
@@ -143,7 +144,7 @@ function SetupPage() {
         setPending(undefined);
         toast.success("Saved.");
       } else if (r.errors.some((e) => e.path === CHANGED_ON_DISK)) {
-        propose(vars.body.patch, CHANGED_NOTE);
+        proposeFor(vars.query, vars.body.patch, CHANGED_NOTE);
       } else {
         setPending((p) => p && { ...p, review: { ...p.review, refused: r.errors } });
       }

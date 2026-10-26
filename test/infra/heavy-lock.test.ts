@@ -44,6 +44,28 @@ describe("heavy lock", () => {
     expect(waits).toBeGreaterThanOrEqual(2);
   });
 
+  it("a waiter held back by the load keeps its place in line", async () => {
+    withHome();
+    let load = 9;
+    Object.assign(heavyLimits, { cores: () => 4, load: () => load, loadPollMs: 1, loadWaitMs: 60_000 });
+    const queued = () =>
+      (
+        JSON.parse(readFileSync(join(locksDir(), "queue-heavy.json"), "utf8")).tickets as { at: number }[]
+      ).map((t) => t.at);
+    const first = signal();
+    const second = signal();
+    const a = withHeavySlot(1, () => "a", { pollMs: 1, onWait: first.fire });
+    await first.done;
+    const b = withHeavySlot(1, () => "b", { pollMs: 1, onWait: second.fire });
+    await second.done;
+    // both sit in the queue while the load holds them, the older ticket ahead
+    const tickets = queued();
+    expect(tickets).toHaveLength(2);
+    expect(tickets[0]!).toBeLessThanOrEqual(tickets[1]!);
+    load = 1;
+    expect(await Promise.all([a, b])).toEqual(["a", "b"]);
+  });
+
   it("does not wait for the host's load under test: a busy CI runner must not stall a lock", async () => {
     withHome();
     Object.assign(heavyLimits, { cores: () => 1, load: () => 99 });

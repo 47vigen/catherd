@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type LockWait, withRoleLock } from "../../src/infra/heavy-lock.ts";
+import { isAlive } from "../../src/infra/proc.ts";
 import {
   checkBase,
   type CheckJob,
@@ -266,6 +267,15 @@ describe("the time a check takes", () => {
     expect(r.exit).toBe(1);
     expect(r.fails.length).toBeGreaterThan(0);
     expect(r.failFiles).toEqual(Object.fromEntries(r.fails.map((l) => [l, ["test/a.test.ts"]])));
+  });
+
+  it("what the command left running dies with it", async () => {
+    const pidFile = join(tempDir("c-"), "pid");
+    const r = await execMilestoneCheck(job(`sleep 300 & echo $! > ${pidFile}`));
+    expect(r.exit).toBe(0);
+    const left = Number(readFileSync(pidFile, "utf8"));
+    for (let n = 0; n < 500 && isAlive(left, null); n++) await Bun.sleep(10);
+    expect(isAlive(left, null)).toBe(false);
   });
 
   it("an item past itemMs is recorded timed out", async () => {

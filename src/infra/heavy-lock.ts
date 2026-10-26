@@ -146,7 +146,8 @@ interface Slot {
 }
 
 /**
- * Waits in the heavy queue until this ticket is the oldest live one and a slot is free, then takes that slot and
+ * Joins the heavy queue, waits out an overloaded host or a nearly full disk until `gateDeadline` (the ticket holds
+ * its place meanwhile), then waits until this ticket is the oldest live one and a slot is free, takes that slot and
  * leaves the queue in the same step, so the next ticket may try at once. Null once `deadline` passes. The ticket
  * is withdrawn on every way out, so an error or a timeout never leaves a live ticket behind.
  */
@@ -154,12 +155,22 @@ async function takeSlot(
   dir: string,
   slots: number,
   deadline: number,
+  gateDeadline: number,
   started: number,
   o: { pollMs?: number; onWait?: (w: LockWait) => void },
 ): Promise<Slot | null> {
   const queue = join(dir, "queue-heavy.json");
   const me: Ticket = { ...selfIdentity(), token: randomUUID(), at: Date.now() };
   try {
+    await withFileLock(queue, () => joinQueue(queue, me));
+    while (
+      Date.now() < gateDeadline &&
+      (heavyLimits.load() > 2 * heavyLimits.cores() || heavyLimits.freeMb() < heavyLimits.diskReserveMb)
+    ) {
+      const ahead = liveTickets(queue).findIndex((t) => t.token === me.token);
+      o.onWait?.(heavyWait(dir, slots, started, Math.max(0, ahead)));
+      await Bun.sleep(Math.min(heavyLimits.loadPollMs, Math.max(1, gateDeadline - Date.now())));
+    }
     for (;;) {
       const turn = await withFileLock(queue, (): { slot: Slot } | { ahead: number } => {
         const ahead = joinQueue(queue, me).findIndex((t) => t.token === me.token);
@@ -221,14 +232,7 @@ export async function withHeavySlotWithin<T>(
   // an overloaded host, or a nearly full disk, runs the command late, not never: the wait is bounded by the
   // load deadline, and the slot loop follows it
   const gateDeadline = started + Math.min(heavyLimits.loadWaitMs, waitMs);
-  while (
-    Date.now() < gateDeadline &&
-    (heavyLimits.load() > 2 * heavyLimits.cores() || heavyLimits.freeMb() < heavyLimits.diskReserveMb)
-  ) {
-    o.onWait?.(heavyWait(dir, slots, started, liveTickets(join(dir, "queue-heavy.json")).length));
-    await Bun.sleep(Math.min(heavyLimits.loadPollMs, Math.max(1, gateDeadline - Date.now())));
-  }
-  const slot = await takeSlot(dir, slots, deadline, started, o);
+  const slot = await takeSlot(dir, slots, deadline, gateDeadline, started, o);
   if (!slot) return { busy: true };
   const tmp = slotTmpDir(slot.index, o.tmpBase);
   try {
