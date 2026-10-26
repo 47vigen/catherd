@@ -7,18 +7,31 @@ import type { Action } from "../../src/domain/run-machine.ts";
 import type { MilestoneState } from "../../src/domain/run-state.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { appendCheckRecord, type CheckRecord } from "../../src/services/milestone-check.ts";
-import { briefFor, judgeBrief, RULES_REVIEW_BRIEF } from "../../src/services/run-briefs.ts";
-import { scratchDir } from "../../src/services/dispatches.ts";
+import {
+  briefFor as briefParts,
+  judgeBrief as judgeParts,
+  RULES_REVIEW_BRIEF,
+  renderBrief,
+} from "../../src/services/run-briefs.ts";
+import type { BriefParts } from "../../src/domain/brief.ts";
+import type { JudgeInput } from "../../src/domain/judge.ts";
+import type { RunState } from "../../src/domain/run-state.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { endDispatch, runningLog, startDispatch, makeLog } from "../domain/run-fixtures.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import { copyPlanInputs, planDocs, taskBlock } from "../../src/services/plan-input.ts";
+import { addKnowledge } from "../../src/services/run-service.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
 import { appendRecord, createRun, type Run } from "../../src/services/run-store.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
-import { briefFor as withLane, freshRun, makeRecord, PLAN_TEXT, writeLane } from "./helpers.ts";
+import { freshRun, makeRecord, PLAN_TEXT, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
+
+/** The parts of a brief as one text, in their order. */
+const flat = (p: BriefParts): string => [...p.facts, ...p.unit, ...p.round].join("\n\n");
+const briefFor = (run: Run, s: RunState, a: Dispatch): string => flat(briefParts(run, s, a));
+const judgeBrief = (run: Run, input: JudgeInput): string => flat(judgeParts(run, input));
 
 type Dispatch = Extract<Action, { type: "dispatch" }>;
 const act = (over: Partial<Dispatch>): Dispatch => ({
@@ -36,19 +49,21 @@ const act = (over: Partial<Dispatch>): Dispatch => ({
 });
 
 describe("briefs", () => {
-  it("gives a lane its file, fast check, lock wrapper, A-lines and notes", () => {
+  it("gives a lane its file, fast check, lock wrapper, A-lines and notes", async () => {
     const { run } = freshRun();
     writeLane(run, "M1.L1", ["src/a/"], "bun test src/a");
     const s = runningLog().state();
-    const text = briefFor(run, s, act({ brief: "fix", notes: ["BUG src/a/x.ts:3 — wrong — fix it"] }));
+    const text = await renderBrief(
+      run,
+      s,
+      act({ brief: "fix", notes: ["BUG src/a/x.ts:3 — wrong — fix it"] }),
+      false,
+    );
     expect(text).toContain("A1 it works");
     expect(text).toContain("BUG src/a/x.ts:3 — wrong — fix it");
     expect(text).toContain(`catherd-cli@${VERSION} lock --`);
-    // admission adds the lane file (and with it the fast check) around this text
-    mkdirSync(scratchDir(run, "worker-M1.L1"), { recursive: true });
-    const whole = withLane(run, text);
-    expect(whole).toContain("Fast check: bun test src/a");
-    expect(whole).toContain("Owns: src/a/");
+    expect(text).toContain("Fast check: bun test src/a");
+    expect(text).toContain("Owns: src/a/");
   });
 
   it("carries the owner's answer to a parked milestone into its next brief", () => {
@@ -154,7 +169,7 @@ describe("briefs", () => {
       runningLog().state(),
       act({ brief: "dossier", role: "researcher", lane: null, unit: "run" }),
     );
-    for (const part of ["read_knowledge", "build, test and run commands", "risks:"])
+    for (const part of ["catherd knowledge show", "build, test and run commands", "risks:"])
       expect(text).toContain(part);
   });
 
@@ -258,6 +273,7 @@ describe("briefs", () => {
         aLines: ["A1 it works", "A2 it also works"],
         version: "0.0.0-test",
       });
+      writeLane(run, "M1.L1", ["src/a.ts"]);
       writeFileSync(
         join(run.dir, "plan.md"),
         `## M1 — core\n${checkLine === null ? "" : `Check: ${checkLine}\n`}`,
@@ -294,7 +310,7 @@ describe("briefs", () => {
     it("a milestone with no Check keeps today's verifier brief", () => {
       const text = checkedBrief(null, ["A1 it works", "A2 it also works"]);
       expect(text).toContain(`Run the milestone's full check, named under "## M1"`);
-      expect(text).toContain("The A-lines this run must meet:");
+      expect(text).toContain("Your A-lines:\nA1 it works");
       expect(text).not.toContain("do not run it again");
     });
 
@@ -318,21 +334,22 @@ describe("briefs", () => {
     });
   });
 
-  it("a resumed fix brief has no plan tasks or A-lines", () => {
+  it("a resumed fix round sends this round only", async () => {
     const { run } = freshRun();
     writeLane(run, "M1.L1", ["src/a/"], "bun test src/a");
-    const fix = (thread: string | null) =>
-      briefFor(
-        run,
-        runningLog().state(),
-        act({ brief: "fix", thread, notes: ["BUG src/a/x.ts:3 — wrong — fix it"] }),
-      );
-    expect(fix(null)).toContain("The A-lines");
-    const text = fix("T1");
-    expect(text).toContain("BUG src/a/x.ts:3 — wrong — fix it");
-    expect(text).not.toContain("<plan-task");
-    expect(text).not.toContain("The A-lines");
-    expect(text).not.toContain("Owns:");
+    const s = runningLog().state();
+    const fix = act({ brief: "fix", thread: "t1", notes: ["BLOCKER src/a.ts:3 — x — y"] });
+    const resumed = await renderBrief(run, s, fix, true);
+    expect(resumed).toContain("<this-round>");
+    expect(resumed).toContain("BLOCKER src/a.ts:3 — x — y");
+    expect(resumed).not.toContain("<role-contract>");
+    expect(resumed).not.toContain("Owns:");
+    const fresh = await renderBrief(run, s, { ...fix, thread: null }, false);
+    const tags = ["role-contract", "run-facts", "unit-context", "this-round"].map((t) =>
+      fresh.indexOf(`<${t}>`),
+    );
+    expect(tags.every((i) => i >= 0)).toBe(true);
+    expect(tags).toEqual([...tags].sort((x, y) => x - y));
   });
 
   it("a judge sees only its milestone's A-lines", () => {
@@ -375,7 +392,9 @@ describe("briefs", () => {
     expect(text).toContain("1. BUG src/a.ts — x");
     expect(text).toContain("2. NIT b.md — y");
     expect(text).toContain("- M1.L1: src/a/, src/a2.ts");
-    expect(text).toContain("the real question");
+    // the reply is named by its path, not pasted
+    expect(text).toContain("reply: roles/worker-M1.L1/D1/reply.md");
+    expect(text).not.toContain("the real question");
     expect(text.length).toBeLessThan(5_000);
   });
 });
@@ -401,9 +420,6 @@ describe("briefs from the plan (plan 32)", () => {
   it("gives a lane's worker its plan tasks verbatim, and a fix worker every lane's fast check too", async () => {
     const { run, s } = await planned();
     const lane = briefFor(run, s, act({}));
-    expect(lane).toContain(
-      "Your plan tasks. Implement them as written; where one conflicts with the code, reply DESIGN: as your role text says.",
-    );
     const tasks = [1, 2].map((n) =>
       taskBlock(planDocs(run)[0]?.tasks.find((t) => t.id === String(n)) as never),
     );
@@ -419,7 +435,9 @@ describe("briefs from the plan (plan 32)", () => {
     const { run, s } = await planned();
     const base = act({ brief: "architect", role: "architect", lane: null, unit: "run", name: "architect" });
     const given = briefFor(run, s, base);
-    expect(given).toContain("The owner's approved plan: plan-input/p.md (read each with read_run_file).");
+    expect(given).toContain(
+      "The owner's approved plan: plan-input/p.md (read each with catherd run-file read",
+    );
     expect(given).toContain("Lane the tasks the acceptance lines name, or every task when they name none.");
     expect(given).toContain("Tasks: <plan task numbers");
     const none = makeLog();
@@ -429,9 +447,7 @@ describe("briefs from the plan (plan 32)", () => {
       notes: ["The owner asked for these changes to plan.md: rename Ledger"],
     });
     expect(written).toContain("No plan was given: write plan.md to the depth your role text sets.");
-    expect(written).toContain(
-      "Every A-line above must be cited as A<n> under the milestone that delivers it",
-    );
+    expect(written).toContain("Every A-line of your unit context must be cited as A<n> under the milestone");
     expect(written).toContain("The run waits for the owner's approval of it before any lane runs.");
     expect(written).toContain(
       "What to change:\n- The owner asked for these changes to plan.md: rename Ledger",
@@ -439,10 +455,12 @@ describe("briefs from the plan (plan 32)", () => {
     expect(written).not.toContain("called back on");
   });
 
-  it("the architect brief's header lists Chore", async () => {
+  it("the architect brief's header has no Chore and says Kind and Difficulty inform the decision model", async () => {
     const { run, s } = await planned();
     const base = act({ brief: "architect", role: "architect", lane: null, unit: "run", name: "architect" });
-    expect(briefFor(run, s, base)).toContain("Chore: yes");
+    const text = briefFor(run, s, base);
+    expect(text).not.toContain("Chore");
+    expect(text).toContain("Kind and Difficulty inform the decision model");
   });
 
   it("gives the reviewer the milestone's tasks and every out-of-lane file, declared or not", async () => {
@@ -462,7 +480,6 @@ describe("briefs from the plan (plan 32)", () => {
       s,
       act({ brief: "review", role: "reviewer", name: "reviewer-M1", unit: "M1", lane: null }),
     );
-    expect(text).toContain("The plan tasks this milestone implements:");
     expect(text).toContain('<plan-task file="p.md" id="1">');
     expect(text).toContain("Files changed outside their lane:");
     expect(text).toContain("- src/x.ts — declared by worker-M1.L1: the type lives there");
@@ -629,7 +646,7 @@ describe("the rules review's brief (plan 34)", () => {
       findings: [],
       lanes: [],
     });
-    expect(text).toStartWith(RULES_REVIEW_BRIEF);
+    expect(text).toContain(RULES_REVIEW_BRIEF);
     expect(text).toContain("M1 t: 2 review round(s), 1 known issue(s)");
     expect(text).toContain("Your verbs: rules.");
     expect(text).not.toContain("bun test src/a");
@@ -703,5 +720,80 @@ it("shows positional A-line ids in briefs", () => {
   run.meta.aLines = ["login works", "plan: p.md", "logout works"];
   writeLane(run, "M1.L1", ["src/a.ts"]);
   const text = briefFor(run, runningLog().state(), act({ brief: "lane" }));
-  expect(text).toContain("- A1 login works\n- plan: p.md\n- A2 logout works");
+  expect(text).toContain("A1 login works\nA2 logout works");
+});
+
+describe("a brief's size (plan 44 D6, D7)", () => {
+  const fixture = (name: string): string =>
+    readFileSync(join(import.meta.dir, "../fixtures/briefs", name), "utf8");
+
+  it("a worker brief stays under 20 KB on the bloated fixture", async () => {
+    const { run, repo } = freshRun();
+    const files: Record<string, string> = {
+      "plan.md": fixture("plan.md"),
+      "spec.md": `${fixture("spec.md")}\n## 12. Appendix\n\n${"unrelated appendix text ".repeat(4_200)}\n`,
+      "credit.md": fixture("credit.md"),
+    };
+    const paths = Object.entries(files).map(([name, text]) => {
+      writeFileSync(join(repo, name), text);
+      return join(repo, name);
+    });
+    await appendEvent(run, { type: "run.started", ...startedFields, repo, plan: paths });
+    copyPlanInputs(run, paths);
+    writeLane(run, "M1.L1", ["src/ledger.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
+    const s = runningLog(PLAN, { ...startedFields, plan: paths }).state();
+    const text = await renderBrief(run, s, act({}), false);
+    expect(text.length).toBeLessThan(20_480);
+    expect(text).toContain("PLAN-3.2-MARK");
+    expect(text).not.toContain("unrelated appendix");
+  });
+
+  it("the judge gets references, not pasted findings", () => {
+    const { run } = freshRun();
+    const text = judgeBrief(run, {
+      id: "7",
+      kind: "triage",
+      unit: "M1",
+      context: "Milestone M1: reviewed.",
+      findings: [`BUG src/a.ts:1 — ${"x".repeat(130_000)}`],
+      lanes: [{ id: "M1.L1", owns: ["src/a/"] }],
+    });
+    expect(text.length).toBeLessThan(6_000);
+    expect(text).toContain("notes/");
+  });
+
+  it("a long finding in a fix round is cut, with a pointer to notes/", () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    const text = briefFor(
+      run,
+      runningLog().state(),
+      act({ brief: "fix", notes: [`BUG a.ts:1 — ${"y".repeat(5_000)}`] }),
+    );
+    expect(text).toContain("notes/");
+    expect(text.length).toBeLessThan(6_000);
+  });
+});
+
+describe("what the composed path carries over from admission (plan 44 D2)", () => {
+  it("puts the repo's standing rules for the role at the end of part 3", async () => {
+    const { run, repo } = freshRun();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await addKnowledge(repo, "always A");
+    await addKnowledge(repo, "[worker] only W");
+    await addKnowledge(repo, "[reviewer] only R");
+    const text = await renderBrief(run, runningLog().state(), act({}), false);
+    const rules = text.indexOf("Standing rules for the worker role in this repo (its knowledge.md):");
+    expect(rules).toBeGreaterThan(text.indexOf("<unit-context>"));
+    expect(rules).toBeLessThan(text.indexOf("<this-round>"));
+    expect(text).toContain("always A");
+    expect(text).toContain("only W");
+    expect(text).not.toContain("only R");
+  });
+
+  it("gives no rules block when the repo has none", async () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    expect(await renderBrief(run, runningLog().state(), act({}), false)).not.toContain("Standing rules");
+  });
 });

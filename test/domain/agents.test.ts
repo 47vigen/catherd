@@ -153,10 +153,10 @@ describe("rolePrompt", () => {
     expect(text).not.toContain("first three lines");
   });
 
-  it("the architect is told when to write Chore: yes", () => {
+  it("the architect is not told to write Chore: yes, and Kind and Difficulty inform the decision model", () => {
     const text = rolePrompt("architect", "1.0.0");
-    expect(text).toContain("Chore: yes");
-    for (const s of ["stubs", "fixtures", "renames"]) expect(text).toContain(s);
+    expect(text).not.toContain("Chore");
+    expect(text).toContain("inform the decision model");
   });
 
   it("has the architect end an A-line the Check proves on its own with (Check), in both plan paths (plan 40)", () => {

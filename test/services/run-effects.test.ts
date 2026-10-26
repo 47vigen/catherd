@@ -11,7 +11,9 @@ import { logFile } from "../../src/infra/log.ts";
 import { readJsonl } from "../../src/infra/store.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { launcher, watchersSettled } from "../../src/services/dispatch-service.ts";
+import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { liveDispatches } from "../../src/services/dispatches.ts";
+import { renderBrief } from "../../src/services/run-briefs.ts";
 import * as failoverRungs from "../../src/services/failover-rungs.ts";
 import { openQuestions } from "../../src/services/questions.ts";
 import { preflightUser } from "../../src/services/preflight.ts";
@@ -171,6 +173,19 @@ describe("dispatching", () => {
       dispatchId: (started as { dispatchId: string }).dispatchId,
     });
     expect(liveDispatches(run, deps.now())).toEqual([]);
+  });
+
+  it("a dispatch writes the daemon's composed brief", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    const a = dispatchAction() as Extract<Action, { type: "dispatch" }>;
+    const s = replayRun(run);
+    await fx.run(a, s);
+    const d = listDispatches(run).find((x) => x.admit.name === "worker-M1.L1");
+    expect(readFileSync(dispatchPaths((d as NonNullable<typeof d>).dir).brief, "utf8")).toBe(
+      await renderBrief(run, s, a, false),
+    );
   });
 
   it("a cheap dispatch starts on the profile's cheapest rung", async () => {

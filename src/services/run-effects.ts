@@ -54,7 +54,7 @@ import {
 import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
 import { park } from "./questions.ts";
-import { briefFor, judgeBrief } from "./run-briefs.ts";
+import { renderBrief } from "./run-briefs.ts";
 import { appendEvent, appendEvents, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { writeRunReport } from "./run-report.ts";
 import { cheapestRung } from "./routing-service.ts";
@@ -507,7 +507,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
       thread: string | null;
       failoverFrom: string | null;
     },
-    brief: string,
+    // the daemon's composed brief (plan 44 D2): whole for a new thread, this round only for a resumed one
+    brief: { full: string; resumed: string },
     s: RunState,
     judge: { id: string; kind: JudgeKind } | null,
   ): Promise<void> {
@@ -542,7 +543,9 @@ export function realEffects(deps: Deps, run: Run): Effects {
       admit(deps, run, {
         role: a.role,
         name: a.name,
-        brief,
+        brief: thread === null ? brief.full : brief.resumed,
+        composed: true,
+        ...(thread === null ? {} : { fullBrief: brief.full }),
         rung,
         thread,
         lane: a.lane,
@@ -1199,8 +1202,15 @@ export function realEffects(deps: Deps, run: Run): Effects {
 
   async function perform(a: Action, s: RunState): Promise<void> {
     switch (a.type) {
-      case "dispatch":
-        return start(a, briefFor(run, s, a), s, null);
+      case "dispatch": {
+        const full = await renderBrief(run, s, a, false);
+        return start(
+          a,
+          { full, resumed: a.thread === null ? full : await renderBrief(run, s, a, true) },
+          s,
+          null,
+        );
+      }
       case "judge":
         return start(
           {
@@ -1212,7 +1222,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
             thread: null,
             failoverFrom: null,
           },
-          judgeBrief(run, a.input),
+          await renderBrief(run, s, a, false).then((full) => ({ full, resumed: full })),
           s,
           { id: a.input.id, kind: a.input.kind },
         );
