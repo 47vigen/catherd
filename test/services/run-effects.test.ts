@@ -830,6 +830,13 @@ describe("what a stop says (30b)", () => {
       "Done.\nSTATUS: complete — ok",
     );
     expect(endedEvent(run, record, "M1.L1")).toMatchObject({ testEdits: ["test/b.test.ts"] });
+    // a sibling-owned test file is no violation, so the record names it itself
+    const sibling = withReply(
+      run,
+      { role: "worker", name: "worker-M1.L1", lane: "M1.L1", violations: [], testEdits: ["test/s.test.ts"] },
+      "Done.\nSTATUS: complete — ok",
+    );
+    expect(endedEvent(run, sibling, "M1.L1")).toMatchObject({ testEdits: ["test/s.test.ts"] });
     const clean = withReply(run, { role: "worker", name: "worker-M1.L1", lane: "M1.L1" }, "Done.");
     expect(endedEvent(run, clean, "M1.L1")).not.toHaveProperty("testEdits");
   });

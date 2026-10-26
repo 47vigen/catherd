@@ -5,6 +5,9 @@ export const slug = (s: string): string =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
+/** Natural order: `M2` before `M10`, `M1.L2` before `M1.L10`. */
+export const natural = (a: string, b: string): number => a.localeCompare(b, "en", { numeric: true });
+
 /** One table cell or one line of text: `|` and newlines become `/`, whitespace runs one space, trimmed. */
 export const cell = (s: string): string => s.replace(/[|\n]/g, "/").replace(/\s+/g, " ").trim();
 

@@ -308,6 +308,8 @@ describe("the unit context", () => {
     const text = blocks.join("\n\n");
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(UNIT_CONTEXT_MAX + 400);
     expect(text).toContain("cut: read plan-input/plan.md");
+    // the cut task block keeps its closing tag
+    expect(blocks.find((b) => b.startsWith("<plan-task"))).toEndWith("</plan-task>");
     expect(text).toContain("Read on demand:");
     expect(text).not.toContain("\uFFFD");
   });

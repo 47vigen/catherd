@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunRecord } from "../domain/record.ts";
 import type { RouteRow } from "../domain/route.ts";
@@ -22,7 +22,16 @@ import {
 import { deliveredALines, numberedALines } from "./plan-input.ts";
 import { openQuestions } from "./questions.ts";
 import { isDaemonRun, replayRun } from "./run-events-store.ts";
-import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
+import { natural } from "../domain/util.ts";
+import {
+  readAgentRuns,
+  readRecords,
+  readRoutes,
+  laneFile,
+  laneIds,
+  type Run,
+  runPaths,
+} from "./run-store.ts";
 
 // Spec 1.1 §10: the protocol's next step, derived from the run's own files so a session that lost its
 // context (a compaction, a restart) re-enters the milestone loop where it stands; and each landed
@@ -39,22 +48,10 @@ export const PROTOCOL_CHECKLIST = [
 ];
 
 const milestoneOf = (lane: string): string => lane.split(".")[0] as string;
-const byNumber = (a: string, b: string) => a.localeCompare(b, "en", { numeric: true });
-
-/** The run's lanes, from lanes/*.md, in milestone and lane order. */
-function laneIds(run: Run): string[] {
-  const dir = runPaths(run.dir).lanes;
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".md"))
-    .map((f) => f.slice(0, -".md".length))
-    .filter((l) => l.includes("."))
-    .sort(byNumber);
-}
 
 /** Plan 28: the milestones the run's lane files name, in number order. */
 export const runMilestones = (run: Run): string[] =>
-  [...new Set(laneIds(run).map(milestoneOf))].sort(byNumber);
+  [...new Set(laneIds(run).map(milestoneOf))].sort(natural);
 
 /** What laneDone reads of the run, read once for every lane of the milestone. */
 interface LaneEvidence {
@@ -111,7 +108,7 @@ function laneDone(lane: string, e: LaneEvidence): boolean {
 /** The lane's After: lanes, from its file; none when it has none or cannot be read. */
 function afterOf(run: Run, lane: string): string[] {
   try {
-    return parseLaneHeader(readFileSync(join(runPaths(run.dir).lanes, `${lane}.md`), "utf8")).after;
+    return parseLaneHeader(readFileSync(laneFile(run, lane), "utf8")).after;
   } catch {
     return [];
   }
@@ -143,7 +140,7 @@ export async function protocolNext(run: Run, parked: string[], now = Date.now())
   if (lanes.length === 0)
     return "plan: the architect writes plan.md and lanes/Mx.Ly.md (or you, for a fix run)";
   const landed = new Set(landedMilestones(run));
-  const milestones = [...new Set(lanes.map(milestoneOf))].sort(byNumber);
+  const milestones = [...new Set(lanes.map(milestoneOf))].sort(natural);
   const m = milestones.find((x) => !landed.has(x) && !parked.includes(x));
   if (!m)
     return parked.length
@@ -258,7 +255,7 @@ export function writeDigest(
   const numbered = numberedALines(run.meta.aLines);
   const aLines = numbered.filter((a) => a.id && named.has(a.id)).map((a) => a.line);
   const routes = readRoutes(run).filter((r) => inM(r.lane));
-  const lanes = [...new Set(routes.map((r) => r.lane))].sort(byNumber).map((lane) => {
+  const lanes = [...new Set(routes.map((r) => r.lane))].sort(natural).map((lane) => {
     const rows = routes.filter((r) => r.lane === lane);
     const climbs = rows.filter((r) => r.source === "climb" && r.from !== r.rung);
     const first = rows[0]?.rung ?? "?";

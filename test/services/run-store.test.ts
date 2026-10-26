@@ -9,6 +9,8 @@ import {
   appendRoute,
   createRun,
   findRun,
+  laneFile,
+  laneIds,
   LEDGER_HEADER,
   listRuns,
   readRecords,
@@ -179,5 +181,16 @@ describe("runFile", () => {
     const { run } = freshRun();
     symlinkSync(mkdtempSync(join(tmpdir(), "catherd-out-")), join(run.dir, "lanes", "out"));
     expect(code(() => runFile(run, "lanes/out/x.md", "write"))).toBe("E_IO_PATH");
+  });
+});
+
+describe("the run's lanes", () => {
+  it("are the lanes/<Mx.Ly>.md files in natural order; a stray .md is no lane", () => {
+    const { run } = freshRun();
+    mkdirSync(runPaths(run.dir).lanes, { recursive: true });
+    for (const f of ["M1.L10.md", "M1.L2.md", "M2.L1.md", "notes.md", "M1.md", "README.txt"])
+      writeFileSync(join(runPaths(run.dir).lanes, f), "x\n");
+    expect(laneIds(run)).toEqual(["M1.L2", "M1.L10", "M2.L1"]);
+    expect(laneFile(run, "M1.L2")).toBe(join(run.dir, "lanes", "M1.L2.md"));
   });
 });

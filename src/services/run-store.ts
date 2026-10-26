@@ -12,7 +12,8 @@ import type {
   RoleRouteRow,
   RouteRow,
 } from "../domain/route.ts";
-import { cell } from "../domain/util.ts";
+import { isLaneId } from "../domain/lane.ts";
+import { cell, natural } from "../domain/util.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { gitOrigin } from "../infra/git.ts";
 import { dataDir, originDir, repoDir, runsDir } from "../infra/paths.ts";
@@ -60,6 +61,19 @@ export interface Run {
   id: string;
   dir: string;
   meta: RunMeta;
+}
+
+/** lanes/<id>.md in the run folder. */
+export const laneFile = (run: Run, id: string): string => join(runPaths(run.dir).lanes, `${id}.md`);
+
+/** Every lane of the run, from lanes/<id>.md, in natural order; a stray file that is not a lane id is not one. */
+export function laneIds(run: Run): string[] {
+  const dir = runPaths(run.dir).lanes;
+  return (existsSync(dir) ? readdirSync(dir) : [])
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => f.slice(0, -3))
+    .filter(isLaneId)
+    .sort(natural);
 }
 
 /** Spec §4.1. */

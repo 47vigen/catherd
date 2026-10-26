@@ -46,7 +46,8 @@ import { standingRules } from "./run-service.ts";
 import { unfinishedAfter } from "./protocol.ts";
 import { runProfile } from "./run-pin.ts";
 import type { Deps } from "./ports.ts";
-import { readRecords, recordsOnThread, type Run, runPaths, supersededBy } from "./run-store.ts";
+import { laneFile, readRecords, recordsOnThread, type Run, runPaths, supersededBy } from "./run-store.ts";
+
 import { currentSession } from "./sessions.ts";
 import { composeProjectOf } from "./tree-path.ts";
 import { milestoneOfName, verifierBrief } from "./verifier-brief.ts";
@@ -78,8 +79,6 @@ export const killLimits = { killGraceMs: 10_000 };
 
 /** The whole brief of a resumed dispatch, beside its trimmed brief.md. */
 export const fullBriefPath = (brief: string): string => brief.replace(/brief\.md$/, "brief-full.md");
-
-export const laneFile = (run: Run, lane: string): string => join(runPaths(run.dir).lanes, `${lane}.md`);
 
 /** The role's scratch folder, created (0700) and by its real path, on a backend that grants it; else null. */
 function roleScratch(run: Run, name: string, backend: string, isolated: boolean): string | null {

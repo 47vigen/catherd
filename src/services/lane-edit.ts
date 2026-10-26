@@ -1,5 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId } from "../domain/ids.ts";
 import {
@@ -16,10 +15,7 @@ import { withFileLock } from "../infra/filelock.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import { pendingDispatches } from "./dispatches.ts";
 import type { Deps } from "./ports.ts";
-import { findRun, type Run, runPaths } from "./run-store.ts";
-
-/** lanes/<lane>.md in the run folder (admission's laneFile, kept here so finalize can import this module). */
-const laneFile = (run: Run, lane: string): string => join(runPaths(run.dir).lanes, `${lane}.md`);
+import { findRun, laneFile, laneIds, type Run } from "./run-store.ts";
 
 // Spec 1.5 "Lane editing": one header line at a time, validated, instead of `sed` on the run folder; and an
 // Owns list that can grow mid-lane, with the overlap re-checked.
@@ -74,14 +70,13 @@ function overlapCheck(deps: Deps, run: Run, lane: string, owns: string[]): strin
         { fix: `add it once ${d.admit.name} finishes, or give the work to ${d.admit.lane ?? d.admit.name}` },
       );
   }
-  const dir = runPaths(run.dir).lanes;
   const hints: string[] = [];
-  for (const f of existsSync(dir) ? readdirSync(dir) : []) {
-    const other = f.endsWith(".md") ? f.slice(0, -3) : null;
-    if (!other || other === lane) continue;
+  for (const other of laneIds(run)) {
+    if (other === lane) continue;
     try {
-      const shared = overlaps(owns, parseLaneHeader(readFileSync(join(dir, f), "utf8")).owns);
-      if (shared.length) hints.push(`lanes/${f} also owns ${shared.join(", ")}: do not run the two together`);
+      const shared = overlaps(owns, parseLaneHeader(readFileSync(laneFile(run, other), "utf8")).owns);
+      if (shared.length)
+        hints.push(`lanes/${other}.md also owns ${shared.join(", ")}: do not run the two together`);
     } catch {
       // an unreadable lane is preflight's to report
     }

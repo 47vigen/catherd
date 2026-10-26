@@ -25,7 +25,7 @@ import {
   taskBlock,
   unitContext,
 } from "./plan-input.ts";
-import { readRecords, type Run, runPaths } from "./run-store.ts";
+import { laneFile, readRecords, type Run, runPaths } from "./run-store.ts";
 import { standingRules } from "./run-service.ts";
 import { verifierBrief } from "./verifier-brief.ts";
 
@@ -145,7 +145,7 @@ function failingCheck(run: Run, milestone: string): string[] {
 /** The fast check of each lane of a milestone: a fix worker reruns those whose files it changes. */
 function fastChecks(run: Run, s: RunState, milestone: string): string[] {
   const rows = lanesOf(s, milestone).flatMap((l) => {
-    const check = parseLaneHeader(read(join(runPaths(run.dir).lanes, `${l.id}.md`))).fastCheck;
+    const check = parseLaneHeader(read(laneFile(run, l.id))).fastCheck;
     return check ? [`- ${l.id} (${l.owns.join(", ")}): \`${check}\``] : [];
   });
   return rows.length
@@ -546,7 +546,7 @@ export async function renderBrief(
   // a knowledge file that cannot be read adds nothing
   const rules = rulesBlock(await standingRules(run.meta.repo, role).catch(() => ""), role);
   const lane = judge ? null : a.lane;
-  const laneText = lane === null ? "" : read(join(runPaths(run.dir).lanes, `${lane}.md`));
+  const laneText = lane === null ? "" : read(laneFile(run, lane));
   // the lane file is the last of part 3, so the unit-context cap covers it too (a resumed thread renders none of it)
   const inLane = lane !== null && laneText && !resumed;
   return composeBrief(

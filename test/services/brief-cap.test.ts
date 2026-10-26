@@ -19,6 +19,15 @@ describe("capping a brief's long texts (plan 44 D7)", () => {
     expect(capText(run, text, FINDING_MAX)).toBe(cut);
   });
 
+  it("a cut never splits a character and never leaves a code fence open", () => {
+    const { run } = freshRun();
+    const emoji = capText(run, "😀".repeat(100), 10);
+    expect(emoji).toStartWith("😀😀");
+    expect(emoji).not.toContain("�");
+    const fenced = capText(run, `see:\n\`\`\`ts\n${"const a = 1;\n".repeat(50)}\`\`\`\n`, 100);
+    expect((fenced.split("\n[… cut")[0] as string).match(/^```/gm)).toHaveLength(2);
+  });
+
   it("a text within the cap is returned as it is, and writes nothing", () => {
     const { run } = freshRun();
     expect(capText(run, "BUG a — b", FINDING_MAX)).toBe("BUG a — b");

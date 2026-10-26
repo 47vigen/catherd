@@ -1,6 +1,7 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
+import { unitMilestone } from "../domain/branch.ts";
 import { cutText, maskFences } from "../domain/util.ts";
 import { parseLaneHeader } from "../domain/lane.ts";
 import {
@@ -19,7 +20,7 @@ import {
 import type { Role } from "../domain/roles.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import { replayRun } from "./run-events-store.ts";
-import { type Run, runPaths } from "./run-store.ts";
+import { laneFile, laneIds, type Run, runPaths } from "./run-store.ts";
 
 /** The run's copies of the owner's plan files: isolated roles read these, never the originals (plan 32). */
 export const PLAN_INPUT_DIR = "plan-input";
@@ -87,19 +88,7 @@ function planFiles(run: Run): { path: string; doc: PlanDoc }[] {
 /** The run's plan as documents: the copies in `run.started.plan` order; else plan.md; none when neither exists. */
 export const planDocs = (run: Run): PlanDoc[] => planFiles(run).map((f) => f.doc);
 
-const natural = (a: string, b: string): number => a.localeCompare(b, "en", { numeric: true });
-
-/** Every lane file's id, in lane order. */
-function laneIds(run: Run): string[] {
-  const dir = runPaths(run.dir).lanes;
-  return (existsSync(dir) ? readdirSync(dir) : [])
-    .filter((f) => f.endsWith(".md"))
-    .map((f) => f.slice(0, -3))
-    .sort(natural);
-}
-
-const laneRefs = (run: Run, lane: string): string[] =>
-  parseLaneHeader(read(join(runPaths(run.dir).lanes, `${lane}.md`)) ?? "").tasks;
+const laneRefs = (run: Run, lane: string): string[] => parseLaneHeader(read(laneFile(run, lane)) ?? "").tasks;
 
 /** The plan tasks a lane's `Tasks:` line names; a ref that resolves to none is left out (planProblems names it). */
 export function laneTasks(run: Run, lane: string): PlanTask[] {
@@ -247,7 +236,6 @@ function sectionOf(text: string, ref: string): string | null {
 }
 
 /** The milestone a unit (`M1.L2`, `M1`) belongs to; the run unit and any other name have none. */
-const unitMilestone = (unit: string): string | null => /^(M\d+)(?:\.|$)/.exec(unit)?.[1] ?? null;
 
 /**
  * The A-lines `role` reads for `unit`: its milestone's lines whose owner tag it reads (plan 44 D4); every line of
@@ -329,8 +317,10 @@ export function fitUnit(run: Run, blocks: string[]): string[] {
     const share = Math.floor(Math.max(room, 0) / (bySize.length - n));
     if (cost(block) > share) {
       const pointer = `[… cut: ${readHint(run, block)}]`;
-      const kept = cutText(block, share - 2 - Buffer.byteLength(pointer) - 1);
-      out[i] = kept ? `${kept}\n${pointer}` : pointer;
+      // a cut <plan-task> keeps its closing tag
+      const close = block.startsWith("<plan-task") ? "\n</plan-task>" : "";
+      const kept = cutText(block, share - 2 - Buffer.byteLength(pointer) - 1 - Buffer.byteLength(close));
+      out[i] = `${kept ? `${kept}\n${pointer}` : pointer}${close}`;
     }
     room -= cost(out[i] as string);
   }
