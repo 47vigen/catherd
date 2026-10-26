@@ -109,9 +109,8 @@ describe("decide", () => {
     const r = await svc(f).decide(req({ runDir: dir, floor: LADDER[3] as string }));
     expect(r).toMatchObject({ ok: true, rung: LADDER[3], level: 0, levels: 1, source: "floor", p: null });
     expect(f.sent).toHaveLength(0);
-    expect(readJsonl<{ call: string; rung: string }>(join(dir, "decisions.jsonl")).rows).toEqual([
-      expect.objectContaining({ call: "decide", rung: LADDER[3] }),
-    ]);
+    // the decide effect writes the decision's row, so the port writes none (plan 44 D28)
+    expect(readJsonl(join(dir, "decisions.jsonl")).rows).toEqual([]);
   });
 
   it("held and refused rungs leave the list", async () => {

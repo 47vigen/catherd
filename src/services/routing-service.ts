@@ -8,7 +8,6 @@ import {
   judgeVerdict as judgeDecisionVerdict,
   levelsOf,
   pickLevel,
-  sha256,
   VERDICT_OPTIONS as DECISION_OPTIONS,
   type VerdictSetName,
 } from "../domain/decision.ts";
@@ -47,13 +46,7 @@ import {
 import { log } from "../infra/log.ts";
 import { catalogQuery, freshenDiscovery, loadCatalog, startIndex } from "./catalog-service.ts";
 import { type Asked, askJev, type JevOpts, jevQuestions, logJev } from "./jev-service.ts";
-import {
-  type DecisionConfig,
-  askDecision,
-  decisionQuestions,
-  logDecision,
-  probeDecision,
-} from "./decision-service.ts";
+import { type DecisionConfig, askDecision, decisionQuestions, probeDecision } from "./decision-service.ts";
 import type {
   DecideAnswer,
   DecideRequest,
@@ -71,7 +64,7 @@ import { readEvents } from "./run-events-store.ts";
 /** The most Jev route requests one batch has in flight at once. */
 export const JEV_PARALLEL = 4;
 
-function routingProfile(
+export function routingProfile(
   v: ProfileView,
   role: Role,
   spentFraction: number,
@@ -478,29 +471,8 @@ async function decideRung(req: DecideRequest, o: RoutingOpts): Promise<DecideAns
       req.usage,
     );
   };
-  const row = (asked: Awaited<ReturnType<typeof askDecision>> | null, extra: Record<string, unknown>) =>
-    logDecision(req.runDir, {
-      call: "decide",
-      key: asked?.meta.key ?? "",
-      stateHash: asked?.meta.stateHash ?? "",
-      model: asked?.meta.model ?? null,
-      requestId: asked?.meta.requestId ?? null,
-      usage: asked?.meta.usage ?? null,
-      latencyMs: asked?.meta.latencyMs ?? null,
-      attempts: asked?.meta.attempts ?? 0,
-      // no answers: the cache reads only rows that hold them, and askDecision logged those
-      answers: null,
-      name: req.name,
-      unit: req.unit,
-      role: req.role,
-      floor: req.floor,
-      levels: n,
-      briefHash: sha256(req.state.brief),
-      ...extra,
-    });
   if (n === 1) {
     const t = choose(0);
-    row(null, { level: 0, rung: t.rung, source: "floor", probabilities: {} });
     return {
       ok: true,
       rung: t.rung,
@@ -538,13 +510,6 @@ async function decideRung(req: DecideRequest, o: RoutingOpts): Promise<DecideAns
   const { floor, cap, noulMin } = f.sets.difficulty;
   const pick = pickLevel(score.probabilities, n, cfg.minConfidence, nouls, { floor, cap, noulMin });
   const t = choose(pick.level);
-  row(asked, {
-    level: pick.level,
-    rung: t.rung,
-    source: "model",
-    probabilities: score.probabilities,
-    rule: pick.rule,
-  });
   return {
     ok: true,
     rung: t.rung,

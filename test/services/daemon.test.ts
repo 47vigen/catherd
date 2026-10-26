@@ -365,6 +365,7 @@ function fakeSteps(run: Run, deps: Deps, clock: { now(): number }): Effects & { 
       actions.push(a);
       switch (a.type) {
         case "machineCheck":
+        case "decide":
           return real.run(a, s);
         case "readPlan":
           return void (await add({ type: "plan.ready", milestones: CHECKED_PLAN }));
@@ -487,6 +488,8 @@ describe("the daemon's machine check (plan 40 D1)", () => {
       sleep: () => new Promise<void>((r) => setImmediate(r)),
     };
     const deps = fakeDeps({ now: clock.now });
+    // the rules review at the run's end is decided like any role, so the profile names a judge
+    deps.view.roles.judge = { enabled: true, access: "read-only", rungs: ["codex:gpt-6-sol#high"] };
     const fx = fakeSteps(run, deps, clock);
     // the owner gave the plan: no approval waits between plan.ready and the first lane
     await appendEvent(
