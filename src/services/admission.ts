@@ -41,7 +41,7 @@ import { finalizeDispatch } from "./finalize.ts";
 import { gateEnvParts, readGateEnv } from "./gate-env.ts";
 import { assertNotPaused } from "./pause.ts";
 import { currentOwns } from "./lane-edit.ts";
-import { planContext } from "./plan-input.ts";
+import { unitContext } from "./plan-input.ts";
 import { standingRules } from "./run-service.ts";
 import { unfinishedAfter } from "./protocol.ts";
 import { runProfile } from "./run-pin.ts";
@@ -365,7 +365,10 @@ export async function admit(
       // the 1.x path (tests, a 1.5 coordinator): the task is part 4; plan 32 and 34: the plan's preamble and the
       // repo's standing rules for this role are part 3 (a knowledge file that cannot be read adds nothing)
       const rules = await standingRules(run.meta.repo, i.role).catch(() => "");
-      const unit = [planContext(run, i.role, milestoneOfName(i.lane ?? i.name)), rulesBlock(rules, i.role)]
+      const unit = [
+        ...unitContext(run, i.role, i.lane ?? milestoneOfName(i.name) ?? i.name),
+        rulesBlock(rules, i.role),
+      ]
         .filter(Boolean)
         .join("\n\n");
       const briefCtx: BriefContext = {

@@ -12,7 +12,7 @@ import { resetReadiness } from "../../src/services/backends.ts";
 import { setGateEnv } from "../../src/services/gate-env.ts";
 import { latestDispatch } from "../../src/services/dispatches.ts";
 import { ownsAdd } from "../../src/services/lane-edit.ts";
-import { copyPlanInputs, planContext } from "../../src/services/plan-input.ts";
+import { copyPlanInputs } from "../../src/services/plan-input.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import { addKnowledge } from "../../src/services/run-service.ts";
 import { appendRecord, readRecords } from "../../src/services/run-store.ts";
@@ -20,6 +20,7 @@ import { claimTree } from "../../src/services/milestone-tree.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
+import { type OpencodeModel, withOpencodeScenario } from "../sim/sim-scenarios.ts";
 import {
   branchRun,
   briefFor,
@@ -33,6 +34,10 @@ import {
   testView,
   writeLane,
 } from "./helpers.ts";
+
+const OC_MODELS = JSON.parse(
+  readFileSync(join(import.meta.dir, "..", "fixtures", "adapters", "opencode", "models.json"), "utf8"),
+).data as OpencodeModel[];
 
 afterEach(snapshotEnv());
 // a test that needs a backend with no adapter unregisters a real one (plan 17 Ruling X2)
@@ -114,6 +119,40 @@ describe("admission in a worktree (plan 35)", () => {
     expect((await envOf(verifier)).COMPOSE_PROJECT_NAME).toBe("mine");
   });
 
+  it("a role runs with Honcho off, and a gate env value HONCHO_ENABLED=true wins", async () => {
+    const { repo, run } = setup();
+    const base = testView();
+    const deps = fakeDeps({
+      view: testView({
+        roles: { ...base.roles, verifier: { enabled: true, access: "read-only", rungs: [LADDER[0]!] } },
+      }),
+    });
+    const envOf = async (over: Partial<AdmitInput>) =>
+      JSON.parse(readFileSync((await admit(deps, run, input(over))).specPath, "utf8")).env;
+    const verifier = {
+      role: "verifier" as const,
+      name: "verifier-M1",
+      lane: null,
+      rung: "codex:gpt-6-luna#high",
+    };
+    expect((await envOf({})).HONCHO_ENABLED).toBe("false");
+    expect((await envOf(verifier)).HONCHO_ENABLED).toBe("false");
+    await setGateEnv(repo, "HONCHO_ENABLED", { value: "true" });
+    expect((await envOf({ ...verifier, name: "verifier-M2" })).HONCHO_ENABLED).toBe("true");
+  });
+
+  it("an opencode role gets its scratch TMPDIR", async () => {
+    const { run } = setup();
+    Object.assign(process.env, withOpencodeScenario({ models: OC_MODELS }).env);
+    const rung = "opencode:opencode-go/kimi-k3#max";
+    const view = testView();
+    view.roles.worker = { enabled: true, access: "workspace-write", rungs: [rung] };
+    const { specPath } = await admit(fakeDeps({ view }), run, input({ rung }));
+    expect(JSON.parse(readFileSync(specPath, "utf8")).env.TMPDIR).toBe(
+      realpathSync(join(run.dir, "scratch", "worker-M1.L1")),
+    );
+  });
+
   it("without cwd, admits in the repo as 1.5", async () => {
     const { repo, run } = setup();
     const { d, specPath } = await admit(fakeDeps(), run, input());
@@ -130,11 +169,11 @@ describe("admission", () => {
     copyPlanInputs(run, [plan]);
     const { d } = await admit(fakeDeps(), run, input());
     const brief = readFileSync(dispatchPaths(d.dir).brief, "utf8");
+    // plan 44 D12: part 3 is the unit's context (its plan tasks), not the plan's preamble
     expect(brief).toContain(
-      "<unit-context>\nThe plan's preamble (p.md), which applies to every task:\n\n# Plan P\nGoal: a wallet.\n\nYour lane file,",
+      "<unit-context>\nYour A-lines:\nA1 it works\n\nRead on demand:\n- plan-input/p.md",
     );
-    // the architect's brief carries no preamble: it translates the plan itself
-    expect(planContext(run, "architect")).toBeNull();
+    expect(brief).not.toContain("which applies to every task");
   });
 
   it("a lane's context comes from its own milestone", async () => {
@@ -148,8 +187,8 @@ describe("admission", () => {
     writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
     const { d } = await admit(fakeDeps(), run, input());
     const brief = readFileSync(dispatchPaths(d.dir).brief, "utf8");
-    expect(brief).toContain("Goal: alpha.");
-    expect(brief).not.toContain("Goal: beta.");
+    expect(brief).toContain("### Task 1: add the store");
+    expect(brief).not.toContain("### Task 2: docs");
   });
 
   it("a resumed dispatch's brief.md is this round only, and brief-full.md the four parts", async () => {
@@ -193,7 +232,7 @@ describe("admission", () => {
     expect(context).toContain("always A");
     expect(context).toContain("only W");
     expect(context).not.toContain("only R");
-    expect(context.indexOf("The plan's preamble")).toBeLessThan(context.indexOf("Standing rules"));
+    expect(context.indexOf("Your A-lines")).toBeLessThan(context.indexOf("Standing rules"));
 
     const other = setup();
     const { d: none } = await admit(fakeDeps(), other.run, input());

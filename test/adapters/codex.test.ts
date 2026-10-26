@@ -93,6 +93,8 @@ describe("codex plan", () => {
       "-c",
       "model_reasoning_effort=high",
       "--json",
+      "-c",
+      "tool_output_token_limit=8000",
       "-o",
       "/d/reply.md",
       ...codexGrants("workspace-write"),
@@ -110,6 +112,13 @@ describe("codex plan", () => {
       const a = codexAdapter.plan(req({ rung, thread })).args;
       expect(a.join(" ")).not.toContain("model_reasoning_effort");
       expect(a.slice(a.indexOf("-m"), a.indexOf("-m") + 3)).toEqual(["-m", "gpt-6-sol", "--json"]);
+    }
+  });
+
+  it("codex clamps tool output", () => {
+    for (const thread of [null, "019a-thread-1"]) {
+      const a = codexAdapter.plan(req({ thread })).args;
+      expect(a[a.indexOf("tool_output_token_limit=8000") - 1]).toBe("-c");
     }
   });
 

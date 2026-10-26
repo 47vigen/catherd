@@ -17,6 +17,8 @@ import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { dispatch, type DispatchInput, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { type Admit, admitPath, type Dispatch, roleDir, setLatest } from "../../src/services/dispatches.ts";
 import type { Deps, ProfilePort, ProfileView, RoutingPort } from "../../src/services/ports.ts";
+import { unitContext } from "../../src/services/plan-input.ts";
+import { milestoneOfName } from "../../src/services/verifier-brief.ts";
 import { result } from "../../src/services/run-service.ts";
 import { appendRecord, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { makeRecord } from "../domain/make-record.ts";
@@ -34,12 +36,15 @@ export function briefFor(
   o: { name?: string; role?: Role; lane?: string | null; backend?: string; isolated?: boolean } = {},
 ): string {
   const lane = o.lane === undefined ? "M1.L1" : o.lane;
+  const name = o.name ?? "worker-M1.L1";
+  const role = o.role ?? "worker";
   return composeBrief(
-    { facts: [], unit: [], round: [text] },
+    // part 3 as admission composes it (plan 44 D12): the unit's context, whose unit is the lane, else the milestone
+    { facts: [], unit: unitContext(run, role, lane ?? milestoneOfName(name) ?? name), round: [text] },
     {
       run: run.id,
-      name: o.name ?? "worker-M1.L1",
-      role: o.role ?? "worker",
+      name,
+      role,
       lane:
         lane === null
           ? null

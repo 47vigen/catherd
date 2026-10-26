@@ -17,11 +17,10 @@ export const ROLE_SERVER_BACKENDS: readonly string[] = ["codex", "claude-code"];
 export const SCRATCH_BACKENDS: readonly string[] = ["codex", "claude-code", "opencode"];
 
 /**
- * Whether a role on `backend` gets its scratch as TMPDIR. opencode only when isolated (plan 21 ruling 22): without
- * --standalone its tools run in the shared background service, whose env the client cannot set.
+ * Whether a role on `backend` gets its scratch as TMPDIR. Plan 44 D12: opencode always does, isolated or not, so its
+ * temp files never land in the shared /tmp.
  */
-export function grantsScratch(backend: string, isolated: boolean): boolean {
-  if (backend === "opencode") return isolated;
+export function grantsScratch(backend: string, _isolated: boolean): boolean {
   return SCRATCH_BACKENDS.includes(backend);
 }
 

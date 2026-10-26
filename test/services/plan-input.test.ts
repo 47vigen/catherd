@@ -8,9 +8,7 @@ import {
   laneTasks,
   milestoneTasks,
   numberedALines,
-  PLAN_CONTEXT_MAX,
   PLAN_INPUT_DIR,
-  planContext,
   planDocs,
   planInputPaths,
   planProblems,
@@ -121,93 +119,6 @@ describe("the copies", () => {
     expect(planDocs(run)).toEqual([]);
     writeFileSync(join(run.dir, "plan.md"), PLAN_TEXT);
     expect(planDocs(run).map((d) => d.name)).toEqual(["plan.md"]);
-  });
-});
-
-describe("planContext", () => {
-  it("gives every role but the architect and the judge the plan's preamble", async () => {
-    const { run } = await planRun(["p.md"]);
-    expect(planContext(run, "worker")).toBe(
-      "The plan's preamble (p.md), which applies to every task:\n\n# Plan P\nGoal: a wallet.",
-    );
-    expect(planContext(run, "reviewer")).toBe(planContext(run, "worker"));
-    expect(planContext(run, "architect")).toBeNull();
-    expect(planContext(run, "judge")).toBeNull();
-  });
-
-  it("gives a file with no task whole to a run-level role", async () => {
-    const { run } = await planRun(["c.md"], "# Contracts\nnames\n");
-    expect(planContext(run, "worker")).toBe(
-      "The plan file c.md, which every task follows:\n\n# Contracts\nnames",
-    );
-  });
-
-  it("a milestone gets only its plan files' preambles", async () => {
-    const { run } = await planRun(["a.md", "b.md"], {
-      "a.md": "# A\nalpha rules\n### Task 1: one\nTest: a.test.ts\n",
-      "b.md": "# B\nbeta rules\n### Task 2: two\nTest: b.test.ts\n",
-    });
-    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: a.md#1\n");
-    writeLane(run, "M2.L1", ["src/b.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: b.md#2\n");
-    expect(planContext(run, "worker", "M2")).toBe(
-      "The plan's preamble (b.md), which applies to every task:\n\n# B\nbeta rules",
-    );
-    expect(planContext(run, "worker")).toContain("alpha rules");
-    expect(planContext(run, "worker")).toContain("beta rules");
-    expect(planContext(run, "judge", "M2")).toBeNull();
-  });
-
-  it("a taskless file gives only the cited sections", async () => {
-    const { run } = await planRun(["c.md", "p.md"], {
-      "c.md":
-        "# Contracts\nintro\n## 2. Other\nnot cited\n## 3. Wallet shapes\nthe shapes\n## 4. Locks\nno\n",
-      "p.md": "# P\n### Task 1: one\nSee contract §3.\nTest: a.test.ts\n",
-    });
-    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
-    const text = planContext(run, "worker", "M1") as string;
-    expect(text).toContain("## 3. Wallet shapes\nthe shapes");
-    expect(text).not.toContain("not cited");
-    expect(text).not.toContain("## 4. Locks");
-    expect(text).not.toContain("intro");
-  });
-
-  it("a taskless file that begins at its first section still gives it", async () => {
-    const { run } = await planRun(["c.md", "p.md"], {
-      "c.md": "## 1. Names\nthe names\n## 2. Other\nnot cited\n",
-      "p.md": "# P\n### Task 1: one\nSee contract §1.\nTest: a.test.ts\n",
-    });
-    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
-    const text = planContext(run, "worker", "M1") as string;
-    expect(text).toContain("## 1. Names\nthe names");
-    expect(text).not.toContain("not cited");
-  });
-
-  it("a taskless file gives the section whose heading text a task quotes", async () => {
-    const { run } = await planRun(["c.md", "p.md"], {
-      "c.md": "# Contracts\n## Wallet shapes\nthe shapes\n## Locks\nno\n",
-      "p.md": "# P\n### Task 1: one\nFollow Wallet shapes exactly.\nTest: a.test.ts\n",
-    });
-    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
-    const text = planContext(run, "worker", "M1") as string;
-    expect(text).toContain("the shapes");
-    expect(text).not.toContain("## Locks");
-  });
-
-  it("no read-everything pointer past the cap", async () => {
-    const big = await planRun(
-      ["big.md"],
-      `# Big\n${"x".repeat(PLAN_CONTEXT_MAX + 20_000)}\n### Task 1: t\nTest: a.test.ts\n`,
-    );
-    const text = planContext(big.run, "worker") as string;
-    expect(text).not.toContain("too long to repeat");
-    expect(text.match(/\[… \d+ characters of /g)).toHaveLength(1);
-    expect(text).toEndWith(`characters of ${PLAN_INPUT_DIR}/big.md cut: read it with read_run_file]`);
-    expect(text.length).toBeLessThan(PLAN_CONTEXT_MAX + 400);
-  });
-
-  it("is null for a run with no plan, and for a 1.5 run", async () => {
-    const { run } = freshRun();
-    expect(planContext(run, "worker")).toBeNull();
   });
 });
 

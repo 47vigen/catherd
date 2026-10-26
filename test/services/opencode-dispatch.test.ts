@@ -115,14 +115,12 @@ describe("dispatch on opencode v2 (simulator)", () => {
     expect(sim.ran()).toBe(false);
   });
 
-  it("gives the scratch TMPDIR only to an isolated (standalone) role (plan 21 ruling 22)", async () => {
-    // without --standalone opencode runs tools in its shared background service, whose env catherd cannot set
+  it("gives the scratch TMPDIR to an opencode role, isolated or not (plan 44 D12)", async () => {
     const { run, deps } = setup({ eventsFile: join(FX, "ok-simple.jsonl") });
     await runRole(deps, input(run.id));
     const shared = latestDispatch(run, "worker-M1.L1")!;
     const sharedSpec = JSON.parse(readFileSync(dispatchPaths(shared.dir).spec, "utf8"));
-    expect(sharedSpec.env.TMPDIR).toBeUndefined();
-    expect(existsSync(scratchDir(run, "worker-M1.L1"))).toBe(false);
+    expect(sharedSpec.env.TMPDIR).toBe(realpathSync(scratchDir(run, "worker-M1.L1")));
     deps.view.isolated = { opencode: true };
     await runRole(deps, input(run.id, { name: "worker-M1.L1b" }));
     const own = latestDispatch(run, "worker-M1.L1b")!;
