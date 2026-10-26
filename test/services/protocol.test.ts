@@ -613,6 +613,8 @@ describe("After: on a daemon run (plan 40 D22)", () => {
       foreign: ["src/other.ts"],
       replyPath: "roles/worker-M1.L1/D1/reply.md",
     });
+    // every lane stop waits for its class before the reducer acts on it (plan 44 D9)
+    await appendEvent(run, { type: "stop.classified", dispatchId: "D1", reason: "check_broken" });
     expect(unfinishedAfter(run, "M1.L4")).toEqual([]);
   });
 });
