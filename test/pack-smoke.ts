@@ -28,6 +28,7 @@ const SHIPPED = [
   "web/dist/index.html",
   "catalog/models.json",
   "catalog/jev.json",
+  "catalog/decision.json",
   "plugin/.claude-plugin/plugin.json",
   "plugin/.mcp.json",
   "plugin/.codex-plugin/plugin.json",

@@ -9,5 +9,6 @@ describe("assetPath", () => {
       join(import.meta.dir, "..", "..", "catalog", "models.json"),
     );
     expect(existsSync(assetPath("catalog/jev.json"))).toBe(true);
+    expect(existsSync(assetPath("catalog/decision.json"))).toBe(true);
   });
 });
