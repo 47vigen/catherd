@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { relative, sep } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId, parseRung } from "../domain/ids.ts";
-import { assertLaneValues } from "../domain/lane.ts";
+import { assertLaneValues, restatedALine } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { rulesFor, tagNames } from "../domain/rules.ts";
@@ -221,7 +221,14 @@ export function writeRunFile(i: { run: string; path: string; content: string }):
     );
   // spec 1.5 "Lane editing": a lane's header values are checked when it is written, not first at preflight
   const lane = /^lanes\/([^/]+)\.md$/.exec(rel);
-  if (lane) assertLaneValues(i.content, `lanes/${lane[1]}.md`);
+  if (lane) {
+    assertLaneValues(i.content, `lanes/${lane[1]}.md`);
+    const restated = restatedALine(i.content, run.meta.aLines);
+    if (restated)
+      throw new CatherdError("E_LANE_INVALID", `${rel} restates ${restated.id}: "${restated.line}"`, {
+        fix: `drop the line: the role reads ${restated.id} already`,
+      });
+  }
   writeTextAtomic(file, i.content);
   return { path: file, bytes: Buffer.byteLength(i.content) };
 }

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
+  A_LINE_OWNERS,
+  aLineOwner,
   approvalQuestion,
   baselineItems,
   CHECK_COVERED,
@@ -14,6 +16,7 @@ import {
   milestoneSection,
   parsePlanDoc,
   planInputNames,
+  readsALine,
   reapprovalQuestion,
   resolveTask,
 } from "../../src/domain/plan-doc.ts";
@@ -267,4 +270,23 @@ it("milestoneSection stops at the next ## heading", () => {
   const plan = "## M1 — one\nCheck: a && b\n### Task 1: x\nprose\n## M2 — two\nCheck: c && d\n";
   expect(milestoneSection(plan, "M1")).toBe("## M1 — one\nCheck: a && b\n### Task 1: x\nprose");
   expect(milestoneSection(plan, "M3")).toBeNull();
+});
+
+describe("A-line owner tags", () => {
+  it("an A-line names its owner", () => {
+    expect(aLineOwner("A3 [verifier] — the build boots")).toBe("verifier");
+    expect(aLineOwner("- A2 [run] — x")).toBe("run");
+    expect(aLineOwner("A1 — y")).toBeNull();
+    expect(aLineOwner("A4 [judge] — z")).toBeNull();
+  });
+
+  it("a role reads its own lines and run's", () => {
+    for (const owner of ["worker", "run", null] as const) expect(readsALine("worker", owner)).toBe(true);
+    expect(readsALine("worker", "reviewer")).toBe(false);
+    expect(readsALine("writer", "worker")).toBe(true);
+    expect(readsALine("ui-reviewer", "reviewer")).toBe(true);
+    expect(readsALine("ui-reviewer", "verifier")).toBe(false);
+    for (const owner of A_LINE_OWNERS) expect(readsALine("judge", owner)).toBe(true);
+    expect(readsALine("architect", "verifier")).toBe(true);
+  });
 });

@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { RunEventInput } from "../../src/domain/run-events.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
+import { writeRunFile } from "../../src/services/run-service.ts";
 import {
   checkLogs,
   commitDiff,
@@ -12,7 +13,7 @@ import {
   runDoc,
   runShas,
 } from "../../src/services/run-files.ts";
-import { appendRecord, appendRoute, type Run, runPaths } from "../../src/services/run-store.ts";
+import { appendRecord, appendRoute, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { makeRecord } from "../domain/make-record.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { freshRun } from "./helpers.ts";
@@ -271,5 +272,26 @@ describe("commit diffs", () => {
     const d = await commitDiff(run, sha);
     expect(d.truncated).toBe(true);
     expect(d.text.length).toBe(1024 * 1024);
+  });
+});
+
+describe("lane files", () => {
+  it("a lane file that restates an A-line is refused", () => {
+    const { repo } = freshRun();
+    const run = createRun({
+      repo,
+      title: "restate",
+      aLines: ["A1 [worker] — the panel boots in a browser and every screen renders without console errors"],
+      version: "0.0.0-test",
+    });
+    const lane = (extra: string) =>
+      `# M1.L1 — x\nOwns: src/a/\nKind: repo_code\nDifficulty: build\n${extra}\n`;
+    const restating = lane("- the panel boots in a browser and every screen renders");
+    expect(() => writeRunFile({ run: run.id, path: "lanes/M1.L1.md", content: restating })).toThrow(
+      expect.objectContaining({ code: "E_LANE_INVALID", message: expect.stringContaining("A1") }),
+    );
+    expect(
+      writeRunFile({ run: run.id, path: "lanes/M1.L1.md", content: lane("- boots") }).bytes,
+    ).toBeGreaterThan(0);
   });
 });
