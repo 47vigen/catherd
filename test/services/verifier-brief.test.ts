@@ -140,4 +140,18 @@ describe("the composed verifier brief (plan 44)", () => {
     // a resumed thread gets the notes too: the gate environment can change between rounds
     expect(await renderBrief(run, runningLog().state(), verify, true)).toContain(GATE_NOTES_HEADING);
   });
+
+  it("a verifier brief lists the commands to run", async () => {
+    const { run } = freshRun();
+    writeFileSync(join(run.dir, "plan.md"), "# P\n\n## M1 — core\n- A1 [run] it works\nCheck: bun test\n");
+    const s = runningLog().state();
+    const m = s.milestones.find((x) => x.id === "M1") as { commit: string | null; checkedOn: string | null };
+    m.commit = "abc123def456abc";
+    m.checkedOn = null;
+    const open = await renderBrief(run, s, verify, false);
+    expect(open).toContain("\nRUN: bun test\n");
+    expect(open).toContain("RAN: <command> — exit <n> — <log path>");
+    m.checkedOn = m.commit;
+    expect(await renderBrief(run, s, verify, false)).not.toContain("RUN: bun test");
+  });
 });

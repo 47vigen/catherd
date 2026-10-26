@@ -775,6 +775,75 @@ describe("what a stop says (30b)", () => {
     expect(endedEvent(run, done, "M1.L1")).toMatchObject({ reason: null });
   });
 
+  it("a verifier PASS with no RAN line fails", () => {
+    const { run } = freshRun();
+    const record = withReply(
+      run,
+      { role: "verifier", name: "verifier-M1" },
+      "VERDICT: PASS\nSTATUS: complete — ok",
+    );
+    writeFileSync(join(run.dir, dirname(record.replyPath), "brief.md"), "Verify.\nRUN: bun test\n");
+    expect(endedEvent(run, record, "M1")).toMatchObject({
+      verdict: "fail",
+      findings: [{ label: "BLOCKER", text: "FAIL bun test: NOT RUN (no RAN line)" }],
+    });
+  });
+
+  it("a verifier PASS with its RAN line and log passes", () => {
+    const { run, repo } = setup();
+    writeFileSync(join(repo, "v.log"), "ok\n");
+    const record = withReply(
+      run,
+      { role: "verifier", name: "verifier-M1" },
+      `VERDICT: PASS\nRAN: bun test — exit 0 — ${join(repo, "v.log")}\nSTATUS: complete — ok`,
+    );
+    writeFileSync(join(run.dir, dirname(record.replyPath), "brief.md"), "RUN: bun test\n");
+    expect(endedEvent(run, record, "M1")).toMatchObject({ verdict: "pass", findings: [] });
+    // a log relative to the tree reads the same
+    const rel = withReply(
+      run,
+      { role: "verifier", name: "verifier-M1" },
+      "VERDICT: PASS\nRAN: bun test — exit 0 — v.log\nSTATUS: complete — ok",
+    );
+    writeFileSync(join(run.dir, dirname(rel.replyPath), "brief.md"), "RUN: bun test\n");
+    expect(endedEvent(run, rel, "M1")).toMatchObject({ verdict: "pass" });
+  });
+
+  it("a lane end names its foreign test edits", () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/"]);
+    const record = withReply(
+      run,
+      {
+        role: "worker",
+        name: "worker-M1.L1",
+        lane: "M1.L1",
+        violations: ["test/b.test.ts", "docs/x.md"],
+      },
+      "Done.\nSTATUS: complete — ok",
+    );
+    expect(endedEvent(run, record, "M1.L1")).toMatchObject({ testEdits: ["test/b.test.ts"] });
+    const clean = withReply(run, { role: "worker", name: "worker-M1.L1", lane: "M1.L1" }, "Done.");
+    expect(endedEvent(run, clean, "M1.L1")).not.toHaveProperty("testEdits");
+  });
+
+  it("a failed fast check carries its class", async () => {
+    const { run, deps, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a.ts"], "echo 'connection refused'; exit 1");
+    await seed(run);
+    deps.routing.failureClass = async () => ({
+      value: "harness",
+      probability: 0.9,
+      confidence: 1,
+      source: "jev",
+    });
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    expect(lastOf(run, "check.ran")).toMatchObject({ exit: 1, failureClass: "harness" });
+    writeLane(run, "M1.L1", ["src/a.ts"], "true");
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    expect(lastOf(run, "check.ran")?.failureClass).toBeUndefined();
+  });
+
   it("check.ran names the blamed sibling lanes", async () => {
     const { run, fx } = setup();
     writeLane(run, "M1.L1", ["src/a.ts"], "echo 'src/a.ts:1 error'; echo 'src/b.ts:3 error'; exit 1");
@@ -848,6 +917,53 @@ describe("classifying a stop (30b)", () => {
       expect.objectContaining({ dispatchId, reason: "needs_user" }),
     );
     expect(calls).toBe(1);
+  });
+
+  it("classifies a stop that names its reason by class only, and a throwing class question still ends the wait", async () => {
+    const { run, deps, fx } = setup();
+    let causes = 0;
+    deps.routing.stopCause = async () => (
+      causes++,
+      { value: "needs_user", probability: 0.9, confidence: 1, source: "jev" }
+    );
+    deps.routing.failureClass = async () => ({
+      value: "harness",
+      probability: 0.9,
+      confidence: 1,
+      source: "jev",
+    });
+    const dispatchId = await stoppedRun(deps, run);
+    const named = withReply(
+      run,
+      {
+        role: "worker",
+        name: "worker-M1.L1",
+        lane: "M1.L1",
+        replyStatus: "blocked",
+        replyWhy: "too_hard: x",
+      },
+      "x\nSTATUS: blocked — too_hard: x",
+    );
+    await appendRecord(run, named);
+    await fx.run({ type: "classify", dispatchId: named.dispatchId }, replayRun(run));
+    expect(lastOf(run, "stop.classified")).toMatchObject({
+      dispatchId: named.dispatchId,
+      reason: "too_hard",
+      failureClass: "harness",
+    });
+    expect(causes).toBe(0);
+    await fx.run({ type: "classify", dispatchId }, replayRun(run));
+    expect(lastOf(run, "stop.classified")).toMatchObject({
+      reason: "needs_user",
+      failureClass: "harness",
+    });
+    deps.routing.failureClass = async () => {
+      throw new Error("down");
+    };
+    await fx.run({ type: "classify", dispatchId }, replayRun(run));
+    const last = lastOf(run, "stop.classified");
+    expect(last?.reason).toBe("needs_user");
+    expect(last?.failureClass).toBeUndefined();
   });
 
   it("classifies to null with Jev off, for other, or for an unsure answer", async () => {

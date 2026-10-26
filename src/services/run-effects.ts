@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
 import { mergeSubject, mrCommand, unitMilestone } from "../domain/branch.ts";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import {
@@ -17,7 +17,9 @@ import { milestoneAfter, onlyAllowedHits, parseLaneHeader } from "../domain/lane
 import { milestoneProblems } from "../domain/plan-lint.ts";
 import { mayStartMilestone, memoryLimitsOf, memoryLoad, neededMb } from "../domain/milestone-memory.ts";
 import { changedDecisions, formatCommand, milestoneCheck, reapprovalQuestion } from "../domain/plan-doc.ts";
+import { parseRanLines, parseRunLines, verifierShortfall } from "../domain/ran-lines.ts";
 import type { RunRecord } from "../domain/record.ts";
+import { guardedEdits } from "../domain/test-guard.ts";
 import { currentRoute } from "../domain/route.ts";
 import type { Role } from "../domain/roles.ts";
 import { type Finding, type MilestonePlan, RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
@@ -147,22 +149,26 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
   let verdict: "pass" | "fail" | "blocked" | null = null;
   let probe: string | null = null;
   let noVerdict = false;
+  let shortfall: string[] = [];
   let findings = record.role === "reviewer" || record.role === "ui-reviewer" ? parseFindings(reply) : [];
   if (record.role === "verifier") {
     const first = replyVerdict(run, record) ?? "";
     probe = blockedByEnvironment(first);
     if (probe !== null) verdict = "blocked";
     else if (PASS_LINE.test(first)) {
-      verdict = "pass";
+      shortfall = ranShortfall(run, record, unit, reply);
+      verdict = shortfall.length ? "fail" : "pass";
       // plan 34: a PASS lands with the NITs it lists as known issues
-      findings = parseFindings(reply).filter((f) => f.label === "NIT");
+      findings = shortfall.length ? [] : parseFindings(reply).filter((f) => f.label === "NIT");
     }
     // a reply with no readable verdict is not a pass: the next fix round starts from what it said
     else if (record.status === "ok") {
       verdict = "fail";
       noVerdict = !FIRST_LINE.test(first);
     }
-    if (verdict === "fail") {
+    if (shortfall.length)
+      findings = shortfall.map((text) => ({ label: "BLOCKER" as const, text, file: null }));
+    else if (verdict === "fail") {
       findings = parseFailLines(reply);
       // a FAIL that lists no failing line still routes what it said, so the fix round never starts empty
       if (findings.length === 0)
@@ -179,6 +185,7 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
   }
   const stopped = record.replyStatus === "blocked" || record.replyStatus === "refused";
   const reason = stopped ? (parseBlockedReason(record.replyWhy)?.reason ?? null) : null;
+  const testEdits = record.lane ? guardedEdits(record.violations, laneOwnsOf(run, record.lane).own) : [];
   return {
     type: "dispatch.ended",
     dispatchId: record.dispatchId,
@@ -197,7 +204,29 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     siblings: reason === "check_broken" && record.lane ? siblingsOf(run, record.lane, reply) : [],
     replyPath: record.replyPath,
     ...(noVerdict ? { noVerdict: true as const } : {}),
+    ...(testEdits.length ? { testEdits } : {}),
   };
+}
+
+/** Plan 44 D8: the RUN commands of the dispatch's brief that the reply's RAN lines do not show run, clean and logged. */
+function ranShortfall(run: Run, record: RunRecord, unit: string, reply: string): string[] {
+  const brief = record.replyPath ? read(join(run.dir, dirname(record.replyPath), "brief.md")) : "";
+  const required = parseRunLines(brief);
+  if (required.length === 0) return [];
+  let tree = run.meta.repo;
+  try {
+    tree = treeOf(run, unitMilestone(unit));
+  } catch {
+    // the milestone's tree is gone: a relative log is read from the repo
+  }
+  const logOk = (path: string): boolean => {
+    try {
+      return statSync(isAbsolute(path) ? path : join(tree, path)).size > 0;
+    } catch {
+      return false;
+    }
+  };
+  return verifierShortfall(required, parseRanLines(reply), logOk);
 }
 
 const ID = /^M[\w-]*\.\S+$/;
@@ -701,6 +730,16 @@ export function realEffects(deps: Deps, run: Run): Effects {
     );
   }
 
+  /** The failure class of a failing text; undefined when the question cannot be asked (read as product). */
+  async function failureClassOf(text: string): Promise<"product" | "harness" | undefined> {
+    try {
+      return (await deps.routing.failureClass(run.dir, text, runProfile(deps, run).jev.use)).value;
+    } catch (e) {
+      log("warn", "daemon", { run: run.id, action: "failureClass", error: errorMessage(e) });
+      return undefined;
+    }
+  }
+
   async function fastCheck(a: Extract<Action, { type: "fastCheck" }>): Promise<void> {
     const header = parseLaneHeader(read(join(runPaths(run.dir).lanes, `${a.lane}.md`)));
     if (!header.fastCheck) {
@@ -745,11 +784,14 @@ export function realEffects(deps: Deps, run: Run): Effects {
     // an absence check whose only hits are the lane's Allow: exceptions has passed
     const allowed = r.code !== 0 && !r.timedOut && onlyAllowedHits(r.lines, header.allow);
     const failed = !allowed && r.code !== 0;
+    // plan 44 D9: a failed check is the work's or the machine's: the class question decides which
+    const failureClass = failed ? await failureClassOf(r.tail.join("\n")) : undefined;
     await append({
       type: "check.ran",
       lane: a.lane,
       exit: allowed ? 0 : r.code,
       tail: r.tail.join("\n"),
+      ...(failureClass ? { failureClass } : {}),
       tree,
       // a check that fails only in a sibling's files still counts: the sibling is not done writing them
       foreign: failed ? foreignOf(run, a.lane, (r.lines.length ? r.lines : r.tail).join("\n")) : [],
@@ -852,29 +894,43 @@ export function realEffects(deps: Deps, run: Run): Effects {
     });
   }
 
-  /** Why a stop gave no reason: Jev reads the end of the reply; null when it is off, unsure or says other. */
+  /**
+   * Every lane stop is classed before it acts (plan 44 D9): the failure class always, and the cause only when the end
+   * names none (Jev reads the end of the reply; null when it is off, unsure or says other). A question that fails is
+   * none, and the append still ends the wait.
+   */
   async function classify(a: Extract<Action, { type: "classify" }>): Promise<void> {
     const record = readRecords(run).records.find((r) => r.dispatchId === a.dispatchId);
     let reason: BlockedReason | null = null;
+    let failureClass: "product" | "harness" | undefined;
     if (record) {
       const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
-      try {
-        const v = await deps.routing.stopCause(
-          run.dir,
-          `${record.status}${record.replyStatus ? `, STATUS ${record.replyStatus}` : ""}`,
-          reply,
-          runProfile(deps, run).jev.use,
-        );
-        if (v.source === "jev" && v.value !== "other") reason = v.value;
-      } catch (e) {
-        log("warn", "daemon", {
-          run: run.id,
-          action: "classify",
-          error: errorMessage(e),
-        });
-      }
+      const stopped = record.replyStatus === "blocked" || record.replyStatus === "refused";
+      reason = stopped ? (parseBlockedReason(record.replyWhy)?.reason ?? null) : null;
+      if (reason === null)
+        try {
+          const v = await deps.routing.stopCause(
+            run.dir,
+            `${record.status}${record.replyStatus ? `, STATUS ${record.replyStatus}` : ""}`,
+            reply,
+            runProfile(deps, run).jev.use,
+          );
+          if (v.source === "jev" && v.value !== "other") reason = v.value;
+        } catch (e) {
+          log("warn", "daemon", {
+            run: run.id,
+            action: "classify",
+            error: errorMessage(e),
+          });
+        }
+      failureClass = await failureClassOf(reply.slice(-4000));
     }
-    await append({ type: "stop.classified", dispatchId: a.dispatchId, reason });
+    await append({
+      type: "stop.classified",
+      dispatchId: a.dispatchId,
+      reason,
+      ...(failureClass ? { failureClass } : {}),
+    });
   }
 
   async function commit(a: Extract<Action, { type: "commit" }>, s: RunState): Promise<void> {

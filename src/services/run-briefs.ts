@@ -347,7 +347,8 @@ function verifyBrief(run: Run, s: RunState, a: DispatchAction): Pick<BriefParts,
     .map((l) => l.trim())
     .filter(Boolean)
     .slice(1, 13);
-  const checked = checkedLines(m, milestoneCheck(plan, a.unit));
+  const check = milestoneCheck(plan, a.unit);
+  const checked = checkedLines(m, check);
   return {
     // after a passed Check the A-lines it covers are not the verifier's: only the uncovered ones go, in the round
     unit: unitContext(run, a.role, a.unit).filter((b) => !(checked && b.startsWith("Your A-lines:"))),
@@ -357,6 +358,11 @@ function verifyBrief(run: Run, s: RunState, a: DispatchAction): Pick<BriefParts,
         ? [checked]
         : [
             `Run the milestone's full check, named under "## ${a.unit}" in ${join(run.dir, "plan.md")}, and each lane's fast check where the full check does not cover it.`,
+            ...(check
+              ? [
+                  `RUN: ${check}\nReport each RUN command as RAN: <command> — exit <n> — <log path>; a command you did not run is RAN: <command> — NOT RUN, which fails the milestone.`,
+                ]
+              : []),
             ...(delivered.length
               ? [
                   `This milestone delivers ${delivered.join(", ")}: report each as \`A<n> PASS|FAIL\`, with the command you ran and the decisive output.`,

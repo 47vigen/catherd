@@ -68,4 +68,10 @@ describe("the verifier's prompt (spec 1.1 §7)", () => {
     expect(text).toContain("FAIL file:line — what happens");
     expect(text).toContain("is a NIT line, never a FAIL");
   });
+
+  it("judges from the tree only the lines about the tree, and wants a RAN line for the rest (plan 44 D8)", () => {
+    const text = rolePrompt("verifier", "1.5.0");
+    expect(text).toContain("a submodule pin, the diff's contents, commit history");
+    expect(text).toContain("every other line needs a RAN line");
+  });
 });
