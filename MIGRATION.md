@@ -56,8 +56,8 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
 
 - A blocked reply names a reason: `BLOCKED: needs_user | too_hard | provider_error | no_access | check_broken |
   out_of_scope`. It decides what the daemon does: climb (`too_hard`), retry then fail over (`provider_error`), park
-  (`needs_user`, `no_access`, `out_of_scope`) or wait (`check_broken`). Jev classifies a stop that names none; with
-  Jev off, or unsure, the stop stays unclassified.
+  (`needs_user`, `no_access`, `out_of_scope`) or wait (`check_broken`). The decision model gives a stop that names none a failure class,
+  `product` or `harness` (see "The decision model").
 - A limit fails over to any backend you have configured, never to a weaker rung, with Claude last.
 - `land` rests on catherd's own check. A verifier's reply ends with `HEAD: <the full sha it checked>`, and `land`
   refuses a verdict whose HEAD is not the commit it lands, or that has no `gate_run` record (`catherd gate run` runs
@@ -77,7 +77,7 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
 - A failover stand-in must be indexed, on another quota and at least as intelligent as its rung.
 - A run starts only when every enabled role has an indexed rung, and it keeps the index it started on
   (`<run>/slopalytics.json`).
-- `init` asks one question fewer (no Artificial Analysis key): piped `init` reads three lines, the Jev key, the
+- `init` asks one question fewer (no Artificial Analysis key): piped `init` reads the decision model's url, model and key, the
   profile and whether to replace it. `catherd catalog treat-like` and `catalog sync --unmatched` are removed. The
   provenance in `routes.jsonl` changed shape: the rung's `intelligence`, the bar it was held to (`bar`), its price,
   speed and cost, and the index's `indexedAt`.
@@ -118,15 +118,40 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
 
 ### Routing on one scale
 
-- Bars are percentiles of the intelligence of the shipped models' indexed pairs: copy 20, build 45, logic 60, hard 65. The bars that `catalog.override.json` set are now `bars.<difficulty>` in the profile or
-  `roles.<role>.bars.<difficulty>`, one difficulty at a time.
-- Every kind of lane is held to the same bar, which only its difficulty picks.
-- Jev's yes/no answers can lift a lane to logic or hold it at build.
+- Difficulty bars no longer exist: the decision model picks each dispatch's rung (see "The decision model"). The
+  `bars` and `roles.<role>.bars` profile keys, and the bars of `catalog.override.json`, are dropped.
 - A new default profile caps Opus 5.5 and Sonnet 5.5 at high and GPT-6.1 Sol at xhigh; an existing profile has no
   caps until `catherd profile set maxEffort.<backend>:<model> <effort>`.
 - A worker rung below medium effort is never routed, and `profile validate` names it. Cost never comes ahead of
   that floor in a route, a climb or a failover.
 - Every failover is a row in `routes.jsonl` with `source: "failover"`; a reader of that file skips rows by `source`.
+
+### The decision model
+
+A decision model is called before every dispatch and judge. It gets the exact brief of that role and chooses one of
+N levels, where N is the number of rungs the role has. In a fix round the failed rung is the floor; twice on one
+rung moves the floor up. Jev, the TypeSafe default, difficulty bars, the objective, the climb, the learned start
+and the cheap try are removed.
+
+- **A run needs one.** Set it with `catherd profile set decision.url https://<your-gateway>/v1` and
+  `catherd profile set decision.model <model>`. The key is `CATHERD_DECISION_KEY`, or the one `catherd init`
+  saves. `decision.minConfidence` defaults to 0.8. Without `decision.url` and `decision.model` a run refuses with
+  `E_DECISION_UNSET`; when the probe fails it refuses with `E_DECISION_PROBE`. `catherd doctor` checks both.
+- **Old profiles migrate** once, on first load: `jev`, `bars` and `objective` are dropped, and `typesafeApiKey` in
+  `credentials.json` moves to `decisionKey`. `TYPESAFE_API_KEY` is not read any more. The migrated profile names
+  TypeSafe's URL only when it had a key; otherwise `decision.url` stays unset, and you set it.
+- **No answer:** the call is retried three times, a minute apart, and then the unit parks for the coordinator.
+- **Briefs have four parts:** the role contract, the run facts, the unit context (capped at about 20 KB) and this
+  round. Findings are capped at 2 KB each, and a resumed fix round sends this round only.
+- **The verifier prints `RAN: <cmd> — exit <n> — <log>`** for every command it runs. A check that is missing or
+  marked NOT RUN is a FAIL.
+- **Every stop and failed check gets a failure class,** `product` or `harness`. A harness failure gets one repair
+  dispatch that does not count as a round.
+- **Test guard:** test files are hashed when a lane starts, and a lane that edits a test file it does not own is
+  refused.
+- **Output clamps:** `claude-code` roles get `BASH_MAX_OUTPUT_LENGTH`, `codex` roles get
+  `tool_output_token_limit`, and `opencode` roles get a scratch `TMPDIR`. `opencode` and `cursor` have no output
+  clamp. Every role runs with `HONCHO_ENABLED=false`.
 
 ### Knowledge
 
@@ -156,12 +181,12 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
 
 ### New and removed names
 
-|                         | Added                                                                                                                        | Removed                                                                                            |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Error codes             | `E_ALL_HELD`, `E_RUN_CANCELLED`, `E_TREE`                                                                                    | `E_CONFIG_KEYBIND`                                                                                 |
-| Environment variables   | `CATHERD_PANEL_DIST`, `CATHERD_HEAVY_LOAD_WAIT_MS` (how long a heavy slot waits while the load is high; `0` = no wait)       | `CATHERD_REDUCED_MOTION`, `CATHERD_NO_KITTY`, `CATHERD_STORY`                                      |
-| Config and profile keys | `notify.url`, `bars`, `roles.<role>.bars`, `maxEffort`, `limits.memory`                                                      | `keybinds`, `billing.grok`, `billing.antigravity`, `harness.grok`, `harness.antigravity` (ignored) |
-| Files                   | `<run>/events.jsonl`, `<run>/slopalytics.json`, `plan-input/`, `plan-approved.md`, `~/.local/share/catherd/slopalytics.json` | `catalog.override.json`, `~/.local/share/catherd/sources/`, `docs/tui-frames.md`                   |
+|                         | Added                                                                                                                        | Removed                                                                                                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Error codes             | `E_ALL_HELD`, `E_RUN_CANCELLED`, `E_TREE`                                                                                    | `E_CONFIG_KEYBIND`                                                                                                                                                  |
+| Environment variables   | `CATHERD_PANEL_DIST`, `CATHERD_HEAVY_LOAD_WAIT_MS` (how long a heavy slot waits while the load is high; `0` = no wait)       | `CATHERD_REDUCED_MOTION`, `CATHERD_NO_KITTY`, `CATHERD_STORY`                                                                                                       |
+| Config and profile keys | `notify.url`, `decision.url`, `decision.model`, `decision.minConfidence`, `maxEffort`, `limits.memory`                       | `keybinds`, `billing.grok`, `billing.antigravity`, `harness.grok`, `harness.antigravity` (ignored), `jev`, `bars`, `roles.<role>.bars`, `objective` (migrated away) |
+| Files                   | `<run>/events.jsonl`, `<run>/slopalytics.json`, `plan-input/`, `plan-approved.md`, `~/.local/share/catherd/slopalytics.json` | `catalog.override.json`, `~/.local/share/catherd/sources/`, `docs/tui-frames.md`                                                                                    |
 
 ## From 1.4 to 1.5
 

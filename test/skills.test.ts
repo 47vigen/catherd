@@ -133,8 +133,9 @@ describe("setup skill", () => {
   it("covers every profile field profile_set stores, access with its enforcement, and the indexed-pairs rule", () => {
     const md = skill("catherd-setup");
     for (const field of [
-      "`objective`",
-      "`jev.use`",
+      "`decision.url`",
+      "`decision.model`",
+      "`decision.minConfidence`",
       "`billing`",
       "`rungs`",
       "`defaultRung`",
@@ -175,5 +176,21 @@ describe("setup skill", () => {
     const md = skill("catherd-setup");
     expect(md).toContain("Slopalytics intelligence index");
     expect(md).not.toContain("Benchmark");
+  });
+
+  it("no shipped doc names Jev", () => {
+    const root = join(import.meta.dir, "..");
+    const read = (...p: string[]) => readFileSync(join(root, ...p), "utf8");
+    const docs = {
+      "README.md": read("README.md"),
+      "AGENTS.md": read("AGENTS.md"),
+      "CLAUDE.md": read("CLAUDE.md"),
+      "plugin skill": skill("catherd-setup"),
+      "plugin.json": read("plugin", ".claude-plugin", "plugin.json"),
+      "marketplace.json": read(".claude-plugin", "marketplace.json"),
+    };
+    for (const [name, text] of Object.entries(docs))
+      expect([name, /\bjev\b/i.test(text)]).toEqual([name, false]);
+    expect(docs["README.md"]).toContain("CATHERD_DECISION_KEY");
   });
 });

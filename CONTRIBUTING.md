@@ -218,7 +218,6 @@ What CI cannot check, because it needs real accounts, is in
 
 ```sh
 CATHERD_LIVE=1 bun test test/live/codex.live.test.ts          # also claude-code, opencode
-CATHERD_LIVE=1 TYPESAFE_API_KEY=<key> bun test test/live/jev.live.test.ts
 bun src/cli.ts capture-fixtures [--backend codex|claude-code|opencode] [--out <dir>]
 ```
 

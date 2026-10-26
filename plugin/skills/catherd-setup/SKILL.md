@@ -1,11 +1,11 @@
 ---
 name: catherd-setup
-description: Use when the user wants to tune catherd — which models and efforts each role may use, how much each role may touch, cost versus speed, which subscriptions to lean on, failover, budget, harness isolation — /catherd-setup, "set up catherd", "tune my catherd profile". Not for running a task; that is the catherd skill.
+description: Use when the user wants to tune catherd — which models and efforts each role may use, how much each role may touch, the decision model, which subscriptions to lean on, failover, budget, harness isolation — /catherd-setup, "set up catherd", "tune my catherd profile". Not for running a task; that is the catherd skill.
 ---
 
 # catherd setup
 
-You tune the user's catherd profile in conversation. A profile says, per role, which rungs it may run on (`backend:model#effort`, in ladder order) and what it may touch (its access mode); whether routing favours cost or speed; how each backend is billed; whether Jev picks the rung; which rung stands in when a backend hits its usage limit; the run budget and timeouts; whether each vendor harness runs with the user's customizations or isolated; how many heavy commands run at once; and when to push.
+You tune the user's catherd profile in conversation. A profile says, per role, which rungs it may run on (`backend:model#effort`, in ladder order) and what it may touch (its access mode); the decision model that picks each dispatch's rung; how each backend is billed; which rung stands in when a backend hits its usage limit; the run budget and timeouts; whether each vendor harness runs with the user's customizations or isolated; how many heavy commands run at once; and when to push.
 
 **You never edit a file by hand.** Use `profile({ action: "set" })` for patches and the existing reviewed CLI reset below; both go through ProfileService, as do the `catherd profile` commands and the panel.
 
@@ -15,14 +15,14 @@ You tune the user's catherd profile in conversation. A profile says, per role, w
 
 - **One question at a time.** Each question carries your recommended answer and one line on why, so the user can simply say yes.
 - **The user steers.** When they reverse a proposal, take the reversal and never re-argue it.
-- **Talk in their terms:** minutes, their subscriptions, how often a rung climbed on their own runs, tokens per run. Name the Slopalytics intelligence index only when they ask.
+- **Talk in their terms:** minutes, their subscriptions, how often a rung failed on their own runs, tokens per run. Name the Slopalytics intelligence index only when they ask.
 - **Every number you quote comes from a tool result in this conversation.** When there is no data yet, say so instead of estimating.
 
 ## 1. Learn the goals
 
 Ask these, one at a time, each with its recommended answer:
 
-1. **Their order of speed, cost and quality.** Recommend cost first, the default `objective`: catherd climbs a rung when a cheap one cannot do the work, so the lanes that need speed get it anyway, and the reviewer and the verifier hold quality either way.
+1. **Their decision model.** A run refuses to start without one, so check `profile({ action: "get", repo })` for `decision.url` and `decision.model` first. If they are unset, ask for an OpenAI-compatible endpoint and a model. Recommend `decision.minConfidence` at its default, 0.8. The key is `CATHERD_DECISION_KEY` (or saved by `catherd init`); never ask them to paste it into the conversation.
 2. **The subscriptions they hold:** a ChatGPT plan (Codex), a Claude plan, OpenCode Go, Zen credit or API keys. They set `billing` per key (`codex`, `claude`, `claude-code`, `opencode-go`, `opencode`, `cursor`): `chatgpt-plan`, `claude-plan`, `subscription` or `metered`. Recommend leaning on subscriptions before metered spend. Explain which workers share this conversation's quota from the actual host and billing facts.
 3. **The kind of work they orchestrate:** front-end screens, back-end services, terminal and ops work, docs. Recommend from their own runs when the catalog's `runs:` evidence has any.
 
@@ -30,7 +30,7 @@ Ask these, one at a time, each with its recommended answer:
 
 In one message, call:
 
-- `catherd catalog list --role <role> --json` (in a shell, from their repo) for each role you will discuss: the models that can fill it, their indexed rungs (each with its `intelligence`, the one number catherd ranks on), each rung's cost under their billing, whether their backend's last listing offers it (`listed: false` means their account does not), and the `runs:` evidence of how each rung has done on their own runs (runs, refusals, climbs, time). The session has no catalog tool;
+- `catherd catalog list --role <role> --json` (in a shell, from their repo) for each role you will discuss: the models that can fill it, their indexed rungs (each with its `intelligence`, the one number catherd ranks on), each rung's cost under their billing, whether their backend's last listing offers it (`listed: false` means their account does not), and the `runs:` evidence of how each rung has done on their own runs (runs, refusals, failures, time). The session has no catalog tool;
 - `profile({ action: "get", repo })`: where they stand now, with each role's `access` and `enforcement`. Pass the user's repo: without a name, the profile tools act on the profile this repo runs on (the one bound to it, else the active one), which `here` names; `active` is the global active profile.
 
 There is no per-run harness figure in the session: say so when isolation comes up.
@@ -41,7 +41,7 @@ Verify the exact omitted Codex model ID `gpt-6.1-sol` against native catalog dis
 
 Go through these in order, and skip any the user does not care about:
 
-1. `objective`, and `jev.use` (`auto` asks Jev when a key exists; `off` routes on each lane's `Kind:` and `Difficulty:` lines);
+1. `decision.url`, `decision.model` and `decision.minConfidence` (for example `https://<your-gateway>/v1`); the decision model chooses one of the role's rungs before every dispatch, so a role's rungs are the levels it can choose from, and in a fix round the failed rung is the floor;
 2. `billing`, from step 1;
 3. the worker's `rungs` and its `defaultRung`;
 4. the reviewer and the UI reviewer;
@@ -63,16 +63,16 @@ catherd profile reset-host-defaults <profile> --host codex --expect /tmp/catherd
 
 Use `--host claude-code` for that host. This reviewed reset removes only architect/verifier `rungs` and `defaultRung`, preserving access, enabled state, network, budget, isolation, billing, routing and failover. The `--expect` file guards against a profile changing after review. There is no MCP reset tool. Offer the exact headless model/effort equivalent as a separate explicit choice when a native Claude rung is incompatible with Codex.
 
-Each proposal has three parts: the change, a worked example from their facts, and the tradeoff in their terms. For instance: "Luna high on build lanes: about 5 min slower than Sol medium, no Claude quota, climbs on 1 in 5 of your runs so far."
+Each proposal has three parts: the change, a worked example from their facts, and the tradeoff in their terms. For instance: "Luna high on build lanes: about 5 min slower than Sol medium, no Claude quota, failed on 1 in 5 of your runs so far."
 
 - Offer only the rungs `catherd catalog list` shows as capable for the role, written `backend:model#effort`.
-- Offer only the indexed pairs `catherd catalog list` shows. A model or effort the Slopalytics index does not list is not offered, and a rung that names one is an error: if the user wants it, say it is not indexed yet and propose the nearest indexed pair. Never pick a worker rung below `#medium`. Use `maxEffort` to keep a model from its highest efforts, and `bars` to move a difficulty's bar for one role, rather than removing rungs.
+- Offer only the indexed pairs `catherd catalog list` shows. A model or effort the Slopalytics index does not list is not offered, and a rung that names one is an error: if the user wants it, say it is not indexed yet and propose the nearest indexed pair. Never pick a worker rung below `#medium`. Use `maxEffort` to keep a model from its highest efforts, rather than removing rungs.
 
 **Access.** Each role runs `read-only`, `workspace-write` or `full`. The defaults: architect, reviewer and researcher `read-only`; worker, writer and artist `workspace-write`; verifier and UI reviewer `full`. `profile({ action: "get" })` says per role whether its backend holds it to that mode (`enforced`: Codex's sandbox) or only asks (`advisory`: claude-code, opencode and native subagents, where the model can still reach past it). Recommend the defaults; when the user wants a role tighter or looser, say what it can no longer do (a read-only reviewer on claude-code or opencode has no shell, so it cannot run `git diff`) and that `profile({ action: "validate" })` will warn about it. A `workspace-write` role also writes catherd's lock dir and the temp dir, reaches the network, binds loopback ports and talks to a local Docker socket, so it runs its own installs and tests; `roles.<role>.network: false` takes the network, loopback and Docker away from that role (Codex enforces it; claude-code drops its web tools; opencode has no sandbox to enforce it). `catherd doctor` probes each of these per backend.
 
 **Failover.** `failover` maps a rung to its stand-in when that rung's backend hits a usage limit. A stand-in must be indexed, on another quota and at least as intelligent as its rung (Go and Zen bill apart; native `claude` and `claude-code` share the Claude plan). The default profile fails a Codex rung over only to an indexed stand-in at least as intelligent: Go's GPT-6 Luna for Luna high, and Kimi K3 for Sol medium. Sol high and xhigh have none in the profile. Beyond the profile's stand-ins, the daemon moves a unit that hit a limit to the nearest indexed rung, on a free quota, of any backend they have configured that is not weaker (a Claude rung last); when none qualifies, the lane waits for the hold rather than dropping a tier. Say so, and offer to change the profile's stand-ins when they have no Go subscription. `null` removes an entry.
 
-**Budget and timeouts.** `budget` (`minutes`, `tokens`, `usd`) is a soft cap: from 80 % routing starts at the cheapest rung that clears the bar, and at 100 % no new role starts. `timeouts.idleMin` (15) stops a role that has gone quiet, `timeouts.wallMin` (90) one that runs too long; `roles.<role>.timeouts.idleMin` and `wallMin` override them for one role (a verifier with a long gate), and `null` removes the override. `preflight.confirm: true` makes `preflight` show its commands for the user to approve first.
+**Budget and timeouts.** `budget` (`minutes`, `tokens`, `usd`) is a soft cap: at 100 % no new role starts. `timeouts.idleMin` (15) stops a role that has gone quiet, `timeouts.wallMin` (90) one that runs too long; `roles.<role>.timeouts.idleMin` and `wallMin` override them for one role (a verifier with a long gate), and `null` removes the override. `preflight.confirm: true` makes `preflight` show its commands for the user to approve first.
 
 **Notifications.** `notify` controls the milestone, finish and blocked moments. Where a parked question reaches the owner is `notify.url`, an ntfy topic url: set it with `profile({ action: "set", notify_url })` (ask them for the url; never invent one). The daemon sends to it from the machine, so a question reaches the phone with no session open. `catherd doctor --test-push` sends a labeled test notice.
 
