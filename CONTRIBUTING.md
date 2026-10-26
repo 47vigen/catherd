@@ -218,10 +218,12 @@ What CI cannot check, because it needs real accounts, is in
 
 ```sh
 CATHERD_LIVE=1 bun test test/live/codex.live.test.ts          # also claude-code, opencode
+CATHERD_DECISION_LIVE_URL=https://<your-gateway>/v1 CATHERD_DECISION_LIVE_MODEL=<model> CATHERD_DECISION_KEY=<key> \
+  bun test test/live/decision.live.test.ts
 bun src/cli.ts capture-fixtures [--backend codex|claude-code|opencode] [--out <dir>]
 ```
 
-Without `CATHERD_LIVE=1` the live tests are skipped. `capture-fixtures` records one cheap, isolated real run per
+Without `CATHERD_LIVE=1` the live tests are skipped; the decision file is skipped without its three variables. `capture-fixtures` records one cheap, isolated real run per
 ready backend into `test/fixtures/adapters/<backend>/<cli-version>/`, with secrets, e-mail addresses and home paths
 stripped; outside a source checkout it needs `--out`. Check the result for anything personal before you commit it.
 The checks that need a human in Claude Code (plugin loading, long MCP calls) are in

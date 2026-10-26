@@ -4,8 +4,7 @@ Native Codex shipped in 1.4.0, and CI (`.github/workflows/ci.yml`) runs on every
 
 What CI cannot check, because it needs real accounts: the backends' real streams, the Codex sandbox, and
 the decision model prompts and probe on a real terminal (spec D7, §11.7, §11.8); since 1.1 also the push notices, the worker
-access probes and the release acceptance runs (spec 1.1 §15, sections 7 to 9); since 1.2 its acceptance (spec 1.2
-§11, section 10); since 1.3 the Cursor adapter (spec 1.3 §10, section 11; the Grok Build and Antigravity sections 12 and 13 were removed in 2.0). Run it on your own machine before a
+access probes and the release acceptance runs (spec 1.1 §15, sections 7 to 9); since 1.3 the Cursor adapter (spec 1.3 §10, section 11; sections 10, 12 and 13 (the 1.2 bars check, Grok Build and Antigravity) were removed in 2.0). Run it on your own machine before a
 release, and again after a backend CLI's minor release. Every step says what to look for; write down
 anything that differs and file it with the step's name.
 
@@ -42,10 +41,12 @@ against the codex adapter's probe (doctor would then show no login on the `codex
 CATHERD_LIVE=1 bun test test/live/codex.live.test.ts
 CATHERD_LIVE=1 bun test test/live/claude-code.live.test.ts
 CATHERD_LIVE=1 bun test test/live/opencode.live.test.ts
+CATHERD_DECISION_LIVE_URL=https://<your-gateway>/v1 CATHERD_DECISION_LIVE_MODEL=<model> CATHERD_DECISION_KEY=<key> \
+  bun test test/live/decision.live.test.ts
 ```
 
 Each file runs in its own temporary `CATHERD_HOME` and a scratch git repository; your config is not
-touched. Without `CATHERD_LIVE=1` every live test is skipped.
+touched. Without `CATHERD_LIVE=1` every live test is skipped, and the decision file is skipped without its three variables.
 
 Look for: every test passing. In particular: Codex answers and resumes the same thread, and its image tool
 returns an image; claude-code reports tokens and a cost, resumes its session, and a read-only role does not
@@ -208,10 +209,8 @@ runs show <run id> --json` holds the records; write down what you saw.
    `route` returning that rung with `backend: "opencode"`, a record with `backend` `opencode`, the lane's
    owned file changed, and a `STATUS:` line in the reply. Put the worker rungs back with
    `profile set roles.worker.rungs null`.
-3. **A forced climb.** In a one-lane run, once the worker returns, tell the orchestrator: "climb that lane
-   with reason `unchanged` and dispatch it again." Look for: `climb` returning the next rung of the lane's
-   ladder, a second record for the lane on that rung, dispatched on a fresh thread (no `thread` passed), and the climb
-   in `runs_summary({ run })` as `climbsFrom: 1` on the first rung.
+3. **A fix round never runs below the failed rung.** In a one-lane run whose first review fails, the fix dispatch's
+   decision in `decisions.jsonl` has a floor equal to the failed rung, and the lane dispatches on that rung or above.
 4. **Quota failover.** Put a fake `codex` first on the PATH that prints a usage limit for `exec` and
    forwards everything else to your real one, and start Claude Code from that shell, so the catherd
    server inherits the PATH:
@@ -358,7 +357,7 @@ Look for, one at a time:
    line, before the last worker's record.
 3. Every lane was routed with valid headers:
    `jq -r 'select(.source == "route" and .lane != null) | .lane' "$run/routes.jsonl" | sort -u | wc -l` (the
-   routed lanes; the header row, climb and outcome rows and a role's rows outside a lane do not count) is at
+   routed lanes; the header row and outcome rows and a role's rows outside a lane do not count) is at
    least 4, and
    `grep -hE '^(Kind|Difficulty):' "$run"/lanes/*.md | sort | uniq -c` shows only the catalog's values.
 4. A reviewer and a verifier ran before each `land`:
@@ -399,27 +398,6 @@ jq -r 'select(.role == "verifier") | "\(.name) \(.status) \((.secs // 0) / 60 | 
 Write down: the total minutes, the verifier's minutes and how many gate items it carried over (`carried over
 from <commit>` in its verdict), how many worker replies were `partial` or `blocked`, how many test commands the
 main thread ran itself (MR A: 156), and whether any notice was missing or doubled.
-
-## 10. The 1.2 acceptance (the release PR waits for it)
-
-Spec 1.2 §11. Install the release candidate from `changeset-release/main` and the plugin from the same checkout
-exactly as in section 9 (its "The CLI" and "The plugin" blocks), then run this one. Keep your real
-config: the commands below save and restore what they change.
-
-**1. A `terminal` lane and a `ui` lane are held to the same intelligence bar, and say what it was.**
-
-In a scratch repository, start a run and route two lanes through the MCP tools from a Claude Code session:
-
-```sh
-scratch="$(mktemp -d)/bars" && mkdir -p "$scratch" && cd "$scratch" && git init -q && git commit -q --allow-empty -m init
-claude -p --output-format json \
-  "/catherd:catherd Start a run titled bars. Write lanes/M1.L1.md with 'Kind: terminal' and 'Difficulty: copy', and lanes/M1.L2.md with 'Kind: ui' and 'Difficulty: build' (each: Owns: a.txt, Fast check: true), then call route once with both in lanes, print each answer's rung and why, and print the provenance.bar and provenance.intelligence of both lanes' rows in the run's routes.jsonl as JSON. Do not dispatch." \
-  | jq -r .result
-```
-
-Look for: each lane's `bar` naming its difficulty, its percentile (copy 25, build 50) and `min`, the rung's
-`intelligence` against it, and `clears: true`; the two lanes on the rungs the default profile's worker ladder gives
-those bars (Sol medium for both on the 2026-10-13 index).
 
 ## 11. Cursor (1.3, plan 15)
 
@@ -777,7 +755,5 @@ On a machine with the release candidate, with your real config:
 
 1. **Every failover is a row.** In a run with a forced limit, `jq 'select(.source == "failover")' <run>/routes.jsonl`
    shows one row per failover, with the quotas in `held`; a failover with no stand-in has `"rung": null`.
-2. **A bar moves per role.** `catherd profile set roles.worker.bars.copy 10`, then a copy lane, starts the worker on
-   its lowest rung at medium or above.
-3. **A cap holds.** `catherd profile validate` on the default profile prints no warning; after `catherd profile set
+2. **A cap holds.** `catherd profile validate` on the default profile prints no warning; after `catherd profile set
 roles.worker.rungs codex:gpt-6.1-sol#max` it says the rung is above `maxEffort xhigh` and that routing skips it.
