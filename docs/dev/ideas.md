@@ -11,10 +11,39 @@ After 2.0 the list holds the follow-ups the reviews of plans 28–35 and 21–26
 Shipped, so not re-proposed here: `catherd doctor`; quota failover; preflight; per-repo knowledge (`knowledge.md`,
 keyed by the repository's git origin, its toplevel when it has none); the run budget (from 80 % routing starts at
 the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); a plan in hand (`run_start`'s
-`plan:`); lint and type check in each lane's fast check; and a sure Jev kind kept when its difficulty is unsure
-(`source: "jev-kind"`). Since 2.0 the daemon runs all of it (MIGRATION.md, "From 1.5 to 2.0").
+`plan:`); lint and type check in each lane's fast check; and the decision model, which picks the rung of every dispatch and
+judge on the role's exact brief (plan 44). Since 2.0 the daemon runs all of it (MIGRATION.md, "From 1.5 to 2.0").
 
 ## 2.0 follow-ups
+
+### From plan 44 (the decision model and the briefs)
+
+Left out of plan 44 on purpose, or found while building it:
+
+- **The milestone Check has no failure class.** A dispatch's fix round knows whether a failure is `product` or
+  `harness` (D9), but a milestone Check that fails is not classed, so a broken environment still costs a product fix
+  round. Fix: class a Check failure the same way, and give a harness failure the one repair outside the round count.
+- **Several decision models voting.** One decision model answers each routing question. A panel of two or three that
+  must agree could cut a bad rung pick, at the price of more calls on every dispatch. The 2.0 spec lists it as a
+  non-goal. Fix: only after the scorecard shows the single model's picks are the weak point.
+- **A harness clamp for opencode and cursor.** Claude Code and Codex cap a shell command's output (plan 44 D12);
+  opencode and cursor have no such setting yet, so a noisy command can still fill their context. Fix: add the clamp
+  when each gains a setting. opencode's scratch `TMPDIR` is the only guard for now.
+- **The scorecard targets are not measured on a live run (B16).** Targets: the worker brief median under 20 KB, no
+  verifier PASS without executed commands, and zero stops from another role's duty. Fix: run a real plan on the
+  `@next` build, read the report's "## Scorecard" table, and record the numbers here or in the scorecard doc.
+- **The claude-code clamp does nothing.** `BASH_MAX_OUTPUT_LENGTH=30000`
+  (`src/adapters/claude-code/index.ts:272`) equals the CLI's own default, so it changes no run. The real clamp is the
+  newer `bashOutputMaxChars` setting. Fix: set that, in the role's settings, to a value below the default, and check
+  that a long command output is cut.
+- **A resumed dispatch's full brief has no test.** A resumed composed dispatch writes `brief-full.md`
+  (`src/services/admission.ts:80`) and the stand-in brief points at it; no test reads the file or the path for a
+  resumed thread on a stand-in. Evidence: reviewer-M6 NIT of plan 40 (seq 353), still true after plan 44. Fix: one
+  assertion in the resumed-dispatch test.
+- **A verdict failure on a stop or a failure class parks as `effect`, not `decision`.** When the decision model gives
+  no answer, the lane parks with reason `decision`. When the failure-class or stop verdict itself fails, the park
+  reason is `effect`, so the panel's reason filter hides it among unrelated effect
+  failures. Fix: park these with reason `decision` and the call's name.
 
 ### From plan 40 (run 20261024-133108-plan-40-run-efficiency)
 
@@ -32,9 +61,6 @@ Defects the run's lanes and reviews reported, which plan 40 did not fix:
   lane does not wait on the lane it blames, so L1 waits on L2, L2 on L3 and L3 on L1 can each blame the next lane and
   never finish. Rare, and it holds no milestone. Evidence: reviewer-M5 NIT, seq 307. Fix: follow `waitOn` transitively
   from the blamed lane back to this one.
-- **A resumed dispatch's full brief has no test.** Round 3 of plan 40's M6 writes `brief-full.md` and points the
-  stand-in brief at it (`src/services/dispatch-service.ts:648`); no test reads the file or the path. Evidence:
-  reviewer-M6 NIT, seq 353. Fix: one assertion in the resumed-dispatch test.
 
 Ideas the plan leaves for this file. The evidence is the event or code cited; where this run shows nothing, it is the
 2026-10-24 run-efficiency studies that plan 40 names as its source.
@@ -127,9 +153,8 @@ Ideas the plan leaves for this file. The evidence is the event or code cited; wh
   (Run audit 25.)
 - **The run audit's open findings.** The five-lens audit
   (`docs/dev/reports/2026-10-23-plan-38-run-audit.md`) leaves these items outside plan 39. Finding 7: a verifier gate
-  inherits role and scratch variables, and cached failures cannot be re-recorded; 8: verifiers can carry A-line
-  results without a record; 14: milestone starts serialize on memory checks, and cancel leaves orphan parks and trees.
-  Evidence: report findings 7–8 and 14.
+  inherits role and scratch variables, and cached failures cannot be re-recorded; 14: milestone starts serialize on memory checks, and cancel leaves orphan parks and trees.
+  Evidence: report findings 7 and 14.
   Findings 15–19 also remain open: lane ownership can omit tests of changed exports (15); reviewers do not run tests
   (16); unchanged findings repeat across rounds (17); malformed role replies can pass parsing (18); architect
   requirements can contradict tasks, and known issues can contain a verifier reply split into lines (19). Evidence:
@@ -231,7 +256,7 @@ Found by the plans 41–42 audit, the platform run and the credit run. Plan 43 d
   Nothing calls it since 2.0 (plan 38 triage).
 - **A task's signature and test are found by pattern.** `parsePlanDoc` (`src/domain/plan-doc.ts`) calls any code block a
   signature and any `Expected:` line a test, so a task with only a shell command passes preflight. _Where:_ ask
-  Jev, or the judge at `readPlan`, whether each task names what its worker must build.
+  the judge at `readPlan`, whether each task names what its worker must build.
 - **A last milestone that never merges keeps the run alive until the push answer.** In a base run `isFinished` (merged)
   gates the run's end (`src/domain/run-state.ts:254`, `src/domain/run-machine.ts:478`), as plan 30b's ledger ruling
   says; if the owner never merges it, the run waits on the push question forever. Fix: end the run when the last
@@ -310,13 +335,6 @@ Plan 26 (the minors sweep) review:
 
 ## Routing and cost
 
-- **Jev hit-rate review: the panel and setup views.** `catherd catalog outcomes` (plan 41) prints each rung's first
-  passes, rounds and findings per lane, by kind and difficulty, so the CLI summary exists. Still open: the same view
-  on the panel's Runs page and in the setup skill.
-- **Jev difficulty calibration.** In the first two real runs Jev was sure of the kind (1.0) but not the difficulty
-  (0.4), so 3 of 4 routes fell back to the default. Since 1.5 each lane's final outcome (climbed or not) is logged
-  beside Jev's answer in `routes.jsonl` (plan 24): tune the difficulty question's wording, its options or its
-  threshold from that data.
 - **The catalog price and opencode's configured price for one model differ 5×.** The owner's review of the first
   DeepSeek V4.1 Flash lanes (2026-10-24, plan 41's source) found the two 5× apart. A run's cost is opencode's own
   figure when opencode reports a price, else the catalog's (plan 41 D2). _Why:_ the cheap tier's saving depends on
@@ -332,9 +350,6 @@ Plan 26 (the minors sweep) review:
   `--model` flag), an isolated `DSH_HOME`, the permission mode by `DSH_PERMISSION_MODE` (rc.3 has no
   `--permission-mode` flag), cost from catalog prices (the stream has none), web tools off, `DSH_TELEMETRY_DISABLED=1`,
   `--session-id` for resume and a version pin. Re-run the A/B on PTC only, with more runs, before routing to it.
-- **Best-of-N cheap workers.** Run several cheap workers on one lane and keep the result the review passes. Not built.
-  _Why:_ at 5–15× less per lane than GPT Sol (plan 41's source), a few cheap tries may cost less than one strong try;
-  untested. _Where:_ the worker dispatch, after plan 41's routing.
 - **opencode streams carry no reasoning text.** The v2 stream has no reasoning part, so an opencode transcript shows
   the text and the tool calls, never the model's reasoning; a step's token count is the only trace of it. The research
   notes list a `reasoning` part only with `--thinking` (`docs/research/2026-09-25-opencode.md:190`). _Why:_ a reviewer
@@ -352,7 +367,7 @@ Plan 26 (the minors sweep) review:
 
 - **Race mode.** For lanes a profile marks as critical, dispatch two rungs at once in separate worktrees and keep the
   first whose fast check passes. It trades quota for wall-clock time.
-- **Automatic retro.** At the finish, write a short retro (climbs, the slowest steps, failures) and suggest
+- **Automatic retro.** At the finish, write a short retro (stops, the slowest steps, failures) and suggest
   improvements.
 - **`catherd bench`.** Replay recorded real tasks under different profiles to measure them on the user's own work.
 - **Standalone binaries.** `bun build --compile` per platform, published as optional platform packages, so users need
