@@ -129,7 +129,8 @@ export type DecideAnswer =
       why: string;
     }
   | { ok: false; exhausted: true; floor: string }
-  | { ok: false; exhausted: false; error: string; rungs: string[] };
+  /** `held`: every candidate above the floor is on a held quota, so the decision waits (`E_ALL_HELD`) */
+  | { ok: false; exhausted: false; held?: true; error: string; rungs: string[] };
 
 export interface CatalogFilter {
   role?: Role;

@@ -309,6 +309,8 @@ export interface RunState {
   decisionParks: Record<string, string>;
   /** name → the rungs the parked decision's last failure listed: what an answer may name */
   decisionRungs: Record<string, string[]>;
+  /** unit → the name whose exhausted floor parked it (reason `effect`): its floor goes with the answer */
+  exhaustedParks: Record<string, string>;
 }
 
 /** plan 44: what `decision.made` recorded for a dispatch not started yet. */
@@ -360,6 +362,7 @@ export function emptyState(run: string): RunState {
     picks: {},
     decisionParks: {},
     decisionRungs: {},
+    exhaustedParks: {},
   };
 }
 
@@ -527,6 +530,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
   s.picks ??= {};
   s.decisionParks ??= {};
   s.decisionRungs ??= {};
+  s.exhaustedParks ??= {};
   const next: MilestoneState[] = [];
   for (const mp of plan) {
     const old = milestoneOf(s, mp.id);
@@ -1299,6 +1303,7 @@ function onExhausted(s: RunState, e: Extract<RunEvent, { type: "decision.exhaust
     topOfLadder(s, l, e.floor, tooHard);
     return;
   }
+  s.exhaustedParks[e.unit] = e.name;
   s.stuck[e.unit] = {
     reason: "effect",
     question: `${e.name} failed on ${e.floor} and no rung above it is left to try.`,
@@ -1480,6 +1485,9 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
   delete s.questions[e.unit];
   recomputeWake(s);
   delete s.stuck[e.unit];
+  // the owner's word starts a name that ran out of rungs fresh, as it does a lane
+  delete s.floors[s.exhaustedParks[e.unit] ?? ""];
+  delete s.exhaustedParks[e.unit];
   for (const k of Object.keys(s.failedEffects))
     if (k.endsWith(`@${e.unit}`) || k === `ended:${e.unit}`) delete s.failedEffects[k];
   if (q?.reason === "decision") return onDecisionAnswered(s, e, q);

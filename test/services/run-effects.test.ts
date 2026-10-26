@@ -1010,6 +1010,21 @@ describe("the decide effect (plan 44 task 16)", () => {
     });
   });
 
+  it("a decision held on every rung above the floor is decision.failed E_ALL_HELD, not E_DECISION", async () => {
+    const { run, deps, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    deps.routing.decide = async () => ({
+      ok: false,
+      exhausted: false,
+      held: true,
+      error: "every rung of the worker above the floor is on a held quota",
+      rungs: [],
+    });
+    await fx.run(decideAction(), replayRun(run));
+    expect(lastOf(run, "decision.failed")).toMatchObject({ code: "E_ALL_HELD", name: "worker-M1.L1" });
+  });
+
   it("the judge is decided and sent its rung", async () => {
     const { run, deps, fx } = setup({ reply: "DECISION: answer\nANSWER: ok\nSTATUS: complete — ok" });
     deps.view.roles.judge = role("read-only", ["codex:gpt-6-sol#high", "codex:gpt-6-luna#high"]);

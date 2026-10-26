@@ -570,7 +570,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
     if (!answer.ok)
       return void (answer.exhausted
         ? await append({ type: "decision.exhausted", name, n: a.n, unit, floor: answer.floor })
-        : await failed("E_DECISION", answer.error, answer.rungs));
+        : await failed(answer.held ? "E_ALL_HELD" : "E_DECISION", answer.error, answer.rungs));
 
     await append({
       type: "decision.made",

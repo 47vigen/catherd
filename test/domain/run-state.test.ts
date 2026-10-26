@@ -1891,6 +1891,25 @@ describe("plan 44 task 15: floors, decision failures and the top of the ladder",
     expect(owedDecide(lane, W1)).toMatchObject({ floor: null, strict: false });
   });
 
+  it("an exhausted park for a name that is no lane clears its floor when answered", () => {
+    const log = reviewing();
+    const id = startDispatch(log, {
+      name: "reviewer-M1",
+      role: "reviewer",
+      unit: "M1",
+      lane: null,
+      rung: SOL,
+    });
+    endDispatch(log, id, { name: "reviewer-M1", unit: "M1", status: "failed", replyStatus: null });
+    expect(floorOf(log.state(), "reviewer-M1").floor).toBe(SOL);
+    log.add("decision.exhausted", { name: "reviewer-M1", n: 2, unit: "M1", floor: SOL });
+    const q = log.state().stuck.M1;
+    expect(q?.reason).toBe("effect");
+    log.add("question.parked", { unit: "M1", question: q?.question as string, reason: "effect" });
+    log.add("question.answered", { unit: "M1", answer: "try again", by: "owner" });
+    expect(floorOf(log.state(), "reviewer-M1")).toEqual({ floor: null, strict: false });
+  });
+
   it("no rung above a strict floor goes to the judge", () => {
     const log = runningLog();
     ran(log, SOL);

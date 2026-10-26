@@ -89,10 +89,20 @@ async function decideRung(req: DecideRequest, o: RoutingOpts): Promise<DecideAns
       .filter((x) => !req.exclude.includes(x.rung) && !req.held.includes(quotaOf(x.info.parsed)))
       .map((x) => x.rung),
   );
-  const levels = aboveFloor(levelsOf(cands), req.floor, req.strict)
+  const above = aboveFloor(levelsOf(cands), req.floor, req.strict);
+  const levels = above
     .map((l) => ({ ...l, rungs: l.rungs.filter((r) => open.has(r)) }))
     .filter((l) => l.rungs.length > 0)
     .map((l, level) => ({ ...l, level }));
+  // a level above the floor with a rung that only a quota hold keeps out: wait for it, as a failover does
+  if (levels.length === 0 && above.some((l) => l.rungs.some((r) => !open.has(r) && !req.exclude.includes(r))))
+    return {
+      ok: false,
+      exhausted: false,
+      held: true,
+      error: `every rung of the ${req.role} above the floor is on a held quota`,
+      rungs: [],
+    };
   if (levels.length === 0)
     return req.strict && req.floor !== null
       ? { ok: false, exhausted: true, floor: req.floor }

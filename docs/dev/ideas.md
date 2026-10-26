@@ -44,6 +44,19 @@ Left out of plan 44 on purpose, or found while building it:
   no answer, the lane parks with reason `decision`. When the failure-class or stop verdict itself fails, the park
   reason is `effect`, so the panel's reason filter hides it among unrelated effect
   failures. Fix: park these with reason `decision` and the call's name.
+- **`resume()` keeps a bad `s.picks[name]` after a retry.** A coordinator pick that the next decide refuses is not
+  cleared by a `retry` answer (`src/domain/run-state.ts:1442`). Fix: delete the pick in `resume()`.
+- **The brief hash check misses notes added after `decision.made`, and runs on resumed threads too.** The check at
+  `src/services/run-effects.ts:692` compares the full brief, so a note appended since fails a fresh thread and a
+  resumed thread (which sends `<this-round>` only) is checked against a text it never sends. Fix: hash what the
+  dispatch sends, and only on a fresh thread.
+- **A credentials file with both keys keeps `typesafeApiKey`.** `migrateCredentials` (`src/services/credentials.ts:69`)
+  returns early when `decisionKey` exists, so the old key stays in the file although MIGRATION says it is removed.
+  Fix: drop `typesafeApiKey` in that case too.
+- **One try wraps `migrateCredentials` and `migrateProfiles` in `startRun`.** An unreadable credentials file skips the
+  profile migration (`src/services/run-service.ts:133`). Fix: a try for each.
+- **A trailing slash in `decision.url` gives `//systemone`.** `decisionRequest` joins `${url}${path}`
+  (`src/infra/decision-client.ts:179`). Fix: strip trailing slashes from the url.
 
 ### From plan 40 (run 20261024-133108-plan-40-run-efficiency)
 

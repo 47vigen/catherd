@@ -826,6 +826,15 @@ describe("1.5 profiles", () => {
     expect(lstatSync(file("old")).mtimeMs).toBe(before);
   });
 
+  it("a gateway key in the env does not name the TypeSafe url", () => {
+    seed();
+    process.env.CATHERD_DECISION_KEY = "gateway-key";
+    migrateProfiles();
+    const doc = JSON.parse(readFileSync(file("old"), "utf8"));
+    expect(doc.jev).toBeUndefined();
+    expect(doc.decision).toBeUndefined();
+  });
+
   it("a patch over an old profile saves", () => {
     seed();
     expect(patchProfile("old", { notify: ["finish"] }, { host: "claude-code" }).saved).toBe(true);

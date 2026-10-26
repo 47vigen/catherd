@@ -105,6 +105,21 @@ describe("decide and a run's pinned index", () => {
   });
 });
 
+describe("decide with every rung above the floor held", () => {
+  it("answers held, not exhausted or no rung, so the decision waits", async () => {
+    const held = { ok: false, exhausted: false, held: true, rungs: [] };
+    expect(await svc().decide(req({ held: ["codex"] }))).toMatchObject(held);
+    const strict = req({ held: ["codex"], floor: "codex:gpt-6-sol#high", strict: true });
+    expect(await svc().decide(strict)).toMatchObject(held);
+    // nothing above the floor at all is still the top of the ladder
+    const top = req({ held: ["codex"], floor: "codex:gpt-6-sol#xhigh", strict: true });
+    expect(await svc().decide(top)).toMatchObject({ ok: false, exhausted: true });
+    // a refused rung is not a hold: nothing to wait for
+    const refused = req({ exclude: LADDER, floor: "codex:gpt-6-sol#high", strict: true });
+    expect(await svc().decide(refused)).toMatchObject({ ok: false, exhausted: true });
+  });
+});
+
 describe("checkStart", () => {
   it("names the roles the index cannot fill, and returns the index it read", async () => {
     const view = testView();

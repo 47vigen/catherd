@@ -75,7 +75,7 @@ phone notice and asks. Either way:
    question with its commands; an `answer push` has catherd push the branch and ask again with the MR command, and
    any other answer, once the MR is merged, unblocks the milestones after it, which matters when the repo squash-merges)
    or a `check_broken` (the milestone's check cannot run, so fix the environment, then answer).
-3. A role that failed, a gate that is red or a milestone that climbed is the daemon's to handle; report it, do not
+3. A role that failed, a gate that is red or a lane that moved to a stronger rung is the daemon's to handle; report it, do not
    step in. The secret scan of a milestone's check uses `gitleaks` when it is installed; it is optional. Stop the run only on the owner's word: `cancel(run)`.
 
 ## The end
