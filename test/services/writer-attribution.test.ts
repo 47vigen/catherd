@@ -5,6 +5,7 @@ import { briefOwns, DOCS_OWNS, ownsPath, splitChanges } from "../../src/domain/c
 import { type AdmitInput, admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
+import { endedEvent } from "../../src/services/run-effects.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDeps, fakeDispatch, freshRun } from "./helpers.ts";
@@ -95,7 +96,7 @@ describe("a writer's implicit docs lane (spec 1.5 plan 21)", () => {
     expect(w.violations).toEqual([]);
   });
 
-  it("refuses a lane's edit to a test file a running sibling lane owns (B14)", async () => {
+  it("never blames a lane for a test file a running sibling lane owns: the shared tree cannot say who changed it", async () => {
     const { repo, run } = freshRun();
     const ended = {
       code: 0,
@@ -117,6 +118,6 @@ describe("a writer's implicit docs lane (spec 1.5 plan 21)", () => {
     writeFileSync(join(repo, "test", "x.test.ts"), "changed\n");
     const record = await finalizeDispatch(run, l1);
     expect(record.violations).toEqual([]);
-    expect(record.testEdits).toEqual(["test/x.test.ts"]);
+    expect(endedEvent(run, record, "M1.L1")).not.toHaveProperty("testEdits");
   });
 });

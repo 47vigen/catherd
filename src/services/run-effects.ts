@@ -188,9 +188,8 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
   }
   const stopped = record.replyStatus === "blocked" || record.replyStatus === "refused";
   const reason = stopped ? (parseBlockedReason(record.replyWhy)?.reason ?? null) : null;
-  const testEdits =
-    record.testEdits ??
-    (record.lane ? guardedEdits(record.violations, laneOwnsOf(run, record.lane).own) : []);
+  // a sibling-owned path is no violation: the shared tree cannot tell which worker changed it (D11)
+  const testEdits = record.lane ? guardedEdits(record.violations, laneOwnsOf(run, record.lane).own) : [];
   return {
     type: "dispatch.ended",
     dispatchId: record.dispatchId,
