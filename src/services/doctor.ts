@@ -6,7 +6,7 @@ import "../adapters/all.ts";
 import { BUILTIN_ROLES, type Profile } from "../domain/profile.ts";
 import { DEFAULT_ACCESS, ROLES } from "../domain/roles.ts";
 import { bunTooOld, MIN_BUN } from "../domain/runtime.ts";
-import type { JevTransport } from "../infra/jev-client.ts";
+import type { DecisionTransport } from "../infra/decision-client.ts";
 import type { RoleServerStart } from "../infra/role-mcp.ts";
 import { linkedProfiles } from "./agent-links.ts";
 import { accessChecks } from "./doctor-access.ts";
@@ -72,7 +72,7 @@ export interface DoctorDeps {
   /** plan 23: `--docker`: run the Docker host probes (a compose network by service name, the free disk) */
   docker?: boolean;
   env?: Record<string, string | undefined>;
-  jev?: JevTransport;
+  jev?: DecisionTransport;
   /** spec 1.5 plan 21: a cold start of the role server, timed; absent, doctor does not probe it */
   roleServerStart?: () => Promise<RoleServerStart>;
 }

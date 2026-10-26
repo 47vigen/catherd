@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { JEV_BASE } from "../../src/infra/jev-client.ts";
+const JEV_BASE = "https://api.typesafe.ai/v1";
 import { logFile } from "../../src/infra/log.ts";
 import * as store from "../../src/infra/store.ts";
 import {

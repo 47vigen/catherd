@@ -101,7 +101,7 @@
   "test/infra/heavy-lock.test.ts": 0.22,
   "test/infra/host-context.test.ts": 0,
   "test/infra/host-probe.test.ts": 0,
-  "test/infra/jev-client.test.ts": 0.06,
+  "test/infra/decision-client.test.ts": 0.06,
   "test/infra/launch.test.ts": 1.69,
   "test/infra/lock-activity.test.ts": 0.01,
   "test/infra/log.test.ts": 0,

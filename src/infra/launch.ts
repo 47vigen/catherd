@@ -62,6 +62,7 @@ export function launchSupervisor(specPath: string): number {
 export function daemonEnv(base: Record<string, string | undefined> = process.env): Record<string, string> {
   const env = scrubSecrets(base);
   if (base.TYPESAFE_API_KEY !== undefined) env.TYPESAFE_API_KEY = base.TYPESAFE_API_KEY;
+  if (base.CATHERD_DECISION_KEY !== undefined) env.CATHERD_DECISION_KEY = base.CATHERD_DECISION_KEY;
   delete env[ROLE_ENV];
   return env;
 }

@@ -13,7 +13,7 @@ import {
   sha256,
 } from "../domain/jev.ts";
 import { assetPath } from "../infra/assets.ts";
-import { type JevTransport, jevRequest } from "../infra/jev-client.ts";
+import { type DecisionTransport, decisionRequest } from "../infra/decision-client.ts";
 import { addSecret, log } from "../infra/log.ts";
 import { appendJsonl, ensureJsonlHeader, readJsonl, readVersioned } from "../infra/store.ts";
 import { credentialsPath, saveCredential, savedCredential } from "./credentials.ts";
@@ -49,15 +49,18 @@ export function jevKey(): string | null {
   return key;
 }
 
+// until M5 (plan 44) the profile names the url: TypeSafe's public one stands in
+const TYPESAFE_URL = "https://api.typesafe.ai/v1";
+
 /** Saves the Jev key in credentials.json, keeping every other credential (`saveCredential`). */
 export const saveJevKey = (key: string): void => saveCredential("typesafeApiKey", key);
 
 /** A key works when Jev lists its models: no inference, and no dependence on a question set. */
-export async function testJevKey(key: string, o: JevTransport = {}): Promise<boolean> {
-  return (await jevRequest("GET", "/models", key, undefined, o)).ok;
+export async function testJevKey(key: string, o: DecisionTransport = {}): Promise<boolean> {
+  return (await decisionRequest(TYPESAFE_URL, "GET", "/models", key, undefined, o)).ok;
 }
 
-export interface JevOpts extends JevTransport {
+export interface JevOpts extends DecisionTransport {
   /** a key to use instead of jevKey(); null means none */
   key?: string | null;
 }
@@ -128,7 +131,14 @@ export async function askJev(runDir: string, set: SetName, state: unknown, o: Je
   const apiKey = o.key === undefined ? jevKey() : o.key;
   if (!apiKey) return { answers: null, why: "no key", meta };
   addSecret(apiKey);
-  const res = await jevRequest("POST", "/systemone", apiKey, { model: f.model, state, questions }, o);
+  const res = await decisionRequest(
+    TYPESAFE_URL,
+    "POST",
+    "/systemone",
+    apiKey,
+    { model: f.model, state, questions },
+    o,
+  );
   log(res.ok ? "info" : "warn", "jev", {
     set,
     questionSet: meta.questionSet,

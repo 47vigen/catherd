@@ -9,6 +9,7 @@ describe("workerEnv", () => {
       {
         PATH: "/bin",
         TYPESAFE_API_KEY: "k",
+        CATHERD_DECISION_KEY: "d",
         OPENAI_API_KEY: "mine",
         CATHERD_HOME: "/h",
         HOME: "/home/u",
@@ -31,7 +32,13 @@ describe("workerEnv", () => {
 describe("scrubSecrets", () => {
   it("drops catherd's own secrets and unset keys, and keeps everything else", () => {
     expect(
-      scrubSecrets({ PATH: "/bin", TYPESAFE_API_KEY: "k", OPENAI_API_KEY: "mine", X: undefined }),
+      scrubSecrets({
+        PATH: "/bin",
+        TYPESAFE_API_KEY: "k",
+        CATHERD_DECISION_KEY: "d",
+        OPENAI_API_KEY: "mine",
+        X: undefined,
+      }),
     ).toEqual({
       PATH: "/bin",
       OPENAI_API_KEY: "mine",
@@ -77,6 +84,7 @@ describe("checkEnv", () => {
           AWS_SECRET_ACCESS_KEY: "aws",
           GH_TOKEN: "gh",
           TYPESAFE_API_KEY: "k",
+          CATHERD_DECISION_KEY: "d",
           CATHERD_TOKEN: "t",
           PWD: "/elsewhere",
           X: undefined,

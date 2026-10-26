@@ -68,6 +68,7 @@ describe("launchSupervisor", () => {
     "does not hand catherd's own secrets to the supervisor",
     async () => {
       process.env.TYPESAFE_API_KEY = "catherd-secret";
+      process.env.CATHERD_DECISION_KEY = "catherd-secret";
       process.env.CATHERD_LAUNCH_PROBE = "kept";
       const { dir, spec } = writeSpec("sleep 1");
       const pid = launchSupervisor(spec);
@@ -81,6 +82,7 @@ describe("launchSupervisor", () => {
       });
       expect(environ).toContain("CATHERD_LAUNCH_PROBE=kept");
       expect(environ).not.toContain("TYPESAFE_API_KEY");
+      expect(environ).not.toContain("CATHERD_DECISION_KEY");
       await waitFor(() => readExit(dir));
     },
   );
@@ -125,6 +127,13 @@ describe("launchDetached and the daemon's launch", () => {
     const pid = launchDetached(entry, ["x"], log, { PATH: process.env.PATH ?? "" });
     expect(pid).toBeGreaterThan(0);
     await waitFor(() => (existsSync(log) && readFileSync(log, "utf8").includes("hello x") ? true : null));
+  });
+
+  it("the daemon gets the decision key", () => {
+    expect(daemonEnv({ PATH: "/bin", CATHERD_DECISION_KEY: "dk" })).toEqual({
+      PATH: "/bin",
+      CATHERD_DECISION_KEY: "dk",
+    });
   });
 
   it("gives the daemon the launcher's env without its session identity or any role's scope, and keeps Jev's key", () => {

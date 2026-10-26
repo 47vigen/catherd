@@ -1,10 +1,8 @@
-// Spec §5.5 transport: a thin client (the official SDK is 0.x and Node-targeted) with the SDK's retry
-// semantics (research 2026-09-25-jev.md §4, §5.6). The public sources of spec 1.2 §3.3 reuse its policy
-// through `retryingFetch`.
+// The decision model's transport: a thin client (the official SDK is 0.x and Node-targeted) with the SDK's retry
+// semantics (research 2026-09-25-jev.md §4, §5.6). It calls the url the profile names. The public sources of
+// spec 1.2 §3.3 reuse its policy through `retryingFetch`.
 
-export const JEV_BASE = "https://api.typesafe.ai/v1";
-
-export interface JevTransport {
+export interface DecisionTransport {
   fetchImpl?: typeof fetch;
   /** the clock and the wait between attempts; tests replace both */
   now?: () => number;
@@ -17,7 +15,7 @@ export interface JevTransport {
   retries?: number;
 }
 
-export type JevResponse =
+export type DecisionResponse =
   | { ok: true; body: unknown; requestId: string | null; latencyMs: number; attempts: number }
   | { ok: false; error: string; status: number | null; latencyMs: number; attempts: number };
 
@@ -87,7 +85,7 @@ function httpError(status: number, text: string): string {
 export async function retryingFetch(
   url: string,
   init: { method: "GET" | "POST"; headers: (attempt: number) => Record<string, string>; body?: string },
-  o: JevTransport & { errorOf?: (status: number, text: string) => string } = {},
+  o: DecisionTransport & { errorOf?: (status: number, text: string) => string } = {},
 ): Promise<FetchOutcome> {
   const now = o.now ?? Date.now;
   const sleep = o.sleep ?? ((ms: number) => Bun.sleep(ms));
@@ -165,22 +163,26 @@ export async function retryingFetch(
   return { ok: false, ...last, latencyMs: now() - start, attempts: attempt };
 }
 
-/** `method path` against the Jev API with a bearer key, under `retryingFetch`'s policy. */
-export async function jevRequest(
+/**
+ * `method path` against the API at `url`, under `retryingFetch`'s policy. A bearer key is sent only when `key`
+ * is non-null: a gateway may need none.
+ */
+export async function decisionRequest(
+  url: string,
   method: "GET" | "POST",
   path: string,
-  key: string,
+  key: string | null,
   body: unknown,
-  o: JevTransport = {},
-): Promise<JevResponse> {
+  o: DecisionTransport = {},
+): Promise<DecisionResponse> {
   const r = await retryingFetch(
-    `${JEV_BASE}${path}`,
+    `${url}${path}`,
     {
       method,
       headers: (attempt) => ({
-        authorization: `Bearer ${key}`,
+        ...(key === null ? {} : { authorization: `Bearer ${key}` }),
         ...(body === undefined ? {} : { "content-type": "application/json" }),
-        ...(attempt > 1 ? { "x-typesafe-retry-count": String(attempt - 1) } : {}),
+        ...(attempt > 1 ? { "x-catherd-retry-count": String(attempt - 1) } : {}),
       }),
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     },
@@ -203,7 +205,7 @@ export async function jevRequest(
   return {
     ok: true,
     body: parsed,
-    requestId: r.headers.get("x-typesafe-request-id"),
+    requestId: header(r.headers, "x-request-id") ?? header(r.headers, "x-typesafe-request-id"),
     latencyMs: r.latencyMs,
     attempts: r.attempts,
   };
