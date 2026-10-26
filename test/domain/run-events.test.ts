@@ -92,6 +92,24 @@ describe("run events", () => {
     expect(RunEventSchema.safeParse({ ...check, tree: 3 }).success).toBe(false);
   });
 
+  it("the M2 fields parse and old lines still do", () => {
+    const log = makeLog();
+    const check = log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "boom", foreign: [] });
+    expect(RunEventSchema.parse(check)).toEqual(check);
+    const classed = { ...check, failureClass: "harness" as const };
+    expect(RunEventSchema.parse(classed)).toEqual(classed);
+    expect(RunEventSchema.safeParse({ ...check, failureClass: "other" }).success).toBe(false);
+    const stopped = log.add("stop.classified", { dispatchId: "D1", reason: null });
+    expect(RunEventSchema.parse({ ...stopped, failureClass: "product" })).toMatchObject({
+      failureClass: "product",
+    });
+    const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    const ended = endDispatch(log, id, { name: "worker-M1.L1", unit: "M1.L1" });
+    expect(RunEventSchema.parse(ended)).toEqual(ended);
+    const edited = { ...ended, testEdits: ["test/b.test.ts"] };
+    expect(RunEventSchema.parse(edited)).toEqual(edited);
+  });
+
   it("parses every event type, and refuses an unknown type or a newer v", () => {
     const all = oneOfEach();
     expect(new Set(all.map((e) => e.type)).size).toBe(all.length);

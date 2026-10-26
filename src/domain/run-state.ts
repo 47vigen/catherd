@@ -2,6 +2,7 @@ import type { BlockedReason } from "./blocked.ts";
 import { quotaOf } from "./failover.ts";
 import { mechanicalFix } from "./cheap-fix.ts";
 import { checkFailLines } from "./fail-lines.ts";
+import { findingKey, HARNESS_NOTE, failureSignature } from "./harness.ts";
 import { filesOf } from "./findings.ts";
 import { MEMORY_LIMITS } from "./milestone-memory.ts";
 import { tryParseRung } from "./ids.ts";
@@ -41,17 +42,7 @@ export const PLAN_REVISIONS = 2;
 /** Spec 2.0 decision 5: a soft cap of max(3, 2 + ⌈lanes/3⌉) fix rounds. */
 export const softCap = (lanes: number): number => Math.max(3, 2 + Math.ceil(lanes / 3));
 
-/** A finding's identity across rounds: its file and its first words, without line numbers (t3herd `findingKey`). */
-export const findingKey = (f: string): string =>
-  f
-    .replace(/^[\W\d]*(BLOCKER|BUG)\**\s*/i, "")
-    .replace(/:\d+(-\d+)?/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9/._ ]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 8)
-    .join(" ");
+export { findingKey };
 
 export type MilestoneStatus =
   | "waiting"
@@ -137,6 +128,8 @@ export interface LaneState {
   digest: string | null;
   /** when the lane's unbroken run of transport failures began: it retries its rung until HOLD_MS has passed */
   transportSince: string | null;
+  /** plan 44 D10: the signature of the harness failure the lane was last repaired for; any product end clears it */
+  harness: string | null;
 }
 
 export interface MilestoneState {
@@ -511,6 +504,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
         l.after = lp.after;
         l.owns = lp.owns;
         l.digest ??= null;
+        l.harness ??= null;
         if (lp.digest !== undefined) {
           // a lane file the architect changed re-runs a done lane; the Owns line is not in the digest
           if (l.digest !== null && l.digest !== lp.digest && l.status === "done" && !isDone(m)) {
@@ -565,6 +559,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
           statusAsked: false,
           digest: lp.digest ?? null,
           transportSince: null,
+          harness: null,
         };
     }
     next.push(m);
@@ -926,6 +921,7 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     return;
   }
   l.waitOn = [];
+  l.harness = null;
   if (reason === "check_broken" && waitForSiblings(s, l, x.siblings)) {
     l.thread = x.thread ?? l.thread;
     return;
@@ -979,6 +975,25 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     l.status = "pending";
     if (l.attempts >= MAX_TRIES) l.climbReason = "unchanged";
   }
+}
+
+/**
+ * plan 44 D10: the environment failed the lane, not its work. One repair dispatch on the same thread, counted in no
+ * attempt, round or floor; the same signature again parks the lane with the evidence.
+ */
+function harnessRepair(s: RunState, l: LaneState, evidence: string): void {
+  const sig = failureSignature(evidence);
+  if (l.harness === sig) {
+    l.status = "parked";
+    s.stuck[l.id] = {
+      reason: "environment",
+      question: `${l.id} hit the same environment failure after a repair:\n${evidence}`,
+    };
+    return;
+  }
+  l.harness = sig;
+  l.notes = [HARNESS_NOTE, evidence];
+  l.status = "pending";
 }
 
 /** `notes` with the fast check's failure as its one check note. */
@@ -1049,8 +1064,17 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
     if ((e.status === "failed" || e.status === "timeout") && TRANSPORT.test(e.why))
       return transportHold(s, lane, e);
     lane.transportSince = null;
-    // a stop that names no reason waits for its classification: nothing else happens to the lane meanwhile
-    if (e.status !== "limit" && unexplained(e)) {
+    // a lane that changed test files it does not own failed its rung's attempt, whatever else its reply said
+    if (e.testEdits !== undefined && e.testEdits.length > 0 && e.status !== "limit") {
+      lane.attempts += 1;
+      lane.thread = null;
+      lane.status = "pending";
+      lane.notes.push(`Restore these test files; you do not own them: ${e.testEdits.join(", ")}`);
+      if (lane.attempts >= MAX_TRIES) lane.climbReason = "unchanged";
+      return;
+    }
+    // every lane stop waits for its class (and its reason, when it names none): nothing else happens to the lane meanwhile
+    if (e.status !== "limit" && (e.reason !== null || unexplained(e))) {
       lane.classify = { dispatchId: e.dispatchId, ...x };
       return;
     }
@@ -1499,6 +1523,8 @@ function apply(s: RunState, e: RunEvent): void {
         l.lastFails = null;
         l.lastFailHead = null;
         laneDone(s, l);
+      } else if (e.failureClass === "harness") {
+        harnessRepair(s, l, e.tail);
       } else if (l.cheapRan) {
         // the cheap try's failed check goes back to the lane's own rung, uncounted
         l.cheapRan = false;
@@ -1507,6 +1533,7 @@ function apply(s: RunState, e: RunEvent): void {
         l.notes = failNotes(l.notes, e);
         l.status = "pending";
       } else {
+        l.harness = null;
         const fails = checkFailLines(e.tail);
         const key = e.tree !== undefined ? e.tree : (milestoneOf(s, l.milestone)?.commit ?? null);
         if (
@@ -1846,7 +1873,8 @@ function apply(s: RunState, e: RunEvent): void {
       if (!l?.classify) return;
       const { dispatchId: _id, ...x } = l.classify;
       l.classify = null;
-      laneEnded(s, l, x, e.reason);
+      if (e.failureClass === "harness") harnessRepair(s, l, x.why);
+      else laneEnded(s, l, x, e.reason);
       return;
     }
     case "base.behind": {

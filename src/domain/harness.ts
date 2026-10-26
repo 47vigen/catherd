@@ -1,5 +1,16 @@
 import { checkFailLines } from "./fail-lines.ts";
-import { findingKey } from "./run-state.ts";
+
+/** A finding's identity across rounds: its file and its first words, without line numbers (t3herd `findingKey`); run-state.ts re-exports it. */
+export const findingKey = (f: string): string =>
+  f
+    .replace(/^[\W\d]*(BLOCKER|BUG)\**\s*/i, "")
+    .replace(/:\d+(-\d+)?/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9/._ ]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 8)
+    .join(" ");
 
 export const FAILURE_CLASSES = ["product", "harness"] as const;
 export type FailureClass = (typeof FAILURE_CLASSES)[number];

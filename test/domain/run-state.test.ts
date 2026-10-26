@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { next, actionKey, confirms } from "../../src/domain/run-machine.ts";
+import { HARNESS_NOTE } from "../../src/domain/harness.ts";
 import { type Finding, issueLine, type MilestonePlan } from "../../src/domain/run-events.ts";
 import {
   activeMilestones,
@@ -252,6 +253,7 @@ describe("run state", () => {
       replyStatus: "blocked",
       reason: "needs_user",
     });
+    log.add("stop.classified", { dispatchId: w, reason: "needs_user" });
     expect(log.state().lanes["M1.L1"]?.status).toBe("parked");
     log.add("question.parked", { unit: "M1.L1", question: "q", reason: "needs_user" });
     log.add("question.answered", { unit: "M1.L1", answer: "use v2", by: "owner" });
@@ -330,6 +332,61 @@ describe("run state", () => {
     log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "1 failed", foreign: [] });
     expect(log.state().lanes["M1.L1"]).toMatchObject({ checkFails: 2, climbReason: "check-failed-twice" });
     expect(log.state().lanes["M1.L1"]?.notes).toHaveLength(1);
+  });
+
+  it("a harness failure gets one repair outside the round count", () => {
+    const log = runningLog();
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", thread: "t-9" });
+    const tail = "(fail) db > connects";
+    log.add("check.ran", { lane: "M1.L1", exit: 1, tail, foreign: [], failureClass: "harness" });
+    const l = log.state().lanes["M1.L1"];
+    expect(l).toMatchObject({ status: "pending", attempts: 0, checkFails: 0, thread: "t-9" });
+    expect(l?.notes[0]).toBe(HARNESS_NOTE);
+    expect(l?.notes[1]).toContain(tail);
+    log.add("check.ran", { lane: "M1.L1", exit: 1, tail, foreign: [], failureClass: "harness" });
+    expect(log.state().stuck["M1.L1"]?.reason).toBe("environment");
+    expect(log.state().stuck["M1.L1"]?.question).toContain(tail);
+  });
+
+  it("a product failure after a repair clears the signature", () => {
+    const log = runningLog();
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", thread: "t-9" });
+    log.add("check.ran", {
+      lane: "M1.L1",
+      exit: 1,
+      tail: "(fail) db > connects",
+      foreign: [],
+      failureClass: "harness",
+    });
+    expect(log.state().lanes["M1.L1"]?.harness).not.toBeNull();
+    log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "1 failed", foreign: [], failureClass: "product" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ harness: null, checkFails: 1 });
+  });
+
+  it("a harness stop is repaired once, then parks on the same signature", () => {
+    const log = runningLog();
+    const name = "worker-M1.L1";
+    const why = "docker: Cannot connect to the Docker daemon";
+    const w = startDispatch(log, { name, unit: "M1.L1", thread: "t-1" });
+    endDispatch(log, w, { name, unit: "M1.L1", replyStatus: "blocked", reason: "check_broken", why });
+    log.add("stop.classified", { dispatchId: w, reason: "check_broken", failureClass: "harness" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "pending", attempts: 0, stopRun: 0 });
+    expect(log.state().lanes["M1.L1"]?.notes[0]).toBe(HARNESS_NOTE);
+    const w2 = startDispatch(log, { name, unit: "M1.L1", thread: "t-1" });
+    endDispatch(log, w2, { name, unit: "M1.L1", replyStatus: "blocked", reason: "check_broken", why });
+    log.add("stop.classified", { dispatchId: w2, reason: "check_broken", failureClass: "harness" });
+    expect(log.state().stuck["M1.L1"]).toMatchObject({ reason: "environment" });
+  });
+
+  it("a lane that edited a foreign test file is sent back", () => {
+    const log = runningLog();
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", testEdits: ["test/b.test.ts"] });
+    const l = log.state().lanes["M1.L1"];
+    expect(l).toMatchObject({ status: "pending", attempts: 1, thread: null });
+    expect(l?.notes.join("\n")).toContain("Restore these test files; you do not own them: test/b.test.ts");
   });
 
   it("records a review round's counts, open findings and keys", () => {
@@ -1537,6 +1594,7 @@ describe("plan 43 M3: owners, parks and STATUS asks", () => {
       reason: "check_broken",
       why: "test/x.test.ts:12 asserts the old head",
     });
+    log.add("stop.classified", { dispatchId: w, reason: "check_broken" });
     const s = log.state();
     expect(s.lanes["M1.L1"]?.status).toBe("parked");
     expect(s.stuck["M1.L1"]?.question).toContain("test/x.test.ts:12 asserts the old head");
@@ -1552,6 +1610,7 @@ describe("plan 43 M3: owners, parks and STATUS asks", () => {
       reason: "check_broken",
       why: "lint fails",
     });
+    busy.add("stop.classified", { dispatchId: w2, reason: "check_broken" });
     expect(busy.state().lanes["M1.L1"]?.status).toBe("pending");
     expect(busy.state().stuck["M1.L1"]).toBeUndefined();
   });

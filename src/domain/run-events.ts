@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BLOCKED_REASONS } from "./blocked.ts";
+import { FAILURE_CLASSES } from "./harness.ts";
 import { JUDGE_KINDS, JudgeDecisionSchema } from "./judge.ts";
 import { REPLY_STATUSES, RUN_STATUSES } from "./record.ts";
 import { ROLES } from "./roles.ts";
@@ -167,6 +168,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     siblings: strings.optional(),
     /** a verifier's ok reply whose first line is no verdict: its `fail` is catherd's reading, not the verifier's */
     noVerdict: z.literal(true).optional(),
+    /** plan 44 D11: test files the lane changed that it does not own; older lines have none */
+    testEdits: strings.optional(),
   }),
   ev("check.ran", {
     lane: z.string(),
@@ -180,6 +183,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     waitedMs: z.number().optional(),
     /** the sibling lanes whose files the failing output names */
     siblings: strings.optional(),
+    /** plan 44 D9: whether the failure is the product's or the harness's; older lines have none */
+    failureClass: z.enum(FAILURE_CLASSES).optional(),
   }),
   /** plan 40: the daemon's check of a milestone's commit: its failing lines, the lines the base has no record of, what it covers */
   ev("milestone.checked", {
@@ -204,7 +209,12 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     hook: z.boolean().optional(),
   }),
   ev("lane.climbed", { lane: z.string(), rung: z.string(), top: z.boolean() }),
-  ev("stop.classified", { dispatchId: z.string(), reason: z.enum(BLOCKED_REASONS).nullable() }),
+  ev("stop.classified", {
+    dispatchId: z.string(),
+    reason: z.enum(BLOCKED_REASONS).nullable(),
+    /** plan 44 D9: absent before, and read as product */
+    failureClass: z.enum(FAILURE_CLASSES).optional(),
+  }),
   ev("judge.decided", {
     id: z.string(),
     unit: z.string(),

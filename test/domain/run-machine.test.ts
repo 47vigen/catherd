@@ -289,6 +289,7 @@ describe("the machine: a milestone's lanes", () => {
         reason: "needs_user",
         why: "needs_user: needs the api key",
       });
+      classified(log, w, "needs_user");
       return log;
     };
     const log = base();
@@ -342,6 +343,7 @@ describe("the machine: a milestone's lanes", () => {
       replyStatus: "refused",
       reason: "needs_user",
     });
+    classified(log, w, "needs_user");
     const first = of(last(log), "judge")[0]!;
     const j = startDispatch(log, {
       name: `judge-${first.input.id}`,
@@ -378,6 +380,7 @@ describe("the machine: a milestone's lanes", () => {
       replyStatus: "blocked",
       reason: "needs_user",
     });
+    classified(log, w, "needs_user");
     log.add("question.parked", { unit: "M1.L1", question: "q", reason: "needs_user" });
     expect(of(last(log), "judge")).toEqual([]);
     log.add("question.answered", { unit: "M1.L1", answer: "use v2", by: "owner" });
@@ -771,6 +774,8 @@ function stop(log: Log, lane: string, o: Omit<Parameters<typeof endDispatch>[2],
   const name = `worker-${lane}`;
   const w = startDispatch(log, { name, unit: lane });
   endDispatch(log, w, { ...o, name, unit: lane });
+  // a stop that names its reason is classed all the same: the reducer waits for the class (plan 44 D9)
+  if (o.reason) classified(log, w, o.reason);
   return w;
 }
 const blocked = (reason: BlockedReason, why: string = reason, foreign: string[] = []) => ({
@@ -947,6 +952,14 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     expect(of(last(u), "classify")).toEqual([]);
     expect(names(last(u))).toContain("worker-M1.L1");
     expect(u.state().lanes["M1.L1"]?.notes).toEqual([STATUS_ASK]);
+  });
+
+  it("every lane stop is classed before it acts", () => {
+    const log = runningLog(plan(1));
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: "blocked", reason: "too_hard" });
+    expect(of(last(log), "classify")).toEqual([{ type: "classify", dispatchId: w }]);
+    expect(names(last(log))).not.toContain("worker-M1.L1");
   });
 
   it("handles a stop with no reason as 1.5 does when Jev is off", () => {
@@ -1546,6 +1559,7 @@ describe("the machine: action keys", () => {
       replyStatus: "blocked",
       reason: "needs_user",
     });
+    classified(log, w, "needs_user");
     const out = of(last(log), "judge")[0]!;
     expect(judgeInputFor(log.state(), out.input.id, "question", "M1.L1")).toEqual(out.input);
     expect(newId()).toMatch(/^D\d+$/);

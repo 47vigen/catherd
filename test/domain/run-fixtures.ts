@@ -105,6 +105,7 @@ export function endDispatch(
     head?: string | null;
     foreign?: string[];
     noVerdict?: boolean;
+    testEdits?: string[];
     at?: string;
   },
 ) {
@@ -126,6 +127,7 @@ export function endDispatch(
       foreign: o.foreign ?? [],
       replyPath: `roles/${o.name}/${dispatchId}/reply.md`,
       ...(o.noVerdict ? { noVerdict: true } : {}),
+      ...(o.testEdits ? { testEdits: o.testEdits } : {}),
     },
     o.at,
   );
