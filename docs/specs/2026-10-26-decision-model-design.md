@@ -277,6 +277,26 @@ vendor guidance and ten peer orchestrators. In short:
 B8–B11 (the brief shape) land first. Then B12–B15 (enforcement), then Part A (the decision model, which
 judges the new briefs), and then B16, measured on a live run.
 
+## Probe results (2026-10-26, through `https://<your-gateway>/v1`, key `catherd`)
+
+A second host of the same gateway timed out every call at 100 s with a 504, even a 3 KB state. The Cloudflare host
+answered every one. The model was `perplexity/pplx-decider-v1.2-20261016`.
+
+| state | input tokens | latency | 4-level `difficulty` (route-v2) | 5-level, one level per worker rung |
+|---|---|---|---|---|
+| reviewer recheck, 3 KB | 1,078 | 1.3 s | spread, confidence 0.17 | spread, confidence 0.35 |
+| M40.L1 slim (role + tasks + lane), 38 KB | 11,353 | 1.4 s | **new logic, p 0.77** | level 3 (sol high), p 0.54 |
+| MR-U M1.L2 full, 106 KB | 29,640 | 2.1 s | follows an example, p 0.96 | level 1, p 0.51 |
+| M40.L1 full, 144 KB | 41,458 | 2.4 s | **mechanical, p 0.78** | **level 0 (the cheapest), p 0.66** |
+
+- **It fits.** 41 K tokens take 2.4 s and $0.0008.
+- **The bloated brief misleads the decision.** The same lane read as new logic when slim, and as a
+  mechanical change when its 101 KB `<context>` was attached. In the real run that same lane went to the
+  cheapest rung. Part B is a prerequisite for Part A's quality, not only for its cost.
+- **Five levels lower the confidence** (0.35–0.65 against up to 0.96 on four). Few picks will clear 0.8, so
+  the cumulative-from-the-top rule decides most of them. The plan should test the level texts on these four
+  states, and keep them as a fixture.
+
 ## Open before planning
 
 1. **Does a real brief fit the decider?** Its context limit is not published. Jev's was 64k tokens, and the
