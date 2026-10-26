@@ -125,7 +125,7 @@ export interface LaneState {
   digest: string | null;
   /** when the lane's unbroken run of transport failures began: it retries its rung until HOLD_MS has passed */
   transportSince: string | null;
-  /** plan 44 D10: the signature of the harness failure the lane was last repaired for; any product end clears it */
+  /** plan 44 D10: the signature of the harness failure the lane was last repaired for; it outlives the repair dispatch; a passing or product-failing check clears it */
   harness: string | null;
 }
 
@@ -1009,7 +1009,6 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     return;
   }
   l.waitOn = [];
-  l.harness = null;
   if (reason === "check_broken" && waitForSiblings(s, l, x.siblings)) {
     l.thread = x.thread ?? l.thread;
     return;
@@ -1728,6 +1727,7 @@ function apply(s: RunState, e: RunEvent): void {
       if (e.exit === 0 || e.foreign.length > 0) {
         l.lastFails = null;
         l.lastFailHead = null;
+        l.harness = null;
         laneDone(s, l);
       } else if (e.failureClass === "harness") {
         harnessRepair(s, l, e.tail);

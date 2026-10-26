@@ -123,6 +123,16 @@ describe("decide", () => {
     expect(none).toMatchObject({ ok: false, exhausted: false, rungs: [] });
   });
 
+  it("a headless floor matches the profile's claude: rungs", async () => {
+    const rungs = ["claude:claude-sonnet-5-5#high", "claude:claude-opus-5-5#high"];
+    const f = fakeFetch({ status: 200, body: reply({ "0": 0.9 }) });
+    const floor = "claude-code:claude-sonnet-5-5#high";
+    const r = await svc(f).decide(req({ rungs, floor, strict: true }));
+    expect(r).toMatchObject({ ok: true, levels: 1, levelRungs: [["claude:claude-opus-5-5#high"]] });
+    const refused = await svc(f).decide(req({ rungs, exclude: ["claude-code:claude-opus-5-5#high"] }));
+    expect(refused).toMatchObject({ ok: true, levelRungs: [["claude:claude-sonnet-5-5#high"]] });
+  });
+
   it("an unparsable answer is a failure, not a fallback", async () => {
     const f = fakeFetch({ status: 200, body: {} });
     const r = await svc(f).decide(req());

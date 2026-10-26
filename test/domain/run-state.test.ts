@@ -372,6 +372,21 @@ describe("run state", () => {
     expect(log.state().stuck["M1.L1"]?.question).toContain(tail);
   });
 
+  it("the signature survives the repair dispatch, so the same failure after it parks", () => {
+    const log = runningLog();
+    const name = "worker-M1.L1";
+    const w = startDispatch(log, { name, unit: "M1.L1" });
+    endDispatch(log, w, { name, unit: "M1.L1", thread: "t-9" });
+    const tail = "(fail) db > connects";
+    log.add("check.ran", { lane: "M1.L1", exit: 1, tail, foreign: [], failureClass: "harness" });
+    const repair = startDispatch(log, { name, unit: "M1.L1", thread: "t-9" });
+    endDispatch(log, repair, { name, unit: "M1.L1", thread: "t-9", replyStatus: "complete" });
+    log.add("stop.classified", { dispatchId: repair, reason: null, failureClass: "product" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "checking" });
+    log.add("check.ran", { lane: "M1.L1", exit: 1, tail, foreign: [], failureClass: "harness" });
+    expect(log.state().stuck["M1.L1"]?.reason).toBe("environment");
+  });
+
   it("a product failure after a repair clears the signature", () => {
     const log = runningLog();
     const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });

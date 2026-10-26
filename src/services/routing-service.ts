@@ -9,6 +9,7 @@ import {
   VERDICT_OPTIONS,
   type VerdictSetName,
 } from "../domain/decision.ts";
+import { headlessRung } from "../domain/ids.ts";
 import { DECISION_UNSET_FIX } from "../domain/profile.ts";
 import type { Role } from "../domain/roles.ts";
 import {
@@ -84,9 +85,10 @@ async function decideRung(req: DecideRequest, o: RoutingOpts): Promise<DecideAns
   const p = routingProfile(req.profile, req.role, req.usage);
   await freshenWithin(p.role.rungs, req.repo, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);
   const cands = decisionCandidates(loadCatalog({ repo: req.repo, runDir: req.runDir }), p, req.role);
+  const refused = req.exclude.map(headlessRung);
   const open = new Set(
     cands
-      .filter((x) => !req.exclude.includes(x.rung) && !req.held.includes(quotaOf(x.info.parsed)))
+      .filter((x) => !refused.includes(headlessRung(x.rung)) && !req.held.includes(quotaOf(x.info.parsed)))
       .map((x) => x.rung),
   );
   const above = aboveFloor(levelsOf(cands), req.floor, req.strict);
@@ -95,7 +97,10 @@ async function decideRung(req: DecideRequest, o: RoutingOpts): Promise<DecideAns
     .filter((l) => l.rungs.length > 0)
     .map((l, level) => ({ ...l, level }));
   // a level above the floor with a rung that only a quota hold keeps out: wait for it, as a failover does
-  if (levels.length === 0 && above.some((l) => l.rungs.some((r) => !open.has(r) && !req.exclude.includes(r))))
+  if (
+    levels.length === 0 &&
+    above.some((l) => l.rungs.some((r) => !open.has(r) && !refused.includes(headlessRung(r))))
+  )
     return {
       ok: false,
       exhausted: false,

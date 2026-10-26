@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BLOCKED_REASONS } from "./blocked.ts";
+import { headlessRung } from "./ids.ts";
 import type { Role } from "./roles.ts";
 import { scrubKeyShapes, scrubSecretAssignments } from "./secrets.ts";
 
@@ -220,7 +221,11 @@ export function levelsOf(cands: readonly { rung: string; intelligence: number }[
  * drops it. A null or unknown floor allows every level.
  */
 export function aboveFloor(levels: readonly Level[], floor: string | null, strict: boolean): Level[] {
-  const at = floor === null ? -1 : levels.findIndex((l) => l.rungs.includes(floor));
+  // the daemon records a `claude:` rung as `claude-code:`, so the floor matches in either spelling
+  const at =
+    floor === null
+      ? -1
+      : levels.findIndex((l) => l.rungs.some((r) => headlessRung(r) === headlessRung(floor)));
   if (at < 0) return levels.map((l, level) => ({ ...l, level }));
   return levels.slice(strict ? at + 1 : at).map((l, level) => ({ ...l, level }));
 }
