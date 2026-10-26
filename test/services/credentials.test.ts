@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { knownSecrets } from "../../src/infra/log.ts";
-import { credentialsPath, savedCredential } from "../../src/services/credentials.ts";
+import { credentialsPath, migrateCredentials, savedCredential } from "../../src/services/credentials.ts";
 import { jevKey, registerSavedSecrets, saveJevKey } from "../../src/services/jev-service.ts";
 import { noPosixModes, snapshotEnv, withHome } from "../helpers.ts";
 
@@ -90,5 +90,34 @@ describe("saving a credential (1.2 minor)", () => {
     const saved = JSON.parse(readFileSync(credentialsPath(), "utf8"));
     expect(saved.other).toBe("kept");
     expect(["tsk-a-24", "tsk-b-24"]).toContain(saved.typesafeApiKey);
+  });
+});
+
+describe("migrating a TypeSafe key (plan 44 D26)", () => {
+  it.skipIf(noPosixModes)("moves typesafeApiKey to decisionKey once, at mode 600", () => {
+    withHome();
+    mkdirSync(dirname(credentialsPath()), { recursive: true });
+    writeFileSync(credentialsPath(), JSON.stringify({ schema: 1, typesafeApiKey: "k" }));
+    expect(migrateCredentials()).toEqual({ moved: true });
+    expect(JSON.parse(readFileSync(credentialsPath(), "utf8"))).toEqual({ schema: 1, decisionKey: "k" });
+    expect(statSync(credentialsPath()).mode & 0o777).toBe(0o600);
+    expect(migrateCredentials()).toEqual({ moved: false });
+  });
+
+  it("keeps other credentials, leaves an existing decisionKey alone, and does nothing without a file", () => {
+    withHome();
+    expect(migrateCredentials()).toEqual({ moved: false });
+    mkdirSync(dirname(credentialsPath()), { recursive: true });
+    const text = JSON.stringify({ schema: 1, typesafeApiKey: "old", decisionKey: "new", other: 1 });
+    writeFileSync(credentialsPath(), text);
+    expect(migrateCredentials()).toEqual({ moved: false });
+    expect(readFileSync(credentialsPath(), "utf8")).toBe(text);
+    writeFileSync(credentialsPath(), JSON.stringify({ schema: 1, typesafeApiKey: "k", other: 1 }));
+    expect(migrateCredentials()).toEqual({ moved: true });
+    expect(JSON.parse(readFileSync(credentialsPath(), "utf8"))).toEqual({
+      schema: 1,
+      decisionKey: "k",
+      other: 1,
+    });
   });
 });
