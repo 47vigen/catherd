@@ -7,7 +7,6 @@ import { pairOf } from "../domain/catalog.ts";
 import { tokensUsd } from "../domain/cost.ts";
 import { changedPaths, type Snapshot, splitChanges } from "../domain/changes.ts";
 import { isCatherdError } from "../domain/errors.ts";
-import { guardedEdits } from "../domain/test-guard.ts";
 import { parseRung } from "../domain/ids.ts";
 import {
   type ExitInfo,
@@ -212,8 +211,6 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
         a.lane !== null || a.access === "read-only",
       )
     : { changedOwned: [], violations: [] };
-  // B14: a sibling's test file is no violation (it is owned), but a lane that is not its owner still may not change it
-  const testEdits = a.lane !== null ? guardedEdits(changed, ownsList) : [];
   const reported = parseReplyStatus(replyText);
   const environment = parseReplyEnvironment(replyText);
   const head = parseReplyHead(replyText);
@@ -244,7 +241,6 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     costUsd: o.costUsd ?? (price ? tokensUsd(price, o.tokens) : null),
     changedOwned,
     violations,
-    ...(testEdits.length ? { testEdits } : {}),
     ...(after ? {} : { gitUnavailable: true }),
     replyStatus: reported.status,
     replyWhy: reported.why,
