@@ -120,7 +120,7 @@ function Dashboard() {
           <DailyChart data={data} days={days} className="lg:col-span-8" />
           <ModelShares models={data.tokensByModel} className="lg:col-span-4" />
           <RoleShares roles={data.secsByRole} className="lg:col-span-8" />
-          <Recoveries failovers={data.failovers} climbs={data.climbs} className="lg:col-span-4" />
+          <Recoveries failovers={data.failovers} className="lg:col-span-4" />
           <RecentRuns runs={data.recent} now={new Date(now)} className="lg:col-span-12" />
         </div>
       )}

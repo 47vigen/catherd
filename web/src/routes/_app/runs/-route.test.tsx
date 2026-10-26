@@ -470,6 +470,46 @@ test("the drawer shows the prompt, the log, the output with findings and A-lines
   ).toBe(true);
 });
 
+test("the Decision tab shows the levels and the pick", async () => {
+  model = {
+    ...model,
+    nodes: model.nodes.map((n) =>
+      n.id === LANE
+        ? {
+            ...n,
+            decision: {
+              n: 1,
+              rung: "codex:gpt-6-sol#medium",
+              level: 1,
+              levels: 3,
+              levelRungs: [["codex:gpt-6-luna#low"], ["codex:gpt-6-sol#medium"], ["codex:gpt-6-sol#high"]],
+              p: 0.9,
+              source: "model",
+              why: "A small rename",
+              probabilities: {},
+            },
+          }
+        : n,
+    ),
+  };
+  renderRoute(`/runs/r1?node=${encodeURIComponent(LANE)}&tab=decision`, api);
+  const dialog = await screen.findByRole("dialog");
+  const levels = await within(dialog).findAllByRole("listitem");
+  expect(levels).toHaveLength(3);
+  expect(levels[0]).not.toHaveTextContent("Picked");
+  expect(levels[1]).toHaveTextContent("Picked");
+  expect(levels[2]).not.toHaveTextContent("Picked");
+  expect(within(dialog).getByText("90%")).toBeInTheDocument();
+  expect(within(dialog).getByText("A small rename")).toBeInTheDocument();
+  expect(within(dialog).getByText("Decision model")).toBeInTheDocument();
+});
+
+test("a role node with no decision says it is not decided yet", async () => {
+  renderRoute(`/runs/r1?node=${encodeURIComponent(LANE)}&tab=decision`, api);
+  const dialog = await screen.findByRole("dialog");
+  expect(await within(dialog).findByText("Not decided yet")).toBeInTheDocument();
+});
+
 test("a check node's drawer shows the check logs and the exit", async () => {
   renderRoute(`/runs/r1?node=${encodeURIComponent("M1/check/M1.L1")}&tab=checks`, api);
   const dialog = await screen.findByRole("dialog");

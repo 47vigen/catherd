@@ -63,7 +63,7 @@ function Cell({ label, wide, children }: { label: string; wide?: boolean; childr
   );
 }
 
-function RungLine({ rung }: { rung: string }) {
+export function RungLine({ rung }: { rung: string }) {
   const r = parseRung(rung);
   return (
     <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">

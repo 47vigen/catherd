@@ -1,17 +1,15 @@
 import type { Issue } from "../../../../client";
 
 export const SECTIONS = [
-  "objective",
   "budget",
   "timeouts",
   "failover",
   "effort",
-  "bars",
   "limits",
   "preflight",
   "land",
   "notifications",
-  "jev",
+  "decision",
   "billing",
   "isolation",
   "roles",
@@ -20,18 +18,16 @@ export const SECTIONS = [
 export type SectionId = (typeof SECTIONS)[number];
 
 const FIELD_HOME: Record<string, SectionId> = {
-  objective: "objective",
   budget: "budget",
   timeouts: "timeouts",
   failover: "failover",
   maxEffort: "effort",
-  bars: "bars",
   lock: "limits",
   limits: "limits",
   preflight: "preflight",
   land: "land",
   notify: "notifications",
-  jev: "jev",
+  decision: "decision",
   billing: "billing",
   harness: "isolation",
   isolated: "isolation",

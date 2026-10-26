@@ -400,6 +400,46 @@ describe("check attempts", () => {
   });
 });
 
+describe("the decision of a node", () => {
+  const made = (n: number, rung: string) => ({
+    name: "worker-M1.L1",
+    n,
+    role: "worker" as const,
+    unit: "M1.L1",
+    level: 1,
+    levels: 2,
+    levelRungs: [["codex:gpt-6-sol#low"], [rung]],
+    rung,
+    floor: null,
+    strict: false,
+    briefFile: `decisions/worker-M1.L1/${n}/brief.md`,
+    briefHash: `hash-${n}`,
+    p: 0.9,
+    probabilities: { "1": 0.9 },
+    why: "a small change",
+    source: "model" as const,
+  });
+
+  it("a role node carries its latest decision", () => {
+    const log = runningLog();
+    log.add("decision.made", made(1, "codex:gpt-6-sol#medium"));
+    log.add("decision.made", made(2, "codex:gpt-6-sol#high"));
+    const m = model(log);
+    expect(node(m, "M1/lane/M1.L1").decision).toMatchObject({
+      n: 2,
+      rung: "codex:gpt-6-sol#high",
+      level: 1,
+      levels: 2,
+      levelRungs: [["codex:gpt-6-sol#low"], ["codex:gpt-6-sol#high"]],
+      p: 0.9,
+      source: "model",
+      why: "a small change",
+    });
+    expect(node(m, "M1/lane/M1.L2").decision).toBeNull();
+    expect(node(m, "M1/check/M1.L1").decision).toBeNull();
+  });
+});
+
 describe("diffRunModel", () => {
   it("returns only what changed", () => {
     const log = runningLog();

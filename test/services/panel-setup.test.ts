@@ -43,6 +43,12 @@ describe("the panel's Setup view", () => {
     expect(SetupViewSchema.parse(await setupView(deps, repo)).settings.landAutoMerge).toBe(true);
   });
 
+  it("settings carry the decision model, not the bars", async () => {
+    const { settings } = SetupViewSchema.parse(await setupView(deps, repo));
+    expect(settings.decision).toEqual({ url: null, model: null, minConfidence: 0.8 });
+    for (const k of ["objective", "jev", "bars"]) expect(k in settings).toBe(false);
+  });
+
   it("offers older versions too, each naming the newer one that hides it by default", async () => {
     const v = SetupViewSchema.parse(await setupView(deps, repo));
     const newer = (rung: string) =>

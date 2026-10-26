@@ -91,15 +91,14 @@ function budgetWord(b: SetupView["settings"]["budget"]): string {
 /** The settings that shape every run, at a glance while the editors are folded away. */
 function SettingsGlance({ s }: { s: SetupView["settings"] }) {
   return (
-    <Tile.Stats className="rounded-none border-0 xl:grid-cols-7 md:max-xl:[&>:last-child]:col-span-3">
-      <Tile.Stat label="Prefer" value={s.objective === "cost" ? "Cost" : "Speed"} hint="when two models both fit" />
+    <Tile.Stats className="rounded-none border-0 xl:grid-cols-6">
       <Tile.Stat label="Budget" value={budgetWord(s.budget)} hint="per run, then it asks you" />
       <Tile.Stat
         label="Timeouts"
         value={`${s.timeouts.idleMin} / ${s.timeouts.wallMin}`}
         hint="minutes silent / in all"
       />
-      <Tile.Stat label="Jev" value={s.jev === "auto" ? "Automatic" : "Off"} hint="picks the model per lane" />
+      <Tile.Stat label="Decision model" value={s.decision.model ?? "Not set"} hint="picks the model per dispatch" />
       <Tile.Stat label="Confirm first" value={s.preflightConfirm ? "Yes" : "No"} hint="before any worker starts" />
       <Tile.Stat label="Land" value={s.landAutoMerge ? "catherd" : "Owner"} hint="merges each landed milestone" />
       <Tile.Stat label="Notify" value={`${s.notify.length} of 3`} hint="moments of a run" />

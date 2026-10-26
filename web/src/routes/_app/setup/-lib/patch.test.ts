@@ -67,14 +67,8 @@ test("heavy lock and memory limits go to their own keys", () => {
 });
 
 test("the other sections map one to one", () => {
-  expect(patchFor("objective", { objective: "speed" })).toEqual({
-    objective: "speed",
-  });
   expect(patchFor("timeouts", { idleMin: 10, wallMin: 60 })).toEqual({
     timeouts: { idleMin: 10, wallMin: 60 },
-  });
-  expect(patchFor("bars", { copy: 10, build: 40, logic: 60, hard: 70 })).toEqual({
-    bars: { copy: 10, build: 40, logic: 60, hard: 70 },
   });
   expect(patchFor("preflight", { confirm: true })).toEqual({
     preflight: { confirm: true },
@@ -82,7 +76,9 @@ test("the other sections map one to one", () => {
   expect(patchFor("notifications", { notify: ["finish"] })).toEqual({
     notify: ["finish"],
   });
-  expect(patchFor("jev", { use: "off" })).toEqual({ jev: { use: "off" } });
+  expect(patchFor("decision", { url: "https://gw.example/v1", model: "m", minConfidence: 0.9 })).toEqual({
+    decision: { url: "https://gw.example/v1", model: "m", minConfidence: 0.9 },
+  });
   expect(patchFor("billing", { codex: "metered" })).toEqual({
     billing: { codex: "metered" },
   });
@@ -107,8 +103,12 @@ test("an amount is empty, a positive number, or invalid", () => {
 
 test("a section sends only the keys the user changed", () => {
   expect(
-    patchFor("bars", { copy: 20, build: 50, logic: 60, hard: 65 }, { copy: 20, build: 45, logic: 60, hard: 65 }),
-  ).toEqual({ bars: { build: 50 } });
+    patchFor(
+      "decision",
+      { url: "https://gw.example/v1", model: "m", minConfidence: 0.9 },
+      { url: "https://gw.example/v1", model: "m", minConfidence: 0.8 },
+    ),
+  ).toEqual({ decision: { minConfidence: 0.9 } });
   expect(
     patchFor(
       "limits",
@@ -126,7 +126,13 @@ test("a section sends only the keys the user changed", () => {
   expect(patchFor("budget", { minutes: null, tokens: null, usd: 8 }, { minutes: null, tokens: null, usd: 5 })).toEqual({
     budget: { usd: 8 },
   });
-  expect(patchFor("bars", { copy: 20 }, { copy: 20 })).toEqual({});
+  expect(
+    patchFor(
+      "decision",
+      { url: null, model: null, minConfidence: 0.8 },
+      { url: null, model: null, minConfidence: 0.8 },
+    ),
+  ).toEqual({});
 });
 
 test("section changes compare arrays whole and preserve changed nested values", () => {
