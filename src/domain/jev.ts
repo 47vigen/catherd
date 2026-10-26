@@ -55,6 +55,7 @@ export const JevFileSchema = z.looseObject({
     finding: z.object({ questions: z.record(z.string(), QuestionSchema), rule: VerdictRuleSchema }),
     "same-defect": z.object({ questions: z.record(z.string(), QuestionSchema), rule: VerdictRuleSchema }),
     stop: z.object({ questions: z.record(z.string(), QuestionSchema), rule: VerdictRuleSchema }),
+    "failure-class": z.object({ questions: z.record(z.string(), QuestionSchema), rule: VerdictRuleSchema }),
   }),
 });
 export type JevFile = z.infer<typeof JevFileSchema>;
@@ -65,6 +66,7 @@ export const VERDICT_OPTIONS = {
   finding: ["design", "code", "unclear"],
   "same-defect": ["yes", "no"],
   stop: [...BLOCKED_REASONS, "other"],
+  "failure-class": ["product", "harness"],
 } as const;
 
 /** JSON with object keys sorted at every depth, so equal data always hashes the same. */

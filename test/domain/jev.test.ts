@@ -350,6 +350,15 @@ describe("judgeVerdict", () => {
       expect(VERDICT_OPTIONS[set] as readonly string[]).toContain(rule.fallback);
     }
   });
+  it("the failure-class set parses and its fallback is an option", () => {
+    const { questions, rule } = f.sets["failure-class"];
+    const q = questions.failure_class;
+    expect(Object.keys(q?.type === "choice" ? q.criteria : {})).toEqual([
+      ...VERDICT_OPTIONS["failure-class"],
+    ]);
+    expect(VERDICT_OPTIONS["failure-class"] as readonly string[]).toContain(rule.fallback);
+    expect(rule).toEqual({ min: 0.8, fallback: "product" });
+  });
   const at = (p: number) => ({
     finding: { type: "choice" as const, choice: "design", confidence: 0.5, probabilities: { design: p } },
   });

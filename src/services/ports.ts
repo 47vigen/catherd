@@ -182,6 +182,8 @@ export interface RoutingPort {
     reply: string,
     use: "auto" | "off",
   ): Promise<Verdict<BlockedReason | "other">>;
+  /** plan 44 D9: whose failure a check or a stop is; Jev off or an unsure answer is `product` */
+  failureClass(runDir: string, text: string, use: "auto" | "off"): Promise<Verdict<"product" | "harness">>;
   /**
    * A run's start check: refreshes the index if it is due, reads it once, and names the enabled roles of `view`
    * that no indexed pair can fill; `index` is what the run pins (null when there is none).

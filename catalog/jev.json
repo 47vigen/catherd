@@ -110,6 +110,19 @@
         }
       },
       "rule": { "min": 0.8, "fallback": "other" }
+    },
+    "failure-class": {
+      "questions": {
+        "failure_class": {
+          "type": "choice",
+          "instructions": "A check or an agent failed. `text` is the end of its output. Whose failure is it?",
+          "criteria": {
+            "product": "The product code or its tests are wrong: the failure is the work's to fix",
+            "harness": "The machine, a tool, a service, a path, a network or a credential stopped the check; the product code may be right"
+          }
+        }
+      },
+      "rule": { "min": 0.8, "fallback": "product" }
     }
   }
 }

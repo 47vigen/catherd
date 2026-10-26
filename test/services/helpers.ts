@@ -131,6 +131,12 @@ export function fakeDeps(
       confidence: null,
       source: "default",
     }),
+    failureClass: async (_runDir, _text, _use) => ({
+      value: "product",
+      probability: null,
+      confidence: null,
+      source: "default",
+    }),
     checkStart: async () => ({ unusable: [], index: null }),
     catalog: () => ({ total: 0, models: [] }),
   };

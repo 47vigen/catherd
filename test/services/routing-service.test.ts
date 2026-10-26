@@ -834,6 +834,27 @@ describe("stopCause", () => {
   });
 });
 
+describe("failureClass", () => {
+  it("a harness answer classes the failure; Jev off classes it product and asks nothing", async () => {
+    const dir = runDir();
+    const yes = fakeFetch({ status: 200, body: fx("failure-class-harness.json") });
+    const r = routingService({ key: "k", fetchImpl: yes.impl, ...noWait });
+    expect(await r.failureClass(dir, "(fail) db > connects: ECONNREFUSED", "auto")).toMatchObject({
+      value: "harness",
+      source: "jev",
+    });
+    const asked: string[] = [];
+    const fail = (async (input: RequestInfo | URL): Promise<Response> => {
+      asked.push(String(input));
+      throw new Error("Jev was asked with jev.use off");
+    }) as typeof fetch;
+    expect(
+      await routingService({ key: "k", fetchImpl: fail, ...noWait }).failureClass(dir, "x", "off"),
+    ).toMatchObject({ value: "product", source: "default" });
+    expect(asked).toEqual([]);
+  });
+});
+
 it("refuses a selected native Claude rung from Codex and names exact headless alternative", async () => {
   const r = req(null, { host: "codex", role: "architect" });
   await expect(routingService().route(r)).rejects.toMatchObject({

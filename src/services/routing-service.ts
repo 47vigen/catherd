@@ -380,17 +380,19 @@ async function routeMany(reqs: RouteRequest[], o: RoutingOpts): Promise<RouteAns
 
 async function verdict<T extends string>(
   runDir: string,
-  set: Extract<SetName, "finding" | "same-defect" | "stop">,
+  set: Extract<SetName, "finding" | "same-defect" | "stop" | "failure-class">,
   state: Record<string, unknown>,
   options: readonly T[],
   use: "auto" | "off",
   o: JevOpts,
 ): Promise<Verdict<T>> {
-  const rule = jevQuestions().sets[set].rule;
+  const { rule, questions } = jevQuestions().sets[set];
+  // a verdict set holds one question; failure-class names it failure_class, not after the set
+  const id = Object.keys(questions)[0] ?? set;
   // spec §5.5: Jev off means no question and no jev.jsonl row; the rule's default answers
-  if (use === "off") return judgeVerdict(rule, set, options, null);
+  if (use === "off") return judgeVerdict(rule, id, options, null);
   const asked = await askJev(runDir, set, state, o);
-  const v = judgeVerdict(rule, set, options, asked.answers as JevAnswers | null);
+  const v = judgeVerdict(rule, id, options, asked.answers as JevAnswers | null);
   logJev(runDir, {
     ...asked.meta,
     call: set,
@@ -437,6 +439,15 @@ export function routingService(o: RoutingOpts = {}): RoutingPort {
       ),
     stopCause: (runDir, status, reply, use) =>
       verdict(runDir, "stop", { status, reply: scrubFree(reply.slice(-4000)) }, VERDICT_OPTIONS.stop, use, o),
+    failureClass: (runDir, text, use) =>
+      verdict(
+        runDir,
+        "failure-class",
+        { text: scrubFree(text.slice(-4000)) },
+        VERDICT_OPTIONS["failure-class"],
+        use,
+        o,
+      ),
     checkStart: async (view, repo) => {
       const { catalog, index } = await startIndex(repo);
       const unusable = rolesWithoutRung(catalog, view);
