@@ -1,19 +1,10 @@
 import type { HostContext } from "../../src/domain/host.ts";
 import { execFileSync } from "node:child_process";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { checkItems } from "../../src/domain/fail-lines.ts";
 import { milestoneCheck } from "../../src/domain/plan-doc.ts";
 import { composeBrief } from "../../src/domain/brief.ts";
 import type { Role } from "../../src/domain/roles.ts";
-import { grantsScratch, ROLE_SERVER_BACKENDS } from "../../src/domain/role-tools.ts";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { newDispatchId, parseRung } from "../../src/domain/ids.ts";
@@ -24,14 +15,7 @@ import { processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { dispatch, type DispatchInput, watchersSettled } from "../../src/services/dispatch-service.ts";
-import {
-  type Admit,
-  admitPath,
-  type Dispatch,
-  roleDir,
-  scratchDir,
-  setLatest,
-} from "../../src/services/dispatches.ts";
+import { type Admit, admitPath, type Dispatch, roleDir, setLatest } from "../../src/services/dispatches.ts";
 import type { Deps, ProfilePort, ProfileView, RoutingPort } from "../../src/services/ports.ts";
 import { result } from "../../src/services/run-service.ts";
 import { appendRecord, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
@@ -41,30 +25,29 @@ import { repoWithOrigin, tempRepo, withHome } from "../helpers.ts";
 export { makeRecord } from "../domain/make-record.ts";
 
 /**
- * The brief admission writes for `text` (spec 1.5 plan 21): the lane file inlined, the role's notes, its reply
- * contract. `backend` (and `isolated`) decide the scratch folder and the role server, as admission does.
+ * The brief admission composes for `text` on the 1.x path (plan 44 D2): the four parts, `text` as part 4, the lane
+ * file at the end of part 3. A brief names no backend, so `backend` and `isolated` change nothing in it.
  */
 export function briefFor(
   run: Run,
   text: string,
   o: { name?: string; role?: Role; lane?: string | null; backend?: string; isolated?: boolean } = {},
 ): string {
-  const name = o.name ?? "worker-M1.L1";
   const lane = o.lane === undefined ? "M1.L1" : o.lane;
-  const backend = o.backend ?? "codex";
-  return composeBrief(text, {
-    run: run.id,
-    name,
-    role: o.role ?? "worker",
-    lane:
-      lane === null
-        ? null
-        : { id: lane, text: readFileSync(join(runPaths(run.dir).lanes, `${lane}.md`), "utf8") },
-    scratch: grantsScratch(backend, o.isolated ?? false) ? realpathSync(scratchDir(run, name)) : null,
-    roleServer: ROLE_SERVER_BACKENDS.includes(backend),
-    version: "0.0.0-test",
-    context: null,
-  });
+  return composeBrief(
+    { facts: [], unit: [], round: [text] },
+    {
+      run: run.id,
+      name: o.name ?? "worker-M1.L1",
+      role: o.role ?? "worker",
+      lane:
+        lane === null
+          ? null
+          : { id: lane, text: readFileSync(join(runPaths(run.dir).lanes, `${lane}.md`), "utf8") },
+      version: "0.0.0-test",
+      resumed: false,
+    },
+  );
 }
 
 export const LADDER = [

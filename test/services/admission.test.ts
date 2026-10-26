@@ -1,13 +1,13 @@
 import * as git from "../../src/infra/git.ts";
 import { replyContract } from "../../src/domain/role-prompts.ts";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cursorAdapter } from "../../src/adapters/cursor/index.ts";
 import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
-import { type AdmitInput, admit } from "../../src/services/admission.ts";
+import { type AdmitInput, admit, fullBriefPath } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { setGateEnv } from "../../src/services/gate-env.ts";
 import { latestDispatch } from "../../src/services/dispatches.ts";
@@ -131,7 +131,7 @@ describe("admission", () => {
     const { d } = await admit(fakeDeps(), run, input());
     const brief = readFileSync(dispatchPaths(d.dir).brief, "utf8");
     expect(brief).toContain(
-      "<context>\nThe plan's preamble (p.md), which applies to every task:\n\n# Plan P\nGoal: a wallet.\n</context>\n\n<role>\n",
+      "<unit-context>\nThe plan's preamble (p.md), which applies to every task:\n\n# Plan P\nGoal: a wallet.\n\nYour lane file,",
     );
     // the architect's brief carries no preamble: it translates the plan itself
     expect(planContext(run, "architect")).toBeNull();
@@ -152,7 +152,7 @@ describe("admission", () => {
     expect(brief).not.toContain("Goal: beta.");
   });
 
-  it("a resumed dispatch's brief.md has no role section", async () => {
+  it("a resumed dispatch's brief.md is this round only, and brief-full.md the four parts", async () => {
     const { repo, run } = setup();
     const plan = join(repo, "p.md");
     writeFileSync(plan, PLAN_TEXT);
@@ -169,7 +169,12 @@ describe("admission", () => {
       }),
     );
     const again = await admit(fakeDeps(), run, input({ thread: THREAD }));
-    expect(readFileSync(dispatchPaths(again.d.dir).brief, "utf8").startsWith("<task>")).toBe(true);
+    const resumed = readFileSync(dispatchPaths(again.d.dir).brief, "utf8");
+    expect(resumed).toStartWith("<this-round>\n");
+    expect(resumed).not.toContain("<role-contract>");
+    expect(readFileSync(fullBriefPath(dispatchPaths(again.d.dir).brief), "utf8")).toStartWith(
+      "<role-contract>\n",
+    );
   });
 
   it("puts the role's standing rules in every brief, and no block when the role has none (plan 34)", async () => {
@@ -183,7 +188,7 @@ describe("admission", () => {
     await addKnowledge(repo, "[reviewer] only R");
     const { d } = await admit(fakeDeps(), run, input());
     const brief = readFileSync(dispatchPaths(d.dir).brief, "utf8");
-    const context = brief.slice(brief.indexOf("<context>"), brief.indexOf("</context>"));
+    const context = brief.slice(brief.indexOf("<unit-context>"), brief.indexOf("</unit-context>"));
     expect(context).toContain("Standing rules for the worker role in this repo (its knowledge.md):");
     expect(context).toContain("always A");
     expect(context).toContain("only W");
@@ -194,8 +199,36 @@ describe("admission", () => {
     const { d: none } = await admit(fakeDeps(), other.run, input());
     const bare = readFileSync(dispatchPaths(none.dir).brief, "utf8");
     expect(bare).toBe(briefFor(other.run, "Read lanes/M1.L1.md"));
-    for (const text of ["<context>", "Standing rules", "no knowledge recorded"])
+    for (const text of ["The plan's preamble", "Standing rules", "no knowledge recorded"])
       expect(bare).not.toContain(text);
+  });
+
+  it("a composed brief is written verbatim", async () => {
+    const { run } = setup();
+    const brief = "<role-contract>\nX\n</role-contract>\n";
+    const { d } = await admit(fakeDeps(), run, input({ brief, composed: true }));
+    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toBe(brief);
+    // no plan context, standing rules or lane file is added to it
+    expect(existsSync(fullBriefPath(dispatchPaths(d.dir).brief))).toBe(false);
+  });
+
+  it("a composed resumed dispatch keeps the whole brief beside the trimmed one", async () => {
+    const { run } = setup();
+    const first = await admit(fakeDeps(), run, input());
+    appendRecord(
+      run,
+      makeRecord({
+        runId: run.id,
+        dispatchId: first.d.admit.dispatchId,
+        name: "worker-M1.L1",
+        thread: THREAD,
+      }),
+    );
+    const brief = "<this-round>\nfix\n</this-round>\n";
+    const fullBrief = "<role-contract>\nX\n</role-contract>\n\n<this-round>\nfix\n</this-round>\n";
+    const { d } = await admit(fakeDeps(), run, input({ thread: THREAD, brief, fullBrief, composed: true }));
+    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toBe(brief);
+    expect(readFileSync(fullBriefPath(dispatchPaths(d.dir).brief), "utf8")).toBe(fullBrief);
   });
 
   it("writes the brief, admit.json, a spec without the brief in argv or catherd's secrets, and the latest pointer", async () => {
@@ -208,8 +241,8 @@ describe("admission", () => {
     expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toBe(
       briefFor(run, "--help me, do not read me as a flag"),
     );
-    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toEndWith(
-      `\n\n<reply_contract>\n${replyContract("worker")}\n</reply_contract>\n`,
+    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toContain(
+      `\n\n${replyContract("worker")}\n</role-contract>`,
     );
     // spec 1.5 plan 21: the lane file itself travels in the brief, so an isolated worker never guesses its Owns
     expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toContain(

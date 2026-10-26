@@ -122,14 +122,13 @@ describe("dispatch on opencode v2 (simulator)", () => {
     const shared = latestDispatch(run, "worker-M1.L1")!;
     const sharedSpec = JSON.parse(readFileSync(dispatchPaths(shared.dir).spec, "utf8"));
     expect(sharedSpec.env.TMPDIR).toBeUndefined();
-    expect(readFileSync(dispatchPaths(shared.dir).brief, "utf8")).not.toContain("$TMPDIR");
     expect(existsSync(scratchDir(run, "worker-M1.L1"))).toBe(false);
     deps.view.isolated = { opencode: true };
     await runRole(deps, input(run.id, { name: "worker-M1.L1b" }));
     const own = latestDispatch(run, "worker-M1.L1b")!;
     const ownSpec = JSON.parse(readFileSync(dispatchPaths(own.dir).spec, "utf8"));
     expect(ownSpec.env.TMPDIR).toBe(realpathSync(scratchDir(run, "worker-M1.L1b")));
-    expect(readFileSync(dispatchPaths(own.dir).brief, "utf8")).toContain("which is your $TMPDIR");
+    expect(readFileSync(dispatchPaths(own.dir).brief, "utf8")).toContain("Put temporary files in $TMPDIR");
   });
 
   it("runs an isolated role on a standalone server that reads catherd's own agents", async () => {

@@ -137,7 +137,7 @@ describe("the judge role", () => {
       rungs: ["claude-code:claude-opus-5-5#medium"],
     });
     expect(replyContract("judge")).toBe(JUDGE_CONTRACT);
-    expect(rolePrompt("judge", "2.0.0")).toEndWith(`<reply_contract>\n${JUDGE_CONTRACT}\n</reply_contract>`);
+    expect(rolePrompt("judge", "2.0.0")).toEndWith(JUDGE_CONTRACT);
     expect(rolePrompt("judge", "2.0.0")).toContain("You never edit files");
   });
 });

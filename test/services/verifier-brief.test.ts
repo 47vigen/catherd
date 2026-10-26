@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { GATE_NOTES_HEADING, gateNotes, VERIFIER_GATE_RULES } from "../../src/domain/gate-brief.ts";
-import { replyContract, roleSections, rolePrompt } from "../../src/domain/role-prompts.ts";
+import { replyContract, rolePrompt } from "../../src/domain/role-prompts.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { admit } from "../../src/services/admission.ts";
 import { setGateEnv } from "../../src/services/gate-env.ts";
@@ -85,7 +85,7 @@ describe("the verifier's brief (plan 23)", () => {
     });
     const text = readFileSync(dispatchPaths(d.dir).brief, "utf8");
     expect(text).toContain(GATE_NOTES_HEADING);
-    expect(text).toEndWith(`\n\n<reply_contract>\n${replyContract("verifier")}\n</reply_contract>\n`);
+    expect(text).toContain(`\n\n${replyContract("verifier")}\n</role-contract>`);
   });
 
   it("the gate rules appear once", async () => {
@@ -94,6 +94,6 @@ describe("the verifier's brief (plan 23)", () => {
     const brief = await verifierBrief(run, "verifier", "verifier-M1", "Verify M1.");
     expect(brief).toContain(GATE_NOTES_HEADING);
     const first = VERIFIER_GATE_RULES[0] as string;
-    expect(roleSections("verifier", "1.0.0", { task: brief }).split(first)).toHaveLength(2);
+    expect(`${rolePrompt("verifier", "1.0.0")}\n\n${brief}`.split(first)).toHaveLength(2);
   });
 });

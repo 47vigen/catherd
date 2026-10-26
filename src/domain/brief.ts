@@ -1,24 +1,28 @@
-import { replyContract, roleSections } from "./role-prompts.ts";
-import { ROLE_MCP_SERVER, roleMcpTools } from "./role-tools.ts";
+import { roleContract } from "./role-prompts.ts";
+import { roleMcpTools } from "./role-tools.ts";
 import type { Role } from "./roles.ts";
 
-/** What admission adds to a role's brief, besides its reply contract (spec 1.5 plan 21). */
+/** The tags of a brief's four parts, in order (plan 44 D1). Part 1 is the role's; the daemon supplies the other three. */
+export const BRIEF_PARTS = ["role-contract", "run-facts", "unit-context", "this-round"] as const;
+
+/** Parts 2 to 4 of a brief: the run's facts, the unit's context and this round's task. */
+export interface BriefParts {
+  facts: string[];
+  unit: string[];
+  round: string[];
+}
+
+/** What composing a brief needs besides its parts: who the role is and the lane file as it stands. */
 export interface BriefContext {
   run: string;
   name: string;
   role: Role;
-  /** the lane file as it stands at admission, header and body */
-  lane: { id: string; text: string } | null;
-  /** the role's scratch folder, its TMPDIR, on a backend that grants it */
-  scratch: string | null;
-  /** whether the role's harness lists the catherd_role tools */
-  roleServer: boolean;
   /** the catherd version whose `lock` a worker's text names */
   version: string;
-  /** the plan's preamble, which applies to every task (plan 32); null when the run has none for this role */
-  context: string | null;
-  /** a resumed dispatch: its thread holds the role, team and context already, so only the task and contract go */
-  resumed?: boolean;
+  /** a resumed thread holds the role, facts and unit already, so only this round goes */
+  resumed: boolean;
+  /** the lane file as it stands, header and body */
+  lane: { id: string; text: string } | null;
 }
 
 /** The CLI form of each role server tool, which any role can run from its shell. */
@@ -57,56 +61,38 @@ export function laneBlock(id: string, text: string): string {
   ].join("\n");
 }
 
-/** Who the role is, where its temp files go, and how it reaches its run's files and gate. */
-export function roleNotes(c: BriefContext): string {
-  const tools = roleMcpTools(c.role);
-  const lines = [`catherd: you are ${c.name} of run ${c.run}.`];
-  if (c.scratch)
-    lines.push(
-      `Your scratch folder is ${c.scratch}, which is your $TMPDIR: put temporary files, logs and builds there, never in /tmp. catherd removes it with the run, so anything the orchestrator must keep goes in your reply.`,
-    );
-  const cli = tools.map((t) => cliForm(t, c.run)).join("; ");
-  lines.push(
-    c.roleServer
-      ? `Your catherd tools: ${tools.map((t) => `mcp__${ROLE_MCP_SERVER}__${t}`).join(", ")}. If they are not listed, run the same from your shell: ${cli}.`
-      : `Your catherd commands, from your shell: ${cli}.`,
-  );
-  return lines.join("\n");
+/** Who the role is, where its temp files go, and how it reaches its run's files and gate: the CLI forms, on any backend. */
+export function roleNotes(c: Pick<BriefContext, "run" | "name" | "role">): string {
+  const cli = roleMcpTools(c.role)
+    .map((t) => cliForm(t, c.run))
+    .join("; ");
+  return [
+    `catherd: you are ${c.name} of run ${c.run}. Put temporary files in $TMPDIR, never in /tmp.`,
+    `Your catherd commands, from your shell: ${cli}.`,
+  ].join("\n");
 }
 
-const TASK_OPEN = "<task>\n";
-const TASK_CLOSE = "\n</task>";
+const tag = (name: string, texts: readonly string[]) => {
+  const body = texts.filter(Boolean).join("\n\n");
+  return `<${name}>\n${body}${body ? "\n" : ""}</${name}>`;
+};
 
 /**
- * The brief admission writes: the role's sections around its task (the daemon's text, the lane file and the
- * role's notes), each once. A failover stand-in that reruns an earlier brief gets the lane file as it stands now and
- * its own notes, never two copies.
+ * The brief a role reads (plan 44): its contract, the run's facts and its notes, the unit's context and its lane
+ * file, and this round's task, each in its tag. A resumed thread has the first three already, so it gets this round
+ * and a pointer to its lane file.
  */
-export function composeBrief(brief: string, c: BriefContext): string {
-  const contract = replyContract(c.role);
-  let body = brief.trimEnd();
-  const open = body.indexOf(TASK_OPEN);
-  const close = body.lastIndexOf(TASK_CLOSE);
-  if (open >= 0 && close > open) body = body.slice(open + TASK_OPEN.length, close).trim();
-  // a 1.5-era brief rerun ends with its contract
-  if (body.endsWith(contract)) body = body.slice(0, -contract.length).trimEnd();
-  if (c.lane) {
-    const open = LANE_OPEN(c.lane.id);
-    const start = body.lastIndexOf(open);
-    const end = body.indexOf(LANE_CLOSE, start);
-    if (start >= 0 && end >= 0) {
-      const lead = body.lastIndexOf("\n\n", start);
-      body = `${body.slice(0, lead >= 0 ? lead : start)}${body.slice(end + LANE_CLOSE.length)}`.trimEnd();
-    }
+export function composeBrief(parts: BriefParts, c: BriefContext): string {
+  if (c.resumed) {
+    const pointer = c.lane
+      ? `Your lane file is lanes/${c.lane.id}.md (catherd run-file read ${c.run} lanes/${c.lane.id}.md).`
+      : "";
+    return `${tag("this-round", [...parts.round, pointer])}\n`;
   }
-  const notesStart = body.lastIndexOf("\n\ncatherd: you are ");
-  if (notesStart >= 0) body = body.slice(0, notesStart).trimEnd();
-  const task = [body, ...(c.lane ? [laneBlock(c.lane.id, c.lane.text)] : []), roleNotes(c)]
-    .filter(Boolean)
-    .join("\n\n");
-  return `${roleSections(c.role, c.version, {
-    context: c.context,
-    task,
-    only: c.resumed ? ["task", "reply_contract"] : undefined,
-  })}\n`;
+  return `${[
+    tag("role-contract", [roleContract(c.role, c.version)]),
+    tag("run-facts", [...parts.facts, roleNotes(c)]),
+    tag("unit-context", [...parts.unit, c.lane ? laneBlock(c.lane.id, c.lane.text) : ""]),
+    tag("this-round", parts.round),
+  ].join("\n\n")}\n`;
 }

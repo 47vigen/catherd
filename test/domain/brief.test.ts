@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { type BriefContext, composeBrief } from "../../src/domain/brief.ts";
-import { replyContract } from "../../src/domain/role-prompts.ts";
+import { BRIEF_PARTS, type BriefContext, composeBrief } from "../../src/domain/brief.ts";
 
 const RUN = "20261002-101500-auth";
 const LANE =
@@ -9,96 +8,84 @@ const worker: BriefContext = {
   run: RUN,
   name: "worker-M4.L1",
   role: "worker",
-  lane: { id: "M4.L1", text: LANE },
-  scratch: `/data/repos/app-1/runs/${RUN}/scratch/worker-M4.L1`,
-  roleServer: true,
   version: "0.0.0-test",
-  context: null,
   resumed: false,
+  lane: { id: "M4.L1", text: LANE },
 };
+const parts = { facts: ["f"], unit: ["u"], round: ["r"] };
 
-describe("what admission adds to a brief (spec 1.5 plan 21)", () => {
-  it("wraps the daemon's text, the lane file and the role's notes as the task, between the role's sections", () => {
-    const text = composeBrief("Do lane M4.L1.", worker);
-    expect(text).toStartWith("<role>\n");
-    expect(text).toContain("<team>\n");
-    expect(text).not.toContain("<context>");
-    expect(text).toContain("bunx catherd-cli@0.0.0-test lock");
-    expect(text).toContain(
-      [
-        "</team>",
-        "",
-        "<task>",
-        "Do lane M4.L1.",
-        "",
-        "Your lane file, lanes/M4.L1.md, as it stood when you were dispatched:",
-        '<lane-file path="lanes/M4.L1.md">',
-        LANE.trimEnd(),
-        "</lane-file>",
-        "",
-        `catherd: you are worker-M4.L1 of run ${RUN}.`,
-        `Your scratch folder is /data/repos/app-1/runs/${RUN}/scratch/worker-M4.L1, which is your $TMPDIR: put temporary files, logs and builds there, never in /tmp. catherd removes it with the run, so anything the orchestrator must keep goes in your reply.`,
-        `Your catherd tools: mcp__catherd_role__read_run_file, mcp__catherd_role__read_knowledge. If they are not listed, run the same from your shell: catherd run-file read ${RUN} <path>; catherd knowledge show.`,
-        "</task>",
-        "",
-        "<done_when>",
-        "",
-      ].join("\n"),
+/** The text between a part's tags. */
+const part = (text: string, tag: string): string =>
+  text.slice(text.indexOf(`<${tag}>\n`), text.indexOf(`</${tag}>`) + tag.length + 3);
+
+describe("the brief in four parts", () => {
+  it("a fresh brief is the four parts in order", () => {
+    const text = composeBrief(parts, worker);
+    const at = BRIEF_PARTS.map((t) => text.indexOf(`<${t}>\n`));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+    expect(text).toStartWith("<role-contract>\n");
+    expect(text).not.toContain("<team>");
+    expect(text).not.toContain("mcp__");
+  });
+
+  it("holds the lane file at the end of the unit context and the role's notes at the end of the facts", () => {
+    const text = composeBrief(parts, worker);
+    const unit = part(text, "unit-context");
+    expect(unit).toStartWith(
+      "<unit-context>\nu\n\nYour lane file, lanes/M4.L1.md, as it stood when you were dispatched:",
     );
-    expect(text).toEndWith(`<reply_contract>\n${replyContract("worker")}\n</reply_contract>\n`);
+    expect(unit).toEndWith(`${LANE.trimEnd()}\n</lane-file>\n</unit-context>`);
+    const facts = part(text, "run-facts");
+    expect(facts).toStartWith("<run-facts>\nf\n\n");
+    expect(facts).toContain(`catherd: you are worker-M4.L1 of run ${RUN}.`);
+    expect(facts).toContain("Put temporary files in $TMPDIR, never in /tmp.");
+    expect(facts).toContain(
+      `Your catherd commands, from your shell: catherd run-file read ${RUN} <path>; catherd knowledge show.`,
+    );
+    expect(part(text, "this-round")).toBe("<this-round>\nr\n</this-round>");
+    expect(text).toEndWith("</this-round>\n");
   });
 
-  it("puts the plan's preamble before the role when one is given", () => {
-    const text = composeBrief("x", { ...worker, context: "The plan's preamble (p.md)…" });
-    expect(text).toStartWith("<context>\nThe plan's preamble (p.md)…\n</context>\n\n<role>\n");
-  });
-
-  it("the context comes first", () => {
-    const text = composeBrief("x", { ...worker, context: "ctx" });
-    expect(text.indexOf("<context>")).toBeLessThan(text.indexOf("<role>"));
-  });
-
-  it("a resumed brief carries only the task and the reply contract", () => {
-    const text = composeBrief("x", { ...worker, context: "ctx", resumed: true });
-    for (const t of ["role", "team", "context", "done_when"]) expect(text).not.toContain(`<${t}>`);
-    expect(text).toStartWith("<task>\n");
-    expect(text).toEndWith(`<reply_contract>\n${replyContract("worker")}\n</reply_contract>\n`);
-  });
-
-  it("gives a role with no role server its CLI forms, and names no scratch where the backend grants none", () => {
-    const text = composeBrief("Verify M1.", {
-      run: RUN,
-      name: "verifier-M1",
-      role: "verifier",
-      lane: null,
-      scratch: null,
-      roleServer: false,
-      version: "0.0.0-test",
-      context: null,
-      resumed: false,
-    });
+  it("names a verifier's gate commands and has no lane file without a lane", () => {
+    const text = composeBrief(parts, { ...worker, name: "verifier-M1", role: "verifier", lane: null });
     expect(text).not.toContain("<lane-file");
-    expect(text).not.toContain("scratch folder");
+    expect(part(text, "unit-context")).toBe("<unit-context>\nu\n</unit-context>");
+    expect(text).toContain(`catherd gate pass ${RUN} --milestone <M> --item <item>`);
     expect(text).toContain(
-      `Your catherd commands, from your shell: catherd run-file read ${RUN} <path>; catherd knowledge show; catherd gate check ${RUN} --milestone <M> --item <item> --command <command> --paths <path,…>; catherd gate pass ${RUN} --milestone <M> --item <item> --command <command> --paths <path,…> --evidence <evidence>; catherd gate run ${RUN} --milestone <M> --command <command> [--at <base checkout>].`,
+      `catherd gate run ${RUN} --milestone <M> --command <command> [--at <base checkout>]`,
     );
-    expect(text).toEndWith(`<reply_contract>\n${replyContract("verifier")}\n</reply_contract>\n`);
+    expect(text).not.toContain("mcp__");
   });
 
-  it("writes each part once when a failover stand-in reruns an earlier brief, with the lane file as it stands now", () => {
-    const first = composeBrief("Do lane M4.L1.", worker);
-    expect(composeBrief(first, worker)).toBe(first);
-    const moved = {
-      ...worker,
-      lane: { id: "M4.L1", text: LANE.replace("Add the listing", "Add the paged listing") },
-    };
-    const again = composeBrief(first, moved);
-    expect(again.match(/<role>/g)).toHaveLength(1);
-    expect(again.match(/<task>\n/g)).toHaveLength(1);
-    expect(again.match(/<lane-file /g)).toHaveLength(1);
-    expect(again.match(/catherd: you are /g)).toHaveLength(1);
-    expect(again).toContain("Add the paged listing endpoint.");
-    expect(again).not.toContain("Add the listing endpoint.");
-    expect(again).toBe(composeBrief("Do lane M4.L1.", moved));
+  it("part 1 is byte-identical for a role", () => {
+    const a = composeBrief(parts, worker);
+    const b = composeBrief(
+      { facts: ["other"], unit: ["x", "y"], round: ["z"] },
+      {
+        ...worker,
+        run: "20261101-000000-other",
+        name: "worker-M9.L3",
+        lane: { id: "M9.L3", text: "# M9.L3\n" },
+      },
+    );
+    expect(part(a, "role-contract")).toBe(part(b, "role-contract"));
+    const verifier = composeBrief(parts, { ...worker, role: "verifier", lane: null });
+    expect(part(verifier, "role-contract")).not.toBe(part(a, "role-contract"));
+    expect(part(a, "role-contract")).toContain("at most 5 lines");
+  });
+
+  it("a resumed brief is this round and a pointer", () => {
+    const text = composeBrief(parts, { ...worker, resumed: true });
+    for (const t of BRIEF_PARTS.filter((t) => t !== "this-round")) expect(text).not.toContain(`<${t}>`);
+    expect(text).toStartWith("<this-round>\nr\n");
+    expect(text).toContain(`Your lane file is lanes/M4.L1.md (catherd run-file read ${RUN} lanes/M4.L1.md).`);
+    expect(text).not.toContain("<lane-file");
+    expect(text).toEndWith("</this-round>\n");
+  });
+
+  it("a resumed brief of a role with no lane has no pointer", () => {
+    const text = composeBrief(parts, { ...worker, resumed: true, lane: null });
+    expect(text).toBe("<this-round>\nr\n</this-round>\n");
   });
 });

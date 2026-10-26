@@ -711,6 +711,8 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
       role: d.admit.role,
       name: d.admit.name,
       brief: standInBrief(run, d),
+      // a fresh round reruns its own composed brief as it is (plan 44)
+      ...(d.admit.thread === null ? { composed: true as const } : {}),
       rung: standIn,
       thread: null,
       lane: d.admit.lane,
