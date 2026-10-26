@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { laneOutcome, latestOutcomes, type RouteRow } from "../../src/domain/route.ts";
-import { climb, land, route } from "../../src/services/lane-service.ts";
+import { land } from "../../src/services/lane-service.ts";
 import {
   readOutcomeRoutes,
   readOutcomes,
@@ -11,30 +11,21 @@ import {
   runPaths,
 } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { fakeDeps, freshRun, LADDER, passGate, writeLane } from "./helpers.ts";
+import { climb, fakeDeps, freshRun, LADDER, passGate, route, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
-const JEV = { pKind: 0.99, pA: 0.9, pB: 0.1, nouls: { mechanical: 0.2 } };
 const head = (repo: string) =>
   execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
 
-/** Deps whose route answers Track A from Jev, with its question set and probabilities. */
-function jevDeps() {
-  const deps = fakeDeps();
-  deps.routing.route = async () => ({
-    rung: LADDER[0] as string,
-    ladder: LADDER,
-    source: "jev",
-    kind: "repo_code",
-    difficulty: "build",
-    questionSet: "route-v2#0123abcd",
-    jev: JEV,
-    jevSaid: null,
-    why: "Jev: repo_code/build",
+/** A lane's route as a daemon-less run's coordinator left it: kind and difficulty from the lane file. */
+const routed = (deps: ReturnType<typeof fakeDeps>, run: Run, lane: string) =>
+  route(deps, {
+    run: run.id,
+    laneFile: `lanes/${lane}.md`,
+    role: "worker",
+    row: { decidedBy: "lane", kind: "repo_code", difficulty: "build" },
   });
-  return deps;
-}
 
 async function landM1(deps: ReturnType<typeof fakeDeps>, run: Run, commit: string) {
   await passGate(run, "M1");
@@ -42,34 +33,12 @@ async function landM1(deps: ReturnType<typeof fakeDeps>, run: Run, commit: strin
 }
 
 describe("outcomes.jsonl (spec §5.6)", () => {
-  it("keeps the question set and Jev's probabilities with the lane's route", async () => {
-    const { run } = freshRun();
-    writeLane(run, "M1.L1", ["src/a.ts"]);
-    const r = await route(jevDeps(), { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
-    // spec 1.5 plan 24: route returns little; Jev's answer stays in routes.jsonl
-    expect(r).toEqual({
-      lane: "M1.L1",
-      role: "worker",
-      rung: LADDER[0] as string,
-      ladder: LADDER,
-      backend: "codex",
-      agent: null,
-      why: "Jev: repo_code/build",
-    });
-    expect(readRoutes(run)[0]).toMatchObject({
-      decidedBy: "jev",
-      questionSet: "route-v2#0123abcd",
-      jev: JEV,
-      why: "Jev: repo_code/build",
-    });
-  });
-
   it("writes one row per routed lane of a landed milestone, excluding environment climbs from start_ok", async () => {
     const { repo, run } = freshRun();
-    const deps = jevDeps();
+    const deps = fakeDeps();
     for (const id of ["M1.L1", "M1.L2", "M2.L1"]) {
       writeLane(run, id, [`src/${id}.ts`]);
-      await route(deps, { run: run.id, laneFile: `lanes/${id}.md`, role: "worker" });
+      await routed(deps, run, id);
     }
     await climb(deps, { run: run.id, lane: "M1.L1", reason: "blocked", evidence: "no database", env: true });
     await climb(deps, { run: run.id, lane: "M1.L2", reason: "check-failed-twice" });
@@ -77,9 +46,7 @@ describe("outcomes.jsonl (spec §5.6)", () => {
     const rows = readOutcomes(run);
     expect(rows.map((o) => o.lane)).toEqual(["M1.L1", "M1.L2"]);
     expect(rows[0]).toMatchObject({
-      questionSet: "route-v2#0123abcd",
-      jevProbs: JEV,
-      source: "jev",
+      source: "lane",
       startRung: LADDER[0],
       finalRung: LADDER[1],
       climbs: [{ from: LADDER[0], to: LADDER[1], reason: "blocked: no database", env: true }],
@@ -95,9 +62,9 @@ describe("outcomes.jsonl (spec §5.6)", () => {
 
   it("says so when no routed lane is in the landed milestone, as a typo in its name would", async () => {
     const { repo, run } = freshRun();
-    const deps = jevDeps();
+    const deps = fakeDeps();
     writeLane(run, "M1.L1", ["src/a.ts"]);
-    await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    await routed(deps, run, "M1.L1");
     await passGate(run, "m1");
     const typo = await land(deps, {
       run: run.id,
@@ -117,9 +84,9 @@ describe("outcomes.jsonl (spec §5.6)", () => {
 
   it("writes an open row when a lane climbs past its top rung", async () => {
     const { run } = freshRun();
-    const deps = jevDeps();
+    const deps = fakeDeps();
     writeLane(run, "M1.L1", ["src/a.ts"]);
-    await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    await routed(deps, run, "M1.L1");
     for (let i = 0; i < LADDER.length; i++)
       await climb(deps, { run: run.id, lane: "M1.L1", reason: "blocker" });
     const [o] = readOutcomes(run);
@@ -129,10 +96,10 @@ describe("outcomes.jsonl (spec §5.6)", () => {
 
   it("keeps a lane's newer row when it is written twice: last row per lane wins", async () => {
     const { repo, run } = freshRun();
-    const deps = jevDeps();
+    const deps = fakeDeps();
     for (const id of ["M1.L1", "M1.L2"]) {
       writeLane(run, id, [`src/${id}.ts`]);
-      await route(deps, { run: run.id, laneFile: `lanes/${id}.md`, role: "worker" });
+      await routed(deps, run, id);
     }
     for (let i = 0; i < LADDER.length; i++)
       await climb(deps, { run: run.id, lane: "M1.L1", reason: "blocker" });
@@ -176,8 +143,6 @@ describe("outcomes.jsonl (spec §5.6)", () => {
       climbs: [],
       start_ok: true,
       min_ok_index: 0,
-      questionSet: null,
-      jevProbs: null,
     });
     expect(laneOutcome(rows, "M9.L9", true, "t")).toBeNull();
   });
@@ -211,21 +176,19 @@ describe("outcomes.jsonl (spec §5.6)", () => {
   });
 });
 
-describe("the outcome beside Jev's answer in routes.jsonl (spec 1.5 plan 24)", () => {
-  it("writes each landed lane's outcome, climbed or not, with Jev's probabilities and the route's kind", async () => {
+describe("the outcome beside the route in routes.jsonl (spec 1.5 plan 24)", () => {
+  it("writes each landed lane's outcome, climbed or not, with the route's kind and difficulty", async () => {
     const { repo, run } = freshRun();
-    const deps = jevDeps();
+    const deps = fakeDeps();
     for (const id of ["M1.L1", "M1.L2"]) {
       writeLane(run, id, [`src/${id}.ts`]);
-      await route(deps, { run: run.id, laneFile: `lanes/${id}.md`, role: "worker" });
+      await routed(deps, run, id);
     }
     await climb(deps, { run: run.id, lane: "M1.L2", reason: "check-failed-twice" });
     await landM1(deps, run, head(repo));
-    expect(
-      readOutcomeRoutes(run).map((r) => [r.lane, r.climbed, r.landed, r.kind, r.difficulty, r.jev]),
-    ).toEqual([
-      ["M1.L1", false, true, "repo_code", "build", JEV],
-      ["M1.L2", true, true, "repo_code", "build", JEV],
+    expect(readOutcomeRoutes(run).map((r) => [r.lane, r.climbed, r.landed, r.kind, r.difficulty])).toEqual([
+      ["M1.L1", false, true, "repo_code", "build"],
+      ["M1.L2", true, true, "repo_code", "build"],
     ]);
     // the lane readers never see an outcome row: the lane's current route is still its last climb
     expect(readRoutes(run).map((r) => r.source)).toEqual(["route", "route", "climb"]);
@@ -233,20 +196,19 @@ describe("the outcome beside Jev's answer in routes.jsonl (spec 1.5 plan 24)", (
 
   it("writes a lane that ended open on its top rung", async () => {
     const { run } = freshRun();
-    const deps = jevDeps();
-    deps.routing.route = async () => ({
-      rung: LADDER[3] as string,
-      ladder: [LADDER[3] as string],
-      source: "jev",
-      kind: "repo_code",
-      difficulty: "hard",
-      questionSet: "route-v2#0123abcd",
-      jev: JEV,
-      jevSaid: null,
-      why: "Jev: repo_code/hard",
-    });
+    const deps = fakeDeps();
     writeLane(run, "M1.L1", ["src/a.ts"]);
-    await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    await route(deps, {
+      run: run.id,
+      laneFile: "lanes/M1.L1.md",
+      role: "worker",
+      row: {
+        rung: LADDER[3] as string,
+        ladder: [LADDER[3] as string],
+        kind: "repo_code",
+        difficulty: "hard",
+      },
+    });
     await climb(deps, { run: run.id, lane: "M1.L1", reason: "check-failed-twice" });
     expect(readOutcomeRoutes(run)).toEqual([
       expect.objectContaining({

@@ -857,7 +857,7 @@ function failRole(
     };
 }
 
-/** A stop that names no reason (plan 30b Ruling 7): the machine asks Jev, and with Jev off acts as 1.5 did. */
+/** A stop that names no reason (plan 30b Ruling 7): the machine asks the decision model for the stop's cause. */
 function unexplained(e: Extract<RunEvent, { type: "dispatch.ended" }>): boolean {
   if (e.reason !== null) return false;
   if (e.status === "ok") return e.replyStatus === "blocked" || e.replyStatus === "refused";

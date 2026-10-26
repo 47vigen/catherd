@@ -1,28 +1,13 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { join } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
-import { assertId, ID_PATTERN, parseRung } from "../domain/ids.ts";
-import { quotaUsage } from "../domain/select.ts";
-import { assertLaneHeader } from "../domain/lane.ts";
-import type { Role } from "../domain/roles.ts";
+import { assertId } from "../domain/ids.ts";
 import type { MilestoneState } from "../domain/run-state.ts";
 import { cell, coveredMs } from "../domain/util.ts";
-import {
-  type ClimbReason,
-  currentRoute,
-  laneOutcome,
-  nextRung,
-  type OutcomeRow,
-  outcomeRouteRow,
-  type RouteRow,
-} from "../domain/route.ts";
+import { laneOutcome, type OutcomeRow, outcomeRouteRow, type RouteRow } from "../domain/route.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { commitExists } from "../infra/git.ts";
 import { gatesFile, readPasses, recordedItems } from "./gate-service.ts";
-import { laneFile } from "./admission.ts";
-import { budgetOf } from "./budget.ts";
 import { pendingDispatches } from "./dispatches.ts";
-import { workspaceBudget } from "./workspace-admission.ts";
 import {
   findWorkspace,
   WORKSPACE_LOCK_WAIT_MS,
@@ -43,7 +28,7 @@ import {
   milestoneVerifier,
 } from "./milestones.ts";
 import { acceptedBaselineItem, machineGate, verdictCarries } from "./milestone-check.ts";
-import type { Deps, Verdict } from "./ports.ts";
+import type { Deps } from "./ports.ts";
 import {
   appendKnowledge,
   appendLedger,
@@ -54,287 +39,22 @@ import {
   readRecords,
   readRoutes,
   type Run,
-  runFile,
   runPaths,
 } from "./run-store.ts";
 import { writeDigest } from "./protocol.ts";
 import { pauseSpans } from "./pause.ts";
 import { openQuestions, parkedSpans } from "./questions.ts";
 import { isDaemonRun, replayRun } from "./run-events-store.ts";
-import { runProfile } from "./run-pin.ts";
 import { type Notes, type NotesPatch, patchNotes, refreshState } from "./state.ts";
 
 const withHints = (hints: string[]) => (hints.length ? { hints } : {});
 
 /**
- * Spec 1.5 plan 24: what `route` returns: little, since every call lands in the coordinator's context. The
- * decision's source, kind, difficulty, Jev's answer and the provenance go to routes.jsonl.
- */
-export interface RouteResult {
-  lane: string | null;
-  role: Role;
-  rung: string;
-  ladder: string[];
-  backend: string;
-  /** the native agent to run a `claude:` rung as */
-  agent: string | null;
-  /** the decision in one line */
-  why: string;
-}
-
-function readLaneFile(run: Run, path: string): { lane: string; text: string } {
-  const file = runFile(run, path, "read");
-  const [folder, name, ...deeper] = relative(run.dir, file).split(sep);
-  const lane = folder === "lanes" && deeper.length === 0 && name?.endsWith(".md") ? name.slice(0, -3) : null;
-  if (!lane || !ID_PATTERN.test(lane))
-    throw new CatherdError("E_LANE_INVALID", `a lane file lives at lanes/<id>.md, not ${path}`, {
-      fix: "pass lane_file as lanes/Mx.Ly.md",
-    });
-  if (!existsSync(file))
-    throw new CatherdError("E_LANE_INVALID", `no lane file ${path}`, {
-      fix: "write it with write_run_file first",
-    });
-  const text = readFileSync(file, "utf8");
-  // spec 1.1 §6: a lane routes only on values the catalog knows
-  assertLaneHeader(text, `lanes/${lane}.md`);
-  return { lane, text };
-}
-
-/**
- * Spec 1.5 plan 24: the run's dispatches per quota, plus each lane routed but not dispatched yet at its current
- * rung, so a tie between quotas goes to the one the run will have used least.
- */
-function runUsage(run: Run): Record<string, number> {
-  const records = readRecords(run).records;
-  const dispatched = new Set(records.flatMap((r) => (r.lane ? [r.lane] : [])));
-  const routes = readRoutes(run);
-  const waiting = [...new Set(routes.map((r) => r.lane))]
-    .filter((l) => !dispatched.has(l))
-    .flatMap((l) => currentRoute(routes, l)?.rung ?? []);
-  return quotaUsage([...records.map((r) => r.rung), ...waiting]);
-}
-
-/** Spec §5.4 through the routing port; every decision is recorded in routes.jsonl. */
-export async function route(
-  deps: Deps,
-  i: { run: string; laneFile?: string; role: Role },
-): Promise<RouteResult> {
-  const [one] = await routeLanes(deps, { run: i.run, laneFiles: [i.laneFile], role: i.role });
-  return one as RouteResult;
-}
-
-/**
- * Spec 1.5 plan 24, batch `route`: several lanes of one role in one call (Jev asked about all at once), each
- * recorded as `route` records one. `laneFiles` holds `undefined` for a role routed without a lane.
- */
-export async function routeLanes(
-  deps: Deps,
-  i: { run: string; laneFiles: (string | undefined)[]; role: Role },
-): Promise<RouteResult[]> {
-  const run = findRun(i.run);
-  const lanes = i.laneFiles.map((f) => (f === undefined ? null : readLaneFile(run, f)));
-  const dup = lanes.find((l, n) => l && lanes.findIndex((x) => x?.lane === l.lane) !== n);
-  if (dup)
-    throw new CatherdError("E_INPUT_INVALID", `route: lane ${dup.lane} is named twice`, {
-      fix: "name each lane file once",
-    });
-  // spec 1.5: the run's pinned profile, whatever the repo runs on now
-  const profile = runProfile(deps, run);
-  const usage = runUsage(run);
-  const spentFraction = Math.max(
-    budgetOf(run, profile.budget, deps.now())?.fraction ?? 0,
-    (await workspaceBudget(run, deps.now()))?.fraction ?? 0,
-  );
-  const reqs = lanes.map((lane) => ({
-    host: deps.host.host,
-    runDir: run.dir,
-    repo: run.meta.repo,
-    profile,
-    role: i.role,
-    lane: lane?.lane ?? null,
-    laneText: lane?.text ?? null,
-    usage,
-    spentFraction,
-  }));
-  const answers =
-    reqs.length === 1
-      ? [await deps.routing.route(reqs[0] as (typeof reqs)[number])]
-      : await deps.routing.routeMany(reqs);
-  return answers.map((a, n) => record(deps, run, i.role, lanes[n] ?? null, a));
-}
-
-/** One decision into routes.jsonl (spec 1.5 plan 24: every role's, with its source, ladder and provenance). */
-function record(
-  deps: Deps,
-  run: Run,
-  role: Role,
-  lane: { lane: string } | null,
-  a: Awaited<ReturnType<Deps["routing"]["route"]>>,
-): RouteResult {
-  const at = new Date(deps.now()).toISOString();
-  const detail = {
-    why: a.why,
-    ...(a.jevSaid ? { jevSaid: a.jevSaid } : {}),
-    ...(a.noClear ? { noClear: a.noClear } : {}),
-    ...(a.tie ? { tie: a.tie } : {}),
-    ...(a.provenance ? { provenance: a.provenance } : {}),
-  };
-  if (lane)
-    appendRoute(run, {
-      at,
-      lane: lane.lane,
-      role,
-      rung: a.rung,
-      ladder: a.ladder,
-      source: "route",
-      decidedBy: a.source,
-      from: null,
-      reason: null,
-      kind: a.kind,
-      difficulty: a.difficulty,
-      questionSet: a.questionSet,
-      jev: a.jev,
-      ...detail,
-    });
-  else
-    appendRoute(run, {
-      at,
-      lane: null,
-      role,
-      name: null,
-      rung: a.rung,
-      ladder: a.ladder,
-      source: "route",
-      decidedBy: a.source,
-      ...detail,
-    });
-  return {
-    lane: lane?.lane ?? null,
-    role,
-    rung: a.rung,
-    ladder: a.ladder,
-    backend: parseRung(a.rung).backend,
-    agent: deps.profiles.agentFor(run.meta.repo, role, a.rung),
-    why: a.why,
-  };
-}
-
-/**
- * Evidence that the lane's own ownership is the problem: a design question, never a capability one. "owned by"
- * counts only for a lane (another lane, lane X, Mx.Ly), never for a user or a process: a socket "owned by root"
- * is the environment's.
- */
-const OWNERSHIP =
-  /outside (the )?lane('s)? ownership|owned by (?:another |a different |the other )?lane\b|owned by [A-Za-z0-9_-]+\.L\d+\b/i;
-
-const CLIMB_DESIGN_FIX = "send it to the architect (ask/architect delta), not up the ladder";
-
-/**
- * Spec 1.1 §9: a climb is for capability. Evidence that points at the plan (a contradiction, a file the
- * lane does not own, a cross-lane interface) goes to the architect: ownership evidence on a `blocked`
- * climb is refused outright; with Jev on, its `finding` answer `design` refuses any climb with evidence.
- * A climb the environment caused (`env`) is never a design question.
- */
-async function refuseDesign(
-  deps: Deps,
-  run: Run,
-  i: { lane: string; reason: ClimbReason; evidence?: string; env?: boolean },
-): Promise<void> {
-  if (!i.evidence || i.env) return;
-  if (i.reason === "blocked" && OWNERSHIP.test(i.evidence))
-    throw new CatherdError(
-      "E_CLIMB_DESIGN",
-      `climb ${i.lane}: the evidence is about lane ownership, which a higher rung cannot fix`,
-      { fix: CLIMB_DESIGN_FIX },
-    );
-  const use = runProfile(deps, run).jev.use;
-  if (use === "off") return;
-  const file = laneFile(run, i.lane);
-  if (!existsSync(file)) return;
-  const v = await deps.routing.finding(run.dir, readFileSync(file, "utf8"), i.evidence, use);
-  if (v.value === "design")
-    throw new CatherdError("E_CLIMB_DESIGN", `climb ${i.lane}: Jev calls the evidence a design finding`, {
-      fix: CLIMB_DESIGN_FIX,
-    });
-}
-
-/**
- * A lane's final outcome: its outcomes.jsonl row (spec §5.6) and, beside Jev's answer, its routes.jsonl row
- * (spec 1.5 plan 24). Called under the routes lock.
+ * A lane's final outcome: its outcomes.jsonl row (spec §5.6) and, beside it, its routes.jsonl row. Called under the routes lock.
  */
 function writeOutcome(run: Run, routes: RouteRow[], o: OutcomeRow): void {
   appendOutcome(run, o);
   appendRoute(run, outcomeRouteRow(routes, o));
-}
-
-/** Spec §4.5: one rung up the lane's ladder, on a fresh thread; the reason goes to routes.jsonl. */
-export async function climb(
-  deps: Deps,
-  i: { run: string; lane: string; reason: ClimbReason; evidence?: string; env?: boolean },
-): Promise<{
-  lane: string;
-  rung: string;
-  top: boolean;
-  backend: string;
-  agent: string | null;
-  hints?: string[];
-}> {
-  const run = findRun(i.run);
-  assertId("lane", i.lane);
-  const unrouted = () =>
-    new CatherdError("E_LANE_INVALID", `lane ${i.lane} was never routed`, {
-      fix: `route(run, "lanes/${i.lane}.md") first`,
-    });
-  // an unrouted lane is refused before Jev is asked about its evidence (no call, no jev.jsonl row)
-  if (!currentRoute(readRoutes(run), i.lane)) throw unrouted();
-  // plan 23: a reply that named the environment (ENV: …) would stop a higher rung the same way
-  const last = readRecords(run)
-    .records.filter((r) => r.lane === i.lane)
-    .at(-1);
-  if (last?.environment)
-    throw new CatherdError(
-      "E_CLIMB_ENV",
-      `climb ${i.lane}: ${last.name} was stopped by the environment (${last.environment}), which a higher rung cannot fix`,
-      {
-        fix: `fix the environment (doctor; catherd knowledge env set for the gate environment) and dispatch ${i.lane} again at the same rung, or park the milestone when only the owner can fix it`,
-      },
-    );
-  await refuseDesign(deps, run, i);
-  const { cur, next } = await withFileLock(runPaths(run.dir).routes, () => {
-    const cur = currentRoute(readRoutes(run), i.lane);
-    if (!cur) throw unrouted();
-    const next = nextRung(cur.ladder, cur.rung);
-    appendRoute(run, {
-      ...cur,
-      at: new Date(deps.now()).toISOString(),
-      source: "climb",
-      from: cur.rung,
-      rung: next ?? cur.rung,
-      reason: i.evidence ? `${i.reason}: ${i.evidence}` : i.reason,
-      env: i.env === true,
-    });
-    // spec §5.6: a climb past the top rung ends the lane open
-    if (!next) {
-      const routes = readRoutes(run);
-      const o = laneOutcome(routes, i.lane, false, new Date(deps.now()).toISOString());
-      if (o) writeOutcome(run, routes, o);
-    }
-    return { cur, next };
-  });
-  const { hints } = await refreshState(run, {
-    next: next
-      ? `dispatch ${i.lane} at ${next} on a fresh thread`
-      : `${i.lane} failed on its top rung: ask finding, then the architect or the report`,
-  });
-  const rung = next ?? cur.rung;
-  return {
-    lane: i.lane,
-    rung,
-    top: next === null,
-    backend: parseRung(rung).backend,
-    agent: next ? deps.profiles.agentFor(run.meta.repo, cur.role, next) : null,
-    ...withHints(hints),
-  };
 }
 
 export const LAND_SKIPS = ["docs-only", "no-code"] as const;
@@ -636,27 +356,4 @@ async function landRun(
   });
   // spec 1.5: the digest's full path, for the milestone push to link
   return { ledger: row, minutes, digest, digestPath: join(run.dir, digest), ...withHints(hints) };
-}
-
-/** Jev's `finding` or `same-defect` answer, through the routing port. */
-export async function ask(
-  deps: Deps,
-  i: { run: string; question: "finding" | "same-defect"; state: Record<string, string> },
-): Promise<Verdict<string>> {
-  const run = findRun(i.run);
-  const need = (k: string): string => {
-    const v = i.state[k];
-    if (!v)
-      throw new CatherdError("E_INPUT_INVALID", `ask ${i.question} needs state.${k}`, {
-        fix: i.question === "finding" ? "pass state { lane_file, finding }" : "pass state { before, after }",
-      });
-    return v;
-  };
-  // spec §5.5: a profile with Jev off never asks it, for routing or for these verdicts
-  const use = runProfile(deps, run).jev.use;
-  if (i.question === "finding") {
-    const { text } = readLaneFile(run, need("lane_file"));
-    return deps.routing.finding(run.dir, text, need("finding"), use);
-  }
-  return deps.routing.sameDefect(run.dir, need("before"), need("after"), use);
 }

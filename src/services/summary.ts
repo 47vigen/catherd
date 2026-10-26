@@ -64,7 +64,8 @@ export interface RunSummary {
   };
   /** native subagent runs, as the orchestrator reported them: reported, not measured (spec §14) */
   agents: { runs: number; totalTokens: number; costUsd: number };
-  jev: { decisions: number; fallbacks: number };
+  /** decisions.jsonl rows that name a source (`decide` rows), counted by it: model, floor, failover, coordinator */
+  decisions: Record<string, number>;
   /** per backend, how many of this run's dispatches ran with the user's harness (native) and isolated */
   harness: { backend: string; native: number; isolated: number }[];
   budget: BudgetStatus | null;
@@ -107,7 +108,9 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   const start = Date.parse(run.meta.createdAt);
   const recorded = new Set(records.map((r) => r.dispatchId));
   const agents = readAgentRuns(run);
-  const jev = readJsonl<{ source?: string }>(runPaths(run.dir).jev).rows;
+  const decisions: Record<string, number> = {};
+  for (const d of readJsonl<{ source?: string }>(runPaths(run.dir).decisionsLog).rows)
+    if (d.source) decisions[d.source] = (decisions[d.source] ?? 0) + 1;
   const priced = records.map((r) => r.costUsd).filter((cost) => cost !== null);
   const sum = (f: (t: Tokens) => number) => records.reduce((n, r) => n + f(r.tokens), 0);
   let budget: BudgetStatus | null = null;
@@ -177,8 +180,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
       totalTokens: agents.reduce((n, a) => n + a.totalTokens, 0),
       costUsd: agents.reduce((n, a) => n + (a.costUsd ?? 0), 0),
     },
-    // a jev-kind, lane or default source is a decision Jev did not make whole
-    jev: { decisions: jev.length, fallbacks: jev.filter((j) => j.source !== "jev").length },
+    decisions,
     harness: [...new Set(records.map((r) => r.backend))].sort().map((backend) => {
       const of = records.filter((r) => r.backend === backend);
       return {

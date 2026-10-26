@@ -21,7 +21,7 @@ function logLevel(): (typeof LEVELS)[number] {
 const rank = (l: string) => LEVELS.indexOf(l as (typeof LEVELS)[number]);
 
 const extra = new Set<string>();
-/** A secret that lives outside the env (the saved Jev key): scrubbed from every row from now on. */
+/** A secret that lives outside the env (the saved decision key): scrubbed from every row from now on. */
 export function addSecret(value: string | null | undefined): void {
   if (value && value.length >= MIN_SECRET) extra.add(value);
 }

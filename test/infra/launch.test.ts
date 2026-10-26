@@ -136,17 +136,16 @@ describe("launchDetached and the daemon's launch", () => {
     });
   });
 
-  it("gives the daemon the launcher's env without its session identity or any role's scope, and keeps Jev's key", () => {
+  it("gives the daemon the launcher's env without its session identity or any role's scope", () => {
     const env = daemonEnv({
       PATH: "/bin",
-      TYPESAFE_API_KEY: "jev",
       CLAUDE_CODE_SESSION_ID: "s",
       CLAUDE_CODE_MESSAGING_TOKEN: "t",
       CATHERD_ROLE: "r1:worker-M1.L1",
       CATHERD_HOME: "/h",
       UNSET: undefined,
     });
-    expect(env).toEqual({ PATH: "/bin", TYPESAFE_API_KEY: "jev", CATHERD_HOME: "/h" });
+    expect(env).toEqual({ PATH: "/bin", CATHERD_HOME: "/h" });
   });
 });
 

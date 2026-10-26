@@ -77,7 +77,6 @@ describe("formatOutcomes", () => {
       effort: "high",
       kind: "repo_code" as const,
       difficulty: "build" as const,
-      chore: false,
       lanes: 4,
       landed: 4,
       firstPass: 3,
@@ -85,12 +84,10 @@ describe("formatOutcomes", () => {
       findings: 2,
     };
     expect(
-      formatOutcomes([stat, { ...stat, effort: "max", kind: null, difficulty: "copy", chore: true }]).split(
-        "\n",
-      ),
+      formatOutcomes([stat, { ...stat, effort: "max", kind: null, difficulty: "copy" }]).split("\n"),
     ).toEqual([
       "codex:gpt-6.1-sol  high  repo_code/build  4 lanes  3 first pass  1.5 rounds/lane  0.5 findings/lane",
-      "codex:gpt-6.1-sol  max  -/copy chore  4 lanes  3 first pass  1.5 rounds/lane  0.5 findings/lane",
+      "codex:gpt-6.1-sol  max  -/copy  4 lanes  3 first pass  1.5 rounds/lane  0.5 findings/lane",
     ]);
   });
 });

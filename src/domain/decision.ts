@@ -4,7 +4,7 @@ import type { Role } from "./roles.ts";
 import { scrubKeyShapes, scrubSecretAssignments } from "./secrets.ts";
 
 // Plan 44 Part A: the decision model's levels, level texts, state and pick rule, with the question
-// schemas and verdict helpers moved here from jev.ts (jev.ts goes in M5).
+// schemas and verdict helpers.
 
 export const DECISION_SOURCES = ["model", "floor", "failover", "coordinator"] as const;
 export type DecisionSource = (typeof DECISION_SOURCES)[number];
@@ -150,7 +150,7 @@ export interface Verdict<T extends string> {
   probability: number | null;
   /** the model's own confidence statistic, when it answered */
   confidence: number | null;
-  source: "jev" | "default";
+  source: "model" | "default";
 }
 
 /** `finding` and `same-defect` keep their 0.x meaning, with thresholds on probability. */
@@ -170,7 +170,7 @@ export function judgeVerdict<T extends string>(
     value: sure ? (a.choice as T) : fallback,
     probability: p,
     confidence: a.confidence,
-    source: sure ? "jev" : "default",
+    source: sure ? "model" : "default",
   };
 }
 

@@ -183,27 +183,6 @@ describe("patchProfile", () => {
     expect(readFileSync(file("default"), "utf8")).toBe(before);
   });
 
-  it("refuses a bar that would put a harder difficulty below an easier one, naming the inversion and a fix", () => {
-    withHome();
-    const r = patchProfile("default", { bars: { hard: 50 } }, { host: "claude-code" });
-    expect(r.saved).toBe(false);
-    expect(r.errors).toEqual([
-      expect.objectContaining({
-        path: "bars",
-        message: "the hard bar (50) is below the logic bar (60)",
-        fix: "catherd profile set bars.hard 60, or lower bars.logic to 50 or less",
-      }),
-    ]);
-    expect(existsSync(file("default"))).toBe(false);
-    const role = patchProfile(
-      "default",
-      { roles: { worker: { bars: { copy: 70 } } } },
-      { host: "claude-code" },
-    );
-    expect(role.saved).toBe(false);
-    expect(role.errors.map((e) => e.path)).toEqual(["roles.worker.bars"]);
-  });
-
   it("writes nothing when the result is invalid, and returns the errors", () => {
     withHome();
     patchProfile("default", {}, { host: "claude-code" });
@@ -219,13 +198,13 @@ describe("patchProfile", () => {
     patchProfile("default", {}, { host: "claude-code" });
     const shown = readProfileDoc("default");
     expect(
-      patchProfile("default", { objective: "speed" }, { host: "claude-code", expect: shown }).saved,
+      patchProfile("default", { land: { autoMerge: true } }, { host: "claude-code", expect: shown }).saved,
     ).toBe(true);
-    expect(readProfileDoc("default").objective).toBe("speed");
+    expect(readProfileDoc("default").land?.autoMerge).toBe(true);
 
     const seen = readProfileDoc("default");
     // another process writes the profile between the preview and the save
-    patchProfile("default", { objective: "cost" }, { host: "claude-code" });
+    patchProfile("default", { land: { autoMerge: false } }, { host: "claude-code" });
     const onDisk = readFileSync(file("default"), "utf8");
     const r = patchProfile("default", { budget: { usd: 5 } }, { host: "claude-code", expect: seen });
     expect(r.saved).toBe(false);
@@ -260,7 +239,7 @@ describe("patchProfile", () => {
     const shown = svc.preview?.("default", { budget: { minutes: 90 } });
     expect(shown?.diff.length).toBeGreaterThan(0);
     // another process writes the profile between the preview and the save
-    patchProfile("default", { objective: "speed" }, { host: "claude-code" });
+    patchProfile("default", { land: { autoMerge: true } }, { host: "claude-code" });
     const bytes = readFileSync(file("default"), "utf8");
     const r = svc.set("default", { budget: { minutes: 90 } }, null, shown?.expect);
     expect([r.saved, r.errors[0]?.path]).toEqual([false, CHANGED_ON_DISK]);
@@ -275,7 +254,6 @@ describe("patchProfile", () => {
         roles: { reviewer: { rungs: ["claude-code:claude-opus-5-5#high"], access: "read-only" } },
         failover: { "claude-code:claude-opus-5-5#high": "codex:gpt-6-sol#high" },
         harness: { "claude-code": { isolated: true } },
-        jev: { use: "off" },
         billing: { opencode: "subscription" },
         preflight: { confirm: true },
       },
@@ -284,9 +262,8 @@ describe("patchProfile", () => {
     expect(r.errors).toEqual([]);
     const p = getProfile("default", "claude-code");
     expect(p.failover["claude-code:claude-opus-5-5#high"]).toBe("codex:gpt-6-sol#high");
-    expect([p.harness["claude-code"], p.jev, p.billing.opencode, p.preflight]).toEqual([
+    expect([p.harness["claude-code"], p.billing.opencode, p.preflight]).toEqual([
       { isolated: true },
-      { use: "off" },
       "subscription",
       { confirm: true },
     ]);
@@ -415,9 +392,9 @@ describe("agent files and links", () => {
 describe("create, delete, diff", () => {
   it("copies a profile, and refuses a name that exists", () => {
     withHome();
-    patchProfile("default", { objective: "speed" }, { host: "claude-code" });
+    patchProfile("default", { land: { autoMerge: true } }, { host: "claude-code" });
     expect(createProfile("fast", "default", "claude-code").saved).toBe(true);
-    expect(getProfile("fast", "claude-code").objective).toBe("speed");
+    expect(getProfile("fast", "claude-code").land.autoMerge).toBe(true);
     expect(JSON.parse(readFileSync(file("fast"), "utf8")).name).toBe("fast");
     expect(() => createProfile("fast", undefined, "claude-code")).toThrow(
       expect.objectContaining({ code: "E_INPUT_INVALID" }),

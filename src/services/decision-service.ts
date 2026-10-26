@@ -17,7 +17,7 @@ import { addSecret, log } from "../infra/log.ts";
 import { appendJsonl, ensureJsonlHeader, readJsonl, readVersioned } from "../infra/store.ts";
 import { saveCredential, savedCredential } from "./credentials.ts";
 
-// Plan 44 Part A: the decision model's service (askJev's logic over the profile's url and model).
+// Plan 44 Part A: the decision model's service, over the profile's url and model.
 
 export const DECISION_KEY_ENV = "CATHERD_DECISION_KEY";
 
@@ -31,6 +31,9 @@ export function decisionKey(): string | null {
 }
 
 export const saveDecisionKey = (key: string): void => saveCredential("decisionKey", key);
+
+/** Registers the saved key with the redactor, for a process that reads logs without ever using it. */
+export const registerSavedSecrets = (): void => addSecret(decisionKey());
 
 let file: DecisionFile | null = null;
 /** catalog/decision.json: the level texts and question sets. */

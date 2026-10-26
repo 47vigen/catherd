@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { mark } from "../../src/entry/cli-kit.ts";
@@ -6,7 +6,8 @@ import { formatCheck, formatReport } from "../../src/entry/doctor-command.ts";
 import { glyph } from "../../src/entry/glyphs.ts";
 import { logsDir } from "../../src/infra/paths.ts";
 import { VERSION } from "../../src/infra/version.ts";
-import { credentialsPath } from "../../src/services/jev-service.ts";
+import { credentialsPath } from "../../src/services/credentials.ts";
+import { decisionQuestions } from "../../src/services/decision-service.ts";
 import { patchProfile } from "../../src/services/profile-service.ts";
 import { bunOnlyBin, snapshotEnv, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
@@ -14,6 +15,32 @@ import { withScenario } from "../sim/scenario.ts";
 import { withClaudeScenario, withOpencodeScenario } from "../sim/sim-scenarios.ts";
 
 afterEach(snapshotEnv());
+
+/** A decision model that answers every probe, on a local port: the spawned doctor never leaves the machine. */
+const decider = Bun.serve({
+  hostname: "127.0.0.1",
+  port: 0,
+  fetch: () =>
+    Response.json({
+      model: "test-decider",
+      answers: {
+        difficulty: {
+          type: "score",
+          score: 1,
+          probabilities: { "0": 0.1, "1": 0.8, "2": 0.1 },
+          confidence: 0.9,
+        },
+        ...Object.fromEntries(
+          Object.keys(decisionQuestions().sets.difficulty.nouls).map((id) => [
+            id,
+            { type: "noul", noul: 0.1 },
+          ]),
+        ),
+      },
+      usage: { input_tokens: 10, output_tokens: 2 },
+    }),
+});
+afterAll(() => decider.stop(true));
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters");
 const fx = (p: string) => JSON.parse(readFileSync(join(FX, p), "utf8"));
@@ -35,6 +62,7 @@ function machine(): void {
   const home = withHome();
   process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
   delete process.env.TYPESAFE_API_KEY;
+  delete process.env.CATHERD_DECISION_KEY;
   delete process.env.ANTHROPIC_API_KEY;
   // test/bin: the MCP launcher's "global catherd" is this checkout, so doctor's handshake never runs bunx
   process.env.PATH = `${join(import.meta.dir, "..", "sim")}:${join(import.meta.dir, "..", "bin")}:${bunOnlyBin()}:/usr/bin:/bin`;
@@ -55,6 +83,17 @@ function doctor(...args: string[]) {
     stderr: "pipe",
   });
   return { code: p.exitCode, out: p.stdout.toString() };
+}
+
+/** The same, asynchronous: the local decision model above answers only while the test's loop runs. */
+async function doctorAsync(...args: string[]) {
+  const p = Bun.spawn([process.execPath, join(SRC, "cli.ts"), "doctor", ...args], {
+    env: { ...process.env, CATHERD_ORCHESTRATION_HOST: "claude-code", ANTHROPIC_API_KEY: "" },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [out] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+  return { code: p.exitCode, out };
 }
 
 describe("formatCheck", () => {
@@ -156,7 +195,7 @@ describe("catherd doctor", () => {
     expect(JSON.parse(json.out).checks.find((c: { id: string }) => c.id === "credentials")).toMatchObject({
       state: "warn",
       detail: `${credentialsPath()} is not valid JSON`,
-      fix: expect.stringContaining('"typesafeApiKey"'),
+      fix: expect.stringContaining('"decisionKey"'),
     });
     expect(allLogs()).toContain(`${credentialsPath()} is not valid JSON`);
   }, 60_000);
@@ -177,7 +216,7 @@ describe("catherd doctor", () => {
     });
   }, 60_000);
 
-  it("exits 0 and says ready once the plugin is installed and the agents are linked", () => {
+  it("exits 0 and says ready once the plugin is installed and the agents are linked", async () => {
     machine();
     const plugins = join(process.env.CLAUDE_CONFIG_DIR as string, "plugins");
     mkdirSync(plugins, { recursive: true });
@@ -185,12 +224,16 @@ describe("catherd doctor", () => {
       join(plugins, "installed_plugins.json"),
       JSON.stringify({ version: 2, plugins: { "catherd@catherd": [{ version: VERSION }] } }),
     );
-    patchProfile("default", {}, { host: "claude-code" });
-    const r = doctor("--plain");
+    patchProfile(
+      "default",
+      { decision: { url: `http://127.0.0.1:${decider.port}/v1`, model: "test-decider" } },
+      { host: "claude-code" },
+    );
+    const r = await doctorAsync("--plain");
     expect(r.code).toBe(0);
     expect(r.out.trim().split("\n").at(-1)).toBe("+ ready");
-    expect(r.out).toContain(
-      "! no key             Jev — optional: routing uses each lane's Kind and Difficulty instead\n",
+    expect(r.out).toMatch(
+      /\+ ready +decision model — test-decider at http:\/\/127\.0\.0\.1:\d+\/v1 · no key sent · answers in \d+ ms\n/,
     );
   }, 60_000);
 });

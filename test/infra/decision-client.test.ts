@@ -21,8 +21,8 @@ function clock() {
 
 const ok = {
   status: 200,
-  body: { model: "jev-1.13.0", answers: {} },
-  headers: { "x-typesafe-request-id": "req_1" },
+  body: { model: "decider-1", answers: {} },
+  headers: { "x-request-id": "req_1" },
 };
 
 describe("decisionRequest", () => {
@@ -33,19 +33,15 @@ describe("decisionRequest", () => {
     expect(f.sent[0]?.headers.get("authorization")).toBeNull();
   });
 
-  it("reads x-request-id, else x-typesafe-request-id", async () => {
-    const f = fakeFetch({
-      status: 200,
-      body: {},
-      headers: { "x-request-id": "r1", "x-typesafe-request-id": "t1" },
-    });
-    const g = fakeFetch({ status: 200, body: {}, headers: { "x-typesafe-request-id": "t1" } });
+  it("reads x-request-id, and has none without it", async () => {
+    const f = fakeFetch({ status: 200, body: {}, headers: { "x-request-id": "r1" } });
+    const g = fakeFetch({ status: 200, body: {}, headers: {} });
     expect(
       await decisionRequest(URL, "GET", "/models", "k", undefined, { fetchImpl: f.impl, ...clock() }),
     ).toMatchObject({ requestId: "r1" });
     expect(
       await decisionRequest(URL, "GET", "/models", "k", undefined, { fetchImpl: g.impl, ...clock() }),
-    ).toMatchObject({ requestId: "t1" });
+    ).toMatchObject({ requestId: null });
   });
 
   it("posts with the bearer key and returns the body with the request id", async () => {

@@ -370,15 +370,12 @@ function viewOf(p: Profile): ProfileView {
   for (const role of ROLES) roles[role] = { ...p.roles[role], rungs: [...p.roles[role].rungs] };
   return {
     name: p.name,
-    objective: p.objective,
     roles,
     billing: p.billing,
-    jev: p.jev,
     decision: p.decision,
     isolated: Object.fromEntries(Object.entries(p.harness).map(([k, h]) => [k, h.isolated])),
     failover: p.failover,
     maxEffort: p.maxEffort,
-    bars: p.bars,
     budget: p.budget,
     timeouts: p.timeouts,
     preflight: p.preflight,
@@ -418,7 +415,6 @@ export function profileService(host: () => HostContext): ProfilePort {
         name === undefined ? activeName(repo) : requireProfile(name),
         repo,
         host().host,
-        { reach: true },
       );
       return { valid: v.errors.length === 0, ...v };
     },

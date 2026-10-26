@@ -12,7 +12,7 @@ import type { RunSummary } from "../../src/services/summary.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 import { fakeDispatch, freshRun, makeRecord } from "../services/helpers.ts";
-import { saveJevKey } from "../../src/services/jev-service.ts";
+import { saveDecisionKey } from "../../src/services/decision-service.ts";
 
 afterEach(snapshotEnv());
 
@@ -51,7 +51,7 @@ const summary = (over: Partial<RunSummary> = {}): RunSummary => ({
     wallMinutes: 30,
   },
   agents: { runs: 1, totalTokens: 50_000, costUsd: 0 },
-  jev: { decisions: 3, fallbacks: 1 },
+  decisions: { model: 2, floor: 1 },
   harness: [
     { backend: "claude-code", native: 0, isolated: 1 },
     { backend: "codex", native: 2, isolated: 0 },
@@ -74,7 +74,7 @@ describe("formatRun", () => {
       "  tokens 30,000 uncached · 90,000 cache read · 0 cache write · 8,000 out · $0.50 · native agents 1 run(s), 50,000 tokens (reported)",
       "  harness claude-code 0 native, 1 isolated · codex 2 native, 0 isolated",
       "  budget 30/60 min (50%)",
-      "  jev 3 decision(s), 1 fallback(s)",
+      "  decisions 3: 2 model, 1 floor",
       "  landed M1 | the parser | abc123 | 12 | bun test",
       "  | Next: dispatch M1.L2",
       "  ! runs.jsonl: skipped 1 unreadable row(s)",
@@ -272,14 +272,14 @@ describe("catherd runs", () => {
     }
   });
 
-  it("redacts the saved Jev key, which a fresh process never registered by calling Jev", async () => {
+  it("redacts the saved decision key, which a fresh process never registered by asking the decision model", async () => {
     const { run } = freshRun("parser");
     const key = "ts-live-0123456789abcdef";
-    saveJevKey(key);
+    saveDecisionKey(key);
     const d = await fakeDispatch(run, {}, {});
     writeFileSync(dispatchPaths(d.dir).stderr, `echoed ${key}\n`);
     await appendRecord(run, makeRecord({ runId: run.id, replyWhy: `saw ${key}` }));
-    const r = catherd(["runs", "show", run.id, "--debug", "--json"], { TYPESAFE_API_KEY: "" });
+    const r = catherd(["runs", "show", run.id, "--debug", "--json"], { CATHERD_DECISION_KEY: "" });
     expect(r.code).toBe(0);
     expect(r.out).not.toContain(key);
   });

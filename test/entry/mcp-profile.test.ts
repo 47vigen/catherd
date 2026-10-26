@@ -22,7 +22,7 @@ describe("the profile tools on the profile service", () => {
       patch: {
         roles: { verifier: { access: "workspace-write", rungs: ["claude:claude-opus-5-5#medium"] } },
         billing: { opencode: "subscription" },
-        jev: { use: "off" },
+        decision: { model: "decider-b" },
         harness: { "claude-code": { isolated: true } },
         failover: { "codex:gpt-6-sol#xhigh": null },
         budget: { usd: 20 },
@@ -40,13 +40,13 @@ describe("the profile tools on the profile service", () => {
     const file = JSON.parse(readFileSync(join(profilesDir(), "default.json"), "utf8"));
     expect([
       file.billing.opencode,
-      file.jev,
+      file.decision,
       file.harness["claude-code"],
       file.timeouts,
       file.preflight,
     ]).toEqual([
       "subscription",
-      { use: "off" },
+      { model: "decider-b" },
       { isolated: true },
       { idleMin: 10, wallMin: 60 },
       { confirm: true },

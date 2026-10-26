@@ -244,11 +244,8 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
     expect(catherd(["diff", "default"], repo).out).toBe(
       "budget.minutes: 7 → none\ndecision.model: none → test-decider\ndecision.url: none → https://decision.test/v1\n",
     );
-    // plan 33: the shipped bars put one default worker rung at each difficulty, so only a trimmed ladder warns
-    catherd(["set", "roles.worker.rungs", "codex:gpt-6-luna#high,codex:gpt-6-sol#medium"], repo);
-    expect(catherd(["validate"], repo).out).toContain(
-      "! roles.worker.rungs: no worker rung clears logic, hard: ",
-    );
+    // plan 44: a profile that names no decision model warns, the one that does is valid
+    expect(catherd(["validate"], repo).out).toContain("! decision: the decision model is not set");
     expect(catherd(["validate", "default"], repo).out).toBe("✓ valid\n");
   });
 });

@@ -1,5 +1,5 @@
 // The decision model's transport: a thin client (the official SDK is 0.x and Node-targeted) with the SDK's retry
-// semantics (research 2026-09-25-jev.md §4, §5.6). It calls the url the profile names. The public sources of
+// semantics (research 2026-09-25 §4, §5.6). It calls the url the profile names. The public sources of
 // spec 1.2 §3.3 reuse its policy through `retryingFetch`.
 
 export interface DecisionTransport {
@@ -57,7 +57,7 @@ export function retryAfterMs(h: Headers, now: number): number | null {
 const backoffMs = (retry: number, random: () => number) => 500 * 2 ** (retry - 1) * (0.75 + random() * 0.5);
 
 /**
- * A failed status as an error, naming a validation error by Jev's own `error_type` and `message` only,
+ * A failed status as an error, naming a validation error by the server's own `error_type` and `message` only,
  * never the raw body (which could echo the request's state).
  */
 function httpError(status: number, text: string): string {
@@ -76,7 +76,7 @@ function httpError(status: number, text: string): string {
 }
 
 /**
- * `url` with the Jev client's retry policy: `attemptMs` per attempt (10 s), up to `retries` (two) retries on
+ * `url` with the decision client's retry policy: `attemptMs` per attempt (10 s), up to `retries` (two) retries on
  * 408, 429, 5xx, a network error or a timeout, honouring Retry-After, and never past `deadlineMs` (25 s). The
  * attempt timer covers the whole exchange, body included, and aborts the request when it fires. `headers`
  * builds each attempt's headers from its number (1 first); `errorOf` names a failed status (`http <status>`).
@@ -205,7 +205,7 @@ export async function decisionRequest(
   return {
     ok: true,
     body: parsed,
-    requestId: header(r.headers, "x-request-id") ?? header(r.headers, "x-typesafe-request-id"),
+    requestId: header(r.headers, "x-request-id"),
     latencyMs: r.latencyMs,
     attempts: r.attempts,
   };

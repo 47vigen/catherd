@@ -120,12 +120,12 @@ const list = defineCommand({
   },
 });
 
-/** One line per rung, kind and difficulty: how its finished lanes went, for choosing a cheaper start. */
+/** One line per rung, kind and difficulty: how its finished lanes went. */
 export function formatOutcomes(stats: readonly OutcomeStat[]): string {
   return stats
     .map((s) => {
       const per = (n: number) => (n / s.lanes).toFixed(1);
-      return `${s.model}  ${s.effort}  ${s.kind ?? "-"}/${s.difficulty ?? "-"}${s.chore ? " chore" : ""}  ${s.lanes} lanes  ${s.firstPass} first pass  ${per(s.rounds)} rounds/lane  ${per(s.findings)} findings/lane`;
+      return `${s.model}  ${s.effort}  ${s.kind ?? "-"}/${s.difficulty ?? "-"}  ${s.lanes} lanes  ${s.firstPass} first pass  ${per(s.rounds)} rounds/lane  ${per(s.findings)} findings/lane`;
     })
     .join("\n");
 }

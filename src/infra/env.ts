@@ -10,7 +10,7 @@ const SECRET_ENV = new Set([
   "CODEX_THREAD_ID",
   "CODEX_SESSION_ID",
   "CATHERD_ORCHESTRATION_HOST",
-  "TYPESAFE_API_KEY",
+  "TYPESAFE_API_KEY", // the pre-2.0 decision key: no longer read, still never handed on
   "CATHERD_DECISION_KEY",
   "CLAUDE_CODE_MESSAGING_SOCKET",
   "CLAUDE_CODE_MESSAGING_TOKEN",

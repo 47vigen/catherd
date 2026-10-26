@@ -1,1 +1,0 @@
-{"model":"jev-1.13.0","answers":{"failure_class":{"type":"choice","choice":"harness","confidence":0.9,"probabilities":{"product":0.1,"harness":0.9}}},"usage":{"input_tokens":402,"output_tokens":37}}

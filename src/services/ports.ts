@@ -1,28 +1,20 @@
 import type { NoRungCause } from "../domain/select.ts";
-import type { BlockedReason } from "../domain/blocked.ts";
 import type { HostContext } from "../domain/host.ts";
-import type { Provenance } from "./provenance.ts";
-import type { Bars } from "../domain/bars.ts";
 import type { Budget } from "../domain/budget.ts";
 import type { SessionEnv } from "../infra/claude-session.ts";
 import type { BillingMode } from "../domain/cost.ts";
 import type { DecisionState, VerdictSetName } from "../domain/decision.ts";
-import type { Verdict } from "../domain/jev.ts";
-import type { Difficulty, Kind } from "../domain/lane.ts";
 import type { Access } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import type { RoleScope } from "../domain/role-scope.ts";
 import type { Change, ProfileDoc, ProfilePatch } from "../domain/profile.ts";
 import type { Issue } from "../domain/profile-rules.ts";
-import type { RouteJev, RouteSource } from "../domain/route.ts";
 import type { IndexFile } from "../domain/slopalytics.ts";
 import type { IndexStatus } from "./catalog-service.ts";
 
 /** What the run lifecycle reads from a profile. Rungs are `backend:model#effort`; a role's in ladder order. */
 export interface ProfileView {
   name: string;
-  objective: "cost" | "speed";
-  /** `defaultRung`, when set, is where a lane starts without a kind and difficulty (spec §5.4) */
   roles: Partial<
     Record<
       Role,
@@ -34,14 +26,11 @@ export interface ProfileView {
         network?: false;
         /** plan 23: the role's own timeouts over the profile's */
         timeouts?: { idleMin?: number; wallMin?: number };
-        /** plan 33: the role's own bar percentiles over the profile's */
-        bars?: Bars;
       }
     >
   >;
   /** per billing key (spec §7.1); a missing key bills as DEFAULT_BILLING */
   billing: Partial<Record<string, BillingMode>>;
-  jev: { use: "auto" | "off" };
   /** plan 44: the decision model; url and model have no default */
   decision: { url: string | null; model: string | null; minConfidence: number };
   /** per backend id: run its harness isolated (spec §7.1 `harness`) */
@@ -50,8 +39,6 @@ export interface ProfileView {
   failover: Record<string, string>;
   /** `<backend>:<model>` → the highest effort routing starts it at (plan 33) */
   maxEffort?: Record<string, string>;
-  /** plan 33: bar percentiles per difficulty (0 to 100) over the shipped ones */
-  bars?: Bars;
   budget: Budget;
   timeouts: { idleMin: number; wallMin: number };
   preflight: { confirm: boolean };
@@ -113,43 +100,6 @@ export interface ProfilePort {
   setNotifyUrl(url: string): void;
 }
 
-export interface RouteRequest {
-  host?: HostContext["host"];
-  runDir: string;
-  repo: string;
-  profile: ProfileView;
-  role: Role;
-  /** the lane's id, for jev.jsonl; null when routing a role without a lane */
-  lane: string | null;
-  laneText: string | null;
-  spentFraction: number;
-  /** spec 1.5 plan 24: the run's dispatches so far per quota, for a tie between rungs of equal scores */
-  usage?: Record<string, number>;
-}
-
-export interface RouteAnswer {
-  rung: string;
-  ladder: string[];
-  source: RouteSource;
-  kind: Kind | null;
-  difficulty: Difficulty | null;
-  /** the Jev question set asked, and its summed probabilities, for outcomes.jsonl (spec §5.6) */
-  questionSet: string | null;
-  jev: RouteJev | null;
-  /** spec 1.5 plan 24: where Jev disagreed with a declared lane header (`Jev said logic/hard`), else null */
-  jevSaid: string | null;
-  /** spec 1.5 plan 24: no rung clears the lane's bar, and the closest one */
-  noClear?: string;
-  /** spec 1.5 plan 24: rungs of equal scores on other quotas competed for the start, and what decided */
-  tie?: string;
-  /** spec 1.5 plan 24: the decision in one line, for the coordinator */
-  why: string;
-  /** spec 1.2 §5.3, §8: the chosen rung's thresholds, values, sources, facts and run evidence */
-  provenance?: Provenance;
-}
-
-export type { Verdict };
-
 /** Plan 44 task 14: what `decide` reads; `held` are quotas, `usage` is the run's dispatches per quota. */
 export interface DecideRequest {
   runDir: string;
@@ -193,32 +143,7 @@ export interface CatalogFilter {
 }
 
 export interface RoutingPort {
-  route(req: RouteRequest): Promise<RouteAnswer>;
-  /** spec 1.5 plan 24: the lanes of one role in one call; Jev is asked about all of them at once */
-  routeMany(reqs: RouteRequest[]): Promise<RouteAnswer[]>;
-  /** `use` is the repo profile's `jev.use`: "off" answers with the rule's default and never asks Jev */
-  finding(
-    runDir: string,
-    laneText: string,
-    finding: string,
-    use: "auto" | "off",
-  ): Promise<Verdict<"design" | "code" | "unclear">>;
-  sameDefect(
-    runDir: string,
-    before: string,
-    after: string,
-    use: "auto" | "off",
-  ): Promise<Verdict<"yes" | "no">>;
-  /** plan 30b: why a role stopped that gave no reason; `other` and an unsure answer are the rule's fallback */
-  stopCause(
-    runDir: string,
-    status: string,
-    reply: string,
-    use: "auto" | "off",
-  ): Promise<Verdict<BlockedReason | "other">>;
-  /** plan 44 D9: whose failure a check or a stop is; Jev off or an unsure answer is `product` */
-  failureClass(runDir: string, text: string, use: "auto" | "off"): Promise<Verdict<"product" | "harness">>;
-  /** plan 44: the rung of this brief, from the levels above the floor; the old members go in M5 */
+  /** plan 44: the rung of this brief, from the levels above the floor */
   decide(req: DecideRequest): Promise<DecideAnswer>;
   /** plan 44: one verdict set; an error or unparsable answer is `ok: false`, never the rule's fallback */
   verdict(

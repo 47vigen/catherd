@@ -1,5 +1,5 @@
 // Spec §10.4 and §11.8: the one rule for what is a secret. The log redactor (infra/log.ts), fixture
-// capture (domain/sanitize.ts) and Jev's lane state (domain/jev.ts) all scrub with it; each picks its mark.
+// capture (domain/sanitize.ts) and the decision state (domain/decision.ts) all scrub with it; each picks its mark.
 
 /** Env names whose values are credentials: the word may sit anywhere (OPENAI_API_KEY_2, GH_TOKEN_FILE). */
 const SECRET_NAME = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i;
@@ -47,7 +47,7 @@ export function scrubKeyShapes(text: string, mark: string): string {
 }
 
 /**
- * `api_key = value` and the like, keeping the name. Jev's state only: on a captured stream or a log row
+ * `api_key = value` and the like, keeping the name. The decision state only: on a captured stream or a log row
  * it would also blank counts such as `max_tokens: 100000`.
  */
 const ASSIGNMENT =

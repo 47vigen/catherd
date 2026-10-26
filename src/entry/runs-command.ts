@@ -12,7 +12,7 @@ import { CatherdError } from "../domain/errors.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { redact } from "../infra/log.ts";
 import { cancel } from "../services/dispatch-service.ts";
-import { registerSavedSecrets } from "../services/jev-service.ts";
+import { registerSavedSecrets } from "../services/decision-service.ts";
 import { runDebug } from "../services/run-debug.ts";
 import { cleanScratch } from "../services/scratch.ts";
 import { repin } from "../services/run-pin.ts";
@@ -64,7 +64,11 @@ export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
       `  harness ${s.harness.map((h) => `${h.backend} ${h.native} native, ${h.isolated} isolated`).join(" · ")}`,
     );
   if (s.budget) lines.push(`  budget ${formatBudget(s.budget)}`);
-  if (s.jev.decisions) lines.push(`  jev ${s.jev.decisions} decision(s), ${s.jev.fallbacks} fallback(s)`);
+  const made = Object.entries(s.decisions);
+  if (made.length)
+    lines.push(
+      `  decisions ${made.reduce((n, [, c]) => n + c, 0)}: ${made.map(([source, c]) => `${c} ${source}`).join(", ")}`,
+    );
   for (const m of s.milestones) lines.push(`  landed ${m}`);
   if (s.verifier)
     lines.push(
@@ -236,7 +240,7 @@ const show = defineCommand({
   run({ args }) {
     const run = findRun(args.id);
     // every part redacted, not only the dispatches: state.md and a record's reply can quote a secret too;
-    // the saved Jev key is a secret even in a process that never called Jev
+    // the saved decision key is a secret even in a process that never asked the decision model
     registerSavedSecrets();
     const { summary, records } = redact({
       summary: summarizeRun(defaultDeps(), run),

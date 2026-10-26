@@ -1,9 +1,10 @@
 import { queueCapability, type QueueCapability } from "../infra/codex-queue.ts";
+import { log } from "../infra/log.ts";
 import type { HostContext } from "../domain/host.ts";
 import { existsSync, statSync } from "node:fs";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
-import { BUILTIN_ROLES, type Profile } from "../domain/profile.ts";
+import { BUILTIN_ROLES, DECISION_UNSET_FIX, type Profile } from "../domain/profile.ts";
 import { DEFAULT_ACCESS, ROLES } from "../domain/roles.ts";
 import { bunTooOld, MIN_BUN } from "../domain/runtime.ts";
 import type { DecisionTransport } from "../infra/decision-client.ts";
@@ -27,7 +28,8 @@ import {
   pluginCheck,
   uiBrowserCheck,
 } from "./doctor-checks.ts";
-import { credentialsPath, jevKey, savedJevKey, testJevKey } from "./jev-service.ts";
+import { credentialsPath, migrateCredentials, savedCredential } from "./credentials.ts";
+import { decisionKey, probeDecision } from "./decision-service.ts";
 import {
   activeName,
   enforcementOf,
@@ -37,6 +39,7 @@ import {
   readProjects,
   validateNamed,
 } from "./profile-store.ts";
+import { migrateProfiles } from "./profile-service.ts";
 import { inspectionHost } from "./run-debug.ts";
 import { listRuns } from "./run-store.ts";
 
@@ -72,7 +75,8 @@ export interface DoctorDeps {
   /** plan 23: `--docker`: run the Docker host probes (a compose network by service name, the free disk) */
   docker?: boolean;
   env?: Record<string, string | undefined>;
-  jev?: DecisionTransport;
+  /** the decision model's transport; tests inject a fake fetch */
+  decision?: DecisionTransport;
   /** spec 1.5 plan 21: a cold start of the role server, timed; absent, doctor does not probe it */
   roleServerStart?: () => Promise<RoleServerStart>;
 }
@@ -96,6 +100,40 @@ export function accessRepos(
   return [...new Set([...(repo ? [repo] : []), ...bound])];
 }
 
+/**
+ * Plan 44 D25–D27: the active profile's decision model, the one fixed request `run_start` sends. A profile with no
+ * url or model, or a model that does not answer, is a failure: no run starts on either.
+ */
+async function decisionCheck(p: Profile, transport: DecisionTransport = {}): Promise<Check> {
+  const { url, model, minConfidence } = p.decision;
+  const legacy = process.env.TYPESAFE_API_KEY?.trim()
+    ? " · TYPESAFE_API_KEY is set but not read: export CATHERD_DECISION_KEY instead"
+    : "";
+  const base = { id: "decision", label: "decision model" };
+  if (!url || !model)
+    return {
+      ...base,
+      state: "fail",
+      word: "not set",
+      detail: `${!url ? "decision.url" : "decision.model"} is not set${legacy}`,
+      fix: DECISION_UNSET_FIX,
+    };
+  const named = `${model} at ${url} · ${decisionKey() ? "key set" : "no key sent"}`;
+  const r = await probeDecision({ url, model, minConfidence }, transport).catch((e: unknown) => ({
+    ok: false as const,
+    error: errText(e),
+  }));
+  return r.ok
+    ? { ...base, state: "ok", word: "ready", detail: `${named} · answers in ${r.latencyMs} ms${legacy}` }
+    : {
+        ...base,
+        state: "fail",
+        word: "no answer",
+        detail: `${named} · ${r.error}${legacy}`,
+        fix: "check decision.url, decision.model and the key (catherd init, or export CATHERD_DECISION_KEY=<key>)",
+      };
+}
+
 export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   const checks: Check[] = [];
   checks.push(
@@ -116,6 +154,15 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
           detail: d.bunVersion,
         },
   );
+
+  // a 1.5 profile and key in the 2.0 shape first (D25, D26); a file that cannot be read has its own row below
+  try {
+    migrateCredentials();
+    migrateProfiles();
+  } catch (e) {
+    // the file has its own row below; the log names it too
+    log("warn", "doctor", { migrate: errText(e) });
+  }
 
   // every fix names the host doctor judged with: run elsewhere (a plain terminal), it must judge the same way
   const onHost = hostFlag(d.host.host);
@@ -200,47 +247,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   checks.push(...(await backendChecks(used, profiles, installed, d.host.host)));
   checks.push(...roleMcpChecks(active, await d.roleServerStart?.()));
 
-  if (active && [active, ...profiles].every((p) => p.jev.use === "off"))
-    checks.push({
-      id: "jev",
-      label: "Jev",
-      state: "skip",
-      word: "off",
-      detail: profiles.length > 1 ? "off in every linked profile" : "off in the profile",
-    });
-  else {
-    const key = jevKey();
-    if (!key)
-      checks.push({
-        id: "jev",
-        label: "Jev",
-        state: "warn",
-        word: "no key",
-        detail: "optional: routing uses each lane's Kind and Difficulty instead",
-        fix: "catherd init, or export TYPESAFE_API_KEY=<key>",
-      });
-    else {
-      const ok = await testJevKey(key, d.jev).catch(() => false);
-      checks.push(
-        ok
-          ? {
-              id: "jev",
-              label: "Jev",
-              state: "ok",
-              word: "ready",
-              detail: "the key answers",
-            }
-          : {
-              id: "jev",
-              label: "Jev",
-              state: "warn",
-              word: "no answer",
-              detail: "the key did not answer; routing falls back to the lanes",
-              fix: "catherd init to enter a new key",
-            },
-      );
-    }
-  }
+  if (active) checks.push(await decisionCheck(active, d.decision));
 
   const mine = [...(active ? [active] : []), ...diagnostics.filter((p) => p.name !== active?.name)];
   // the Slopalytics index: its age and the last fetch's error
@@ -402,8 +409,8 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   const creds = credentialsPath();
   if (existsSync(creds)) {
     const mode = statSync(creds).mode & 0o777;
-    // Jev reads an unreadable file as no key (it is optional): here is where the user learns why
-    const unreadable = savedJevKey().problem;
+    // the decision key is optional, so an unreadable file reads as no key: here is where the user learns why
+    const unreadable = savedCredential("decisionKey").problem;
     checks.push(
       mode & 0o077
         ? {

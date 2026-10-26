@@ -6,7 +6,7 @@ import { withFileLockSync } from "../infra/filelock.ts";
 import { configDir } from "../infra/paths.ts";
 import { readVersioned, writeJsonAtomic } from "../infra/store.ts";
 
-// Spec §10.4: `<config>/credentials.json`, mode 600, holds catherd's own key, Jev's (`typesafeApiKey`). The
+// Spec §10.4: `<config>/credentials.json`, mode 600, holds catherd's own key, the decision model's (`decisionKey`). The
 // schema is a loose object, so a key one catherd does not know (a 1.5 file's `artificialAnalysisApiKey`)
 // survives another's rewrite.
 
@@ -21,7 +21,7 @@ export type CredentialField = "typesafeApiKey" | "decisionKey";
 
 /** How to repair a credentials file catherd cannot read: `init` alone refuses to overwrite it. */
 const credentialsFix = (): string =>
-  `delete ${credentialsPath()} and run catherd init, or write it as {"schema": 1, "typesafeApiKey": "<your key>"}`;
+  `delete ${credentialsPath()} and run catherd init, or write it as {"schema": 1, "decisionKey": "<your key>"}`;
 const readCredentials = () =>
   readVersioned(credentialsPath(), CredentialsSchema, 1, { fix: credentialsFix() });
 

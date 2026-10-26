@@ -1,17 +1,25 @@
 import { gitToplevel } from "../infra/git.ts";
 import { HOST_ARG, terminalHost } from "./host-arg.ts";
 import { defineCommand } from "citty";
-import { assertProfileName } from "../domain/profile.ts";
+import type { OrchestrationHost } from "../domain/host.ts";
+import { assertProfileName, DECISION_UNSET_FIX } from "../domain/profile.ts";
 import { errorMessage, isCatherdError } from "../domain/errors.ts";
 import { configDir } from "../infra/paths.ts";
 import { VERSION } from "../infra/version.ts";
 import { doctor } from "../services/doctor.ts";
 import { type IndexStatus, refreshIndex } from "../services/catalog-service.ts";
-import { jevKey, saveJevKey, testJevKey } from "../services/jev-service.ts";
+import { migrateCredentials } from "../services/credentials.ts";
+import {
+  type DecisionConfig,
+  decisionKey,
+  probeDecision,
+  saveDecisionKey,
+} from "../services/decision-service.ts";
 import { reinstallCommand } from "../services/doctor-checks.ts";
 import { ensureGlobal, type GlobalInstallDeps, realGlobalInstall } from "../services/global-install.ts";
 import { hasProfileFile, type InitResult, initSetup, moveLegacy } from "../services/setup.ts";
-import { activeName } from "../services/profile-store.ts";
+import { migrateProfiles, patchProfile } from "../services/profile-service.ts";
+import { activeName, getProfile } from "../services/profile-store.ts";
 import { formatRefreshed } from "./catalog-command.ts";
 import { mark as markOf, refuseInRole } from "./cli-kit.ts";
 import { formatReport } from "./doctor-command.ts";
@@ -47,43 +55,68 @@ export function welcomeLines(version: string): string[] {
   return [ears, `${face}  catherd ${version}`, `${paws}  herds your coding agents`, ""];
 }
 
+/** The fixed request `run_start` sends, for `init` to try the typed values with; tests inject one. */
+type Probe = (cfg: DecisionConfig, key: string | null) => ReturnType<typeof probeDecision>;
+
 /**
- * The Jev key step. It never stops `init` (Ruling 11): a key that cannot be saved, say because
+ * The decision model step (plan 44 D25–D27): asks for the url, the model and an optional key, saves them to
+ * `profile` (the profile's `decision`, credentials.json's `decisionKey`) and probes the model. A profile that
+ * already names one asks nothing. It never stops `init` (Ruling 11): a key that cannot be saved, say because
  * credentials.json is unparsable, is reported with its fix and setup goes on.
  */
-export async function jevStep(
+export async function decisionStep(
   ask: Prompter | null,
-  d: { testJevKey?: (key: string) => Promise<boolean>; saveJevKey?: (key: string) => void } = {},
+  profile: string,
+  d: { host: OrchestrationHost; probe?: Probe },
   plain = false,
 ): Promise<void> {
   const mark = (state: State) => markOf(state, plain);
-  if (process.env.TYPESAFE_API_KEY?.trim()) {
-    ask?.skip?.();
-    return console.log(`${mark("ok")} Jev: using TYPESAFE_API_KEY`);
+  const have = getProfile(profile, d.host).decision;
+  let { url, model } = have;
+  let key: string | null = null;
+  if (url && model) for (let n = 0; n < 3; n++) ask?.skip?.();
+  else {
+    url = model = null;
+    // an empty answer ends the questions, but a piped line is still consumed for each
+    if (ask) {
+      url = (await ask.ask("Decision model url (https://<your-gateway>/v1): ")) || null;
+      if (url) model = (await ask.ask("Decision model name: ")) || null;
+      else ask.skip?.();
+      if (url && model) key = (await ask.secret("Decision model key (optional; Enter skips): ")) || null;
+      else ask.skip?.();
+    }
+    if (!url || !model)
+      return console.log(`- decision model: not set; runs refuse until it is: ${DECISION_UNSET_FIX}`);
+    try {
+      patchProfile(profile, { decision: { url, model } }, { host: d.host });
+    } catch (e) {
+      return console.log(
+        `${mark("warn")} decision model: could not save it: ${errorMessage(e).split("\n").join(" ")}`,
+      );
+    }
+    if (key)
+      try {
+        saveDecisionKey(key);
+      } catch (e) {
+        console.log(
+          `${mark("warn")} decision model: could not save the key: ${errorMessage(e).split("\n").join(" ")}`,
+        );
+        if (isCatherdError(e) && e.fix) console.log(`    fix: ${e.fix}`);
+      }
   }
-  if (jevKey()) {
-    ask?.skip?.();
-    return console.log(`${mark("ok")} Jev: using the saved key`);
-  }
-  const key = ask ? await ask.secret("TypeSafe API key for Jev (optional; Enter skips): ") : "";
-  if (!key)
-    return console.log(
-      `- Jev: no key; routing uses each lane's Kind and Difficulty (add one later with catherd init)`,
-    );
-  if (!(await (d.testJevKey ?? testJevKey)(key).catch(() => false)))
-    return console.log(`${mark("warn")} Jev: the key did not answer, so it was not saved`);
-  try {
-    (d.saveJevKey ?? saveJevKey)(key);
-    console.log(`${mark("ok")} Jev: the key answers; saved with mode 600`);
-  } catch (e) {
-    const message = errorMessage(e).split("\n").join(" ");
-    console.log(`${mark("warn")} Jev: could not save the key: ${message}`);
-    if (isCatherdError(e) && e.fix) console.log(`    fix: ${e.fix}`);
-  }
+  const r = await (d.probe ?? ((cfg, k) => probeDecision(cfg, { key: k })))(
+    { url, model, minConfidence: have.minConfidence },
+    key ?? decisionKey(),
+  ).catch((e: unknown) => ({ ok: false as const, error: errorMessage(e) }));
+  console.log(
+    r.ok
+      ? `${mark("ok")} decision model: answers in ${r.latencyMs} ms`
+      : `${mark("warn")} decision model: ${r.error} (${url})`,
+  );
 }
 
 /**
- * `init` refreshes the Slopalytics index in the foreground, after the Jev key. It never stops `init`;
+ * `init` refreshes the Slopalytics index in the foreground. It never stops `init`;
  * CATHERD_NO_SYNC=1 skips it.
  */
 export async function syncStep(
@@ -160,7 +193,7 @@ export const initCommand = defineCommand({
   meta: {
     name: "init",
     description:
-      "First run: the global catherd command, the Jev key, a fetch of the Slopalytics model index, the default profile, its agents, and a readiness report. Piped, it reads the answers from stdin one per line, a line per question even when this machine skips it (the Jev key, the profile, whether to replace it), and waits for stdin to close; --no-input asks nothing",
+      "First run: the global catherd command, a fetch of the Slopalytics model index, the default profile, its agents, the decision model (url, model, optional key; probed), and a readiness report. Piped, it reads the answers from stdin one per line, a line per question even when this machine skips it (the profile, whether to replace it, the decision model's url, model and key), and waits for stdin to close; --no-input asks nothing",
   },
   args: {
     ...HOST_ARG,
@@ -188,7 +221,14 @@ export const initCommand = defineCommand({
       if (process.stdout.isTTY) for (const line of welcomeLines(VERSION)) console.log(line);
       console.log(`catherd ${VERSION}: setting up in ${configDir()}`);
       await globalStep(VERSION, { skip: (args as { global?: boolean }).global === false, plain });
-      await jevStep(ask, {}, plain);
+      try {
+        migrateCredentials();
+        for (const m of migrateProfiles())
+          for (const note of m.notes) console.log(`${mark("ok")} profile ${m.profile}: ${note}`);
+      } catch (e) {
+        console.log(`${mark("warn")} could not migrate 1.5 files: ${errorMessage(e).split("\n").join(" ")}`);
+        if (isCatherdError(e) && e.fix) console.log(`    fix: ${e.fix}`);
+      }
       await syncStep({ plain });
       const repo = await gitToplevel(process.cwd());
       // 0.x files go first, so a legacy profile about to be moved aside is never asked about
@@ -207,6 +247,8 @@ export const initCommand = defineCommand({
       const r = await initSetup({ profile: selected, repo, overwrite, host: terminalHost(args.host) });
       for (const f of [...moved, ...r.moved]) console.log(`${mark("ok")} moved a 0.x file aside: ${f}`);
       for (const l of profileLines(r, plain)) console.log(l);
+      if (r.active) await decisionStep(ask, r.profile, { host: terminalHost(args.host).host }, plain);
+      else for (let n = 0; n < 3; n++) ask?.skip?.();
       if (r.synced?.linked.length)
         console.log(`${mark("ok")} Claude agents linked: ${r.synced.linked.join(", ")}`);
       for (const x of r.refreshed) console.log(formatRefreshed(x, plain));

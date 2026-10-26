@@ -75,7 +75,7 @@ export function formatProfile(
   const width = Math.max(...ROLES.map((r) => r.length));
   const lines = [
     `profile ${p.name}${o.active ? " (active)" : ""}`,
-    `objective ${p.objective} · jev ${p.jev.use} · heavy slots ${p.lock.heavy} · notify ${p.notify.join(", ") || "none"}`,
+    `decision ${p.decision.url && p.decision.model ? `${p.decision.model} at ${p.decision.url}` : "not set"} · heavy slots ${p.lock.heavy} · notify ${p.notify.join(", ") || "none"}`,
     "roles",
   ];
   const accessOf = (role: Role) =>
@@ -358,7 +358,6 @@ const validate = defineCommand({
       args.name === undefined ? activeName(repo) : requireProfile(args.name),
       repo,
       terminalHost(args.host).host,
-      { reach: true },
     );
     if (args.json) printJson({ valid: v.errors.length === 0, ...v });
     else if (v.errors.length === 0 && v.warnings.length === 0) console.log(`${mark("ok")} valid`);

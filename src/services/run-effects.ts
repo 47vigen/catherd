@@ -470,7 +470,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
 
   /** The role's levels above the floor, from the catalog the decision model's port reads (plan 44 D19). */
   function levelsFor(role: Role, floor: string | null, strict: boolean) {
-    const p = routingProfile(runProfile(deps, run), role, 0);
+    const p = routingProfile(runProfile(deps, run), role);
     const cands = decisionCandidates(loadCatalog({ repo: run.meta.repo, runDir: run.dir }), p, role);
     return aboveFloor(levelsOf(cands), floor, strict);
   }

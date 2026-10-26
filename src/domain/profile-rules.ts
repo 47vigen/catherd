@@ -1,5 +1,4 @@
 import type { OrchestrationHost } from "./host.ts";
-import { type Bars, barInversions, barOf, effectiveBars, percentilesOf } from "./bars.ts";
 import { type Catalog, capableFor, effortOffered, ROLE_NEEDS, rungInfo } from "./catalog.ts";
 import {
   catalogPairs,
@@ -11,29 +10,17 @@ import {
   rankStandIns,
 } from "./failover.ts";
 import { effortRank, tryParseRung } from "./ids.ts";
-import { DIFFICULTIES, type Difficulty } from "./lane.ts";
-import { type Profile, type ProfileDoc, unknownValues } from "./profile.ts";
+import { DECISION_UNSET_FIX, type Profile, type ProfileDoc, unknownValues } from "./profile.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
-import {
-  type Candidate,
-  candidates,
-  CODING_FLOOR,
-  CODING_ROLES,
-  clearsBar,
-  defaultLadder,
-  type RoutingProfile,
-  select,
-} from "./select.ts";
+import { candidates, CODING_FLOOR, CODING_ROLES, type RoutingProfile } from "./select.ts";
 
 export { quotaOf };
 
 /**
- * `reach`: also warn about the difficulties no worker rung clears (spec 1.5 plan 24), which only an explicit
- * `profile validate` asks for. `unindexed: "warning"` (doctor's) reads a rung with no Slopalytics index as a
- * warning, since a profile can lose a pair overnight; everywhere else it is an error.
+ * `unindexed: "warning"` (doctor's) reads a rung with no Slopalytics index as a warning, since a profile can
+ * lose a pair overnight; everywhere else it is an error.
  */
 export interface ValidateOptions {
-  reach?: boolean;
   unindexed?: "error" | "warning";
 }
 
@@ -74,11 +61,9 @@ export function repairs(before: Validation | null, after: Validation): boolean {
 }
 
 export const routingProfileOf = (p: Profile, role: Role): RoutingProfile => ({
-  objective: p.objective,
   billing: p.billing,
   role: p.roles[role],
   maxEffort: p.maxEffort,
-  bars: { ...p.bars, ...p.roles[role].bars },
 });
 
 /**
@@ -111,7 +96,7 @@ export function validateProfile(
     warnings.push({
       path: "decision",
       message: "the decision model is not set",
-      fix: "catherd profile set decision.url https://<your-gateway>/v1, then catherd profile set decision.model <model>",
+      fix: DECISION_UNSET_FIX,
     });
   if (!p.roles.worker.enabled)
     errors.push({
@@ -119,21 +104,6 @@ export function validateProfile(
       message: "the worker cannot be disabled",
       fix: "catherd profile set roles.worker.enabled true",
     });
-
-  // a harder difficulty's percentile below an easier one's would route a harder lane to a weaker rung
-  const barOrder = (at: string, bars: Bars): void => {
-    const eff = effectiveBars({ bars });
-    for (const [easier, harder] of barInversions(eff))
-      errors.push({
-        path: at,
-        message: `the ${harder} bar (${eff[harder]}) is below the ${easier} bar (${eff[easier]})`,
-        fix: `catherd profile set ${at}.${harder} ${eff[easier]}, or lower ${at}.${easier} to ${eff[harder]} or less`,
-      });
-  };
-  barOrder("bars", p.bars);
-  for (const role of ROLES)
-    if (Object.keys(p.roles[role].bars ?? {}).length > 0)
-      barOrder(`roles.${role}.bars`, { ...p.bars, ...p.roles[role].bars });
 
   for (const role of ROLES) {
     const rc = p.roles[role];
@@ -237,33 +207,6 @@ export function validateProfile(
         message: `the ${role} role has no usable rung`,
         fix: `enable an indexed rung its backend offers, or turn the role off with: catherd profile set ${at}.enabled false`,
       });
-    // spec 1.5 plan 24: every difficulty no worker rung clears, in one warning; those lanes start at the
-    // default rung (or an easier difficulty's start) and climb only onto rungs at least as intelligent. Only an
-    // explicit validate says it (Ruling 3): the shipped bars put logic and hard above every Sol rung, the
-    // owner's call, so every save and doctor would repeat it
-    if (o.reach && role === "worker" && usable.length > 1) {
-      const unreached = unreachable(c, usable, percentilesOf(routingProfileOf(p, role)));
-      if (unreached.length)
-        warnings.push({
-          path: `${at}.rungs`,
-          message: `no worker rung clears ${unreached.join(", ")}: those lanes start at the default rung and climb only onto rungs at least as intelligent (route names the closest)`,
-        });
-    }
-    // spec 1.5 plan 24: a quota whose rungs never start a lane sits idle but for climbs (the identity run's Go).
-    // Only the worker routes lanes and climbs (Ruling 9); another role routes lane-less to one rung, so a rung
-    // on a second quota is a deliberate spare there, not an idle quota (final review Important 4, Ruling 8)
-    if (role === "worker" && usable.length > 1) {
-      const idle = idleQuotas(c, p, role, usable);
-      for (const [q, rungs] of idle) {
-        // the billing key, not the quota, is what billing is set on (`claude:` and `claude-code:` share one)
-        const keys = [...new Set(usable.filter((x) => rungs.includes(x.rung)).map((x) => x.info.key))];
-        warnings.push({
-          path: `${at}.rungs`,
-          message: `${q} never starts a ${role} lane: ${rungs.join(", ")} ${rungs.length > 1 ? "run" : "runs"} only on a climb, since another rung starts every lane`,
-          fix: `check ${keys.map((k) => `billing.${k}`).join(" and ")} (a metered rung starts only where nothing paid from a plan clears the bar), or order ${at}.rungs so its rungs come first among equals`,
-        });
-      }
-    }
   }
 
   const ladders = new Set(ROLES.filter((r) => p.roles[r].enabled).flatMap((r) => p.roles[r].rungs));
@@ -351,32 +294,6 @@ function aboveCeiling(maxEffort: Readonly<Record<string, string>>, rung: string,
     message: `${rung} is above maxEffort ${cap} for ${key}: routing skips it`,
     fix: `catherd profile set maxEffort.${key} ${r.effort}, or remove the rung`,
   };
-}
-
-/** The difficulties no rung of `usable` clears, as `logic, hard`. */
-function unreachable(c: Catalog, usable: Candidate[], at: Record<Difficulty, number>): string[] {
-  return DIFFICULTIES.filter((d) => !usable.some((x) => clearsBar(x, barOf(c, d, at))));
-}
-
-/**
- * Spec 1.5 plan 24: each quota of the role's usable rungs that no kind and difficulty (nor a lane-less route)
- * ever starts on, whichever quota the run has used least, with its rungs.
- */
-function idleQuotas(c: Catalog, p: Profile, role: Role, usable: Candidate[]): [string, string[]][] {
-  const quotas = [...new Set(usable.map((x) => quotaOf(x.info.parsed)))];
-  if (quotas.length < 2) return [];
-  const starts = new Set<string>();
-  // every quota gets its turn as the least used, so a tie it could win counts as a start
-  for (const fresh of [null, ...quotas]) {
-    const usage = Object.fromEntries(quotas.map((q) => [q, q === fresh ? 0 : 1]));
-    const rp = { ...routingProfileOf(p, role), usage };
-    starts.add(defaultLadder(c, rp, role).rung);
-    for (const d of DIFFICULTIES) starts.add(select(c, rp, role, d).rung);
-  }
-  const started = new Set(usable.filter((x) => starts.has(x.rung)).map((x) => quotaOf(x.info.parsed)));
-  return quotas
-    .filter((q) => !started.has(q))
-    .map((q) => [q, usable.filter((x) => quotaOf(x.info.parsed) === q).map((x) => x.rung)]);
 }
 
 export function nativeClaudeIssue(rung: string, host: OrchestrationHost, path: string): Issue | null {

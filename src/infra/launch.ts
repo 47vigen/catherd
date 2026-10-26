@@ -56,12 +56,11 @@ export function launchSupervisor(specPath: string): number {
 }
 
 /**
- * The daemon's env (spec 2.0, plan 30 ruling 4): the launching process's own, so Jev's key reaches its routing,
+ * The daemon's env (spec 2.0, plan 30 ruling 4): the launching process's own, so the decision key reaches its decisions,
  * without the session identity of whoever launched it, and never a role's scope: it is nobody's role.
  */
 export function daemonEnv(base: Record<string, string | undefined> = process.env): Record<string, string> {
   const env = scrubSecrets(base);
-  if (base.TYPESAFE_API_KEY !== undefined) env.TYPESAFE_API_KEY = base.TYPESAFE_API_KEY;
   if (base.CATHERD_DECISION_KEY !== undefined) env.CATHERD_DECISION_KEY = base.CATHERD_DECISION_KEY;
   delete env[ROLE_ENV];
   return env;

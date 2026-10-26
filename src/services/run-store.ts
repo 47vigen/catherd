@@ -73,7 +73,6 @@ export function runPaths(dir: string) {
     stateJson: join(dir, "state.json"),
     runs: join(dir, "runs.jsonl"),
     routes: join(dir, "routes.jsonl"),
-    jev: join(dir, "jev.jsonl"),
     /** plan 44 D18: per name and decision number, the brief the decision model judged and the dispatch sends: `<name>/<n>/brief.md` */
     decisions: join(dir, "decisions"),
     /** plan 44 D28: one row per decision made, beside the model calls' own rows */
@@ -441,7 +440,7 @@ const SERVER_OWNED = new Set([
   "ledger.md",
   "runs.jsonl",
   "routes.jsonl",
-  "jev.jsonl",
+  "decisions.jsonl",
   "agents.jsonl",
   "harness.jsonl",
   "verifier.jsonl",

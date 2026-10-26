@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
 import { newDispatchId } from "../../src/domain/ids.ts";
 import { gateCheck, gatePass, gatesFile } from "../../src/services/gate-service.ts";
-import { land, route } from "../../src/services/lane-service.ts";
+import { land } from "../../src/services/lane-service.ts";
 import {
   isDocPath,
   isSourcePath,
@@ -40,6 +40,7 @@ import {
   makeRecord,
   passGate,
   passVerifier,
+  route,
   writeLane,
 } from "./helpers.ts";
 

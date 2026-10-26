@@ -21,7 +21,24 @@ import { decisionQuestions } from "../../src/services/decision-service.ts";
 import { unitContext } from "../../src/services/plan-input.ts";
 import { milestoneOfName } from "../../src/services/verifier-brief.ts";
 import { result } from "../../src/services/run-service.ts";
-import { appendRecord, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
+import {
+  appendOutcome,
+  appendRecord,
+  appendRoute,
+  createRun,
+  findRun,
+  readRoutes,
+  type Run,
+  runPaths,
+} from "../../src/services/run-store.ts";
+import {
+  type ClimbReason,
+  currentRoute,
+  laneOutcome,
+  nextRung,
+  outcomeRouteRow,
+  type RouteRow,
+} from "../../src/domain/route.ts";
 import { makeRecord } from "../domain/make-record.ts";
 import { repoWithOrigin, tempRepo, withHome } from "../helpers.ts";
 
@@ -68,9 +85,7 @@ const role = (access: Access, rungs: string[]) => ({ enabled: true, access, rung
 export function testView(over: Partial<ProfileView> = {}): ProfileView {
   return {
     name: "test",
-    objective: "cost",
     billing: {},
-    jev: { use: "auto" },
     decision: { url: "https://decision.test/v1", model: "test-decider", minConfidence: 0.8 },
     roles: {
       worker: role("workspace-write", LADDER),
@@ -97,48 +112,6 @@ export function fakeDeps(
 ): Deps & { view: ProfileView } {
   const view = o.view ?? testView();
   const routing: RoutingPort = {
-    async route(req) {
-      const rungs = view.roles[req.role]?.rungs ?? [];
-      return {
-        rung: rungs[0] ?? "",
-        ladder: rungs,
-        source: "default",
-        kind: null,
-        difficulty: null,
-        questionSet: null,
-        jev: null,
-        jevSaid: null,
-        why: "the role's default rung",
-      };
-    },
-    // a test that replaces route gets it for every lane of a batch too
-    async routeMany(reqs) {
-      return Promise.all(reqs.map((r) => routing.route(r)));
-    },
-    finding: async (_runDir, _laneText, _finding, _use) => ({
-      value: "code",
-      probability: null,
-      confidence: null,
-      source: "default",
-    }),
-    sameDefect: async (_runDir, _before, _after, _use) => ({
-      value: "no",
-      probability: null,
-      confidence: null,
-      source: "default",
-    }),
-    stopCause: async (_runDir, _status, _reply, _use) => ({
-      value: "other",
-      probability: null,
-      confidence: null,
-      source: "default",
-    }),
-    failureClass: async (_runDir, _text, _use) => ({
-      value: "product",
-      probability: null,
-      confidence: null,
-      source: "default",
-    }),
     // the role's first rung at or above the floor, no call; a test that wants a pick replaces it
     async decide(req) {
       const rungs = view.roles[req.role]?.rungs ?? [];
@@ -208,7 +181,7 @@ export function fakeDeps(
 /** An isolated CATHERD_HOME, a fresh git repo and a run in it. Call `afterEach(snapshotEnv())` in the file. */
 export function freshRun(title = "t"): { repo: string; run: Run } {
   withHome();
-  delete process.env.TYPESAFE_API_KEY;
+  delete process.env.CATHERD_DECISION_KEY;
   const repo = tempRepo();
   return { repo, run: createRun({ repo, title, aLines: ["A1 it works"], version: "0.0.0-test" }) };
 }
@@ -216,7 +189,7 @@ export function freshRun(title = "t"): { repo: string; run: Run } {
 /** plan 35: a run with `base: "main"` over a repo whose origin is a local bare clone (never a URL). */
 export function branchRun(title = "t"): { repo: string; origin: string; run: Run } {
   withHome();
-  delete process.env.TYPESAFE_API_KEY;
+  delete process.env.CATHERD_DECISION_KEY;
   const { repo, origin } = repoWithOrigin();
   return {
     repo,
@@ -490,3 +463,65 @@ export const PLAN_TEXT = [
   "Test: `docs.test.ts` — links",
   "",
 ].join("\n");
+
+/**
+ * A lane's route row as `dispatch` writes it for a coordinator's rung, and as every earlier catherd wrote it: the
+ * lane starts on the role's first rung, the profile's rungs are its ladder. The readers of old runs (climbs,
+ * outcomes, the protocol's next step) are tested on these rows.
+ */
+export async function route(
+  deps: Deps,
+  i: { run: string; laneFile: string; role: Role; row?: Partial<RouteRow> },
+): Promise<{ lane: string; rung: string; ladder: string[] }> {
+  const run = findRun(i.run);
+  const lane = (i.laneFile.match(/^lanes\/(.+)\.md$/) as RegExpMatchArray)[1] as string;
+  const ladder = deps.profiles.forRepo(run.meta.repo).roles[i.role]?.rungs ?? [];
+  appendRoute(run, {
+    at: new Date(deps.now()).toISOString(),
+    lane,
+    role: i.role,
+    rung: ladder[0] as string,
+    ladder,
+    source: "route",
+    decidedBy: "default",
+    from: null,
+    reason: null,
+    kind: null,
+    difficulty: null,
+    why: "the role's first rung",
+    ...i.row,
+  });
+  return { lane, rung: ladder[0] as string, ladder };
+}
+
+/**
+ * One rung up the lane's ladder, as an earlier catherd's `climb` wrote it: a `climb` row, and past the top rung
+ * the lane's open outcome. Returns the rung it stands on and whether that is the top.
+ */
+export function climb(
+  deps: Deps,
+  i: { run: string; lane: string; reason: ClimbReason; evidence?: string; env?: boolean },
+): { rung: string; top: boolean } {
+  const run = findRun(i.run);
+  const cur = currentRoute(readRoutes(run), i.lane) as RouteRow;
+  const next = nextRung(cur.ladder, cur.rung);
+  const at = new Date(deps.now()).toISOString();
+  appendRoute(run, {
+    ...cur,
+    at,
+    source: "climb",
+    from: cur.rung,
+    rung: next ?? cur.rung,
+    reason: i.evidence ? `${i.reason}: ${i.evidence}` : i.reason,
+    env: i.env === true,
+  });
+  if (!next) {
+    const routes = readRoutes(run);
+    const o = laneOutcome(routes, i.lane, false, at);
+    if (o) {
+      appendOutcome(run, o);
+      appendRoute(run, outcomeRouteRow(routes, o));
+    }
+  }
+  return { rung: next ?? cur.rung, top: next === null };
+}

@@ -12,18 +12,10 @@ export const CLIMB_REASONS = [
 export type ClimbReason = (typeof CLIMB_REASONS)[number];
 
 /**
- * Spec §5.4: where a lane's kind and difficulty came from. `jev-kind`: Jev was sure of the kind only, and the
- * difficulty came from the lane's `Difficulty:` line, else from the role's default rung.
+ * Who chose a rung: the decision model (`decision`), or the coordinator naming it on the 1.x path (`orchestrator`).
+ * An old run's rows also carry `lane`, `default` and the 1.5 router's own sources, which are only displayed.
  */
-export type RouteSource = "jev" | "jev-kind" | "lane" | "default" | "decision";
-
-/** What Jev said about a lane, kept with its route for outcomes.jsonl (spec §5.6). */
-export interface RouteJev {
-  pKind: number | null;
-  pA: number | null;
-  pB: number | null;
-  nouls: Record<string, number>;
-}
+export type RouteSource = "decision" | "orchestrator" | "lane" | "default";
 
 /** One row of routes.jsonl: a lane's route, or one climb of it. The last row of a lane is its current route. */
 export interface RouteRow {
@@ -38,44 +30,32 @@ export interface RouteRow {
   reason: string | null;
   kind: Kind | null;
   difficulty: Difficulty | null;
-  /** route rows: the Jev question set asked (null when Jev was not asked) and its probabilities */
-  questionSet?: string | null;
-  jev?: RouteJev | null;
   /** climb rows: the climb was caused by the environment, not the rung's capability (spec §5.6) */
   env?: boolean;
-  /** route rows (spec 1.5 plan 24): the decision in one line, as `route` returned it */
+  /** route rows (spec 1.5 plan 24): the decision in one line */
   why?: string;
   /** plan 44 D24, `decision` rows: the picked level, how many levels the decision had, and the rung's intelligence */
   level?: number;
   levels?: number;
   intelligence?: number;
-  /** route rows: where Jev disagreed with the lane's declared Kind/Difficulty */
-  jevSaid?: string;
-  /** route rows: no rung clears the lane's bar, and the closest one */
-  noClear?: string;
-  /** route rows: rungs of equal scores on other quotas competed for the start, and what decided */
-  tie?: string;
-  /** route rows: the chosen rung's thresholds, values and sources (spec 1.2 §5.3), kept out of `route`'s answer */
-  provenance?: unknown;
 }
 
 /**
- * Spec 1.5 plan 24: one routes.jsonl row for a role's decision outside a lane: `route` without a lane file, or
- * a lane-less `dispatch` (its `name`). `readRoutes` skips these rows: they have no lane to climb.
+ * One routes.jsonl row for a lane-less `dispatch` (its `name`). `readRoutes` skips these rows: they have no lane
+ * to climb.
  */
 export interface RoleRouteRow {
   at: string;
   lane: null;
   role: Role;
-  /** the dispatch's name; null for a `route` */
+  /** the dispatch's name */
   name: string | null;
   rung: string;
   ladder: string[];
   source: "route" | "dispatch";
-  /** who chose the rung: the router (its source), or the coordinator passing `rung` to `dispatch` */
-  decidedBy: RouteSource | "orchestrator";
+  /** who chose the rung */
+  decidedBy: RouteSource;
   why: string;
-  provenance?: unknown;
 }
 
 /**
@@ -114,15 +94,13 @@ export function routeAt(rows: RouteRow[], lane: string, at: string): RouteRow | 
 }
 
 /**
- * One outcomes.jsonl row (spec §5.6): how a routed lane ended, for calibrating Jev's route rule.
+ * One outcomes.jsonl row (spec §5.6): how a routed lane ended.
  * A lane can get several rows (a top-rung failure later landed, a milestone landed again):
  * the last row per lane wins; read them through `latestOutcomes`.
  */
 export interface OutcomeRow {
   at: string;
   lane: string;
-  questionSet: string | null;
-  jevProbs: RouteJev | null;
   source: RouteSource;
   startRung: string;
   finalRung: string;
@@ -161,8 +139,6 @@ export function laneOutcome(rows: RouteRow[], lane: string, landed: boolean, at:
   return {
     at,
     lane,
-    questionSet: start.questionSet ?? null,
-    jevProbs: start.jev ?? null,
     source: start.decidedBy,
     startRung: start.rung,
     finalRung,
@@ -194,8 +170,6 @@ function decisionOutcome(rows: RouteRow[], lane: string, landed: boolean, at: st
   return {
     at,
     lane,
-    questionSet: null,
-    jevProbs: null,
     source: "decision",
     startRung: start.rung,
     finalRung: final.rung,
@@ -211,9 +185,8 @@ function decisionOutcome(rows: RouteRow[], lane: string, landed: boolean, at: st
 }
 
 /**
- * Spec 1.5 plan 24: a lane's final outcome in routes.jsonl, beside the route row that holds Jev's answer, for
- * calibrating Jev's difficulty question: what Jev said and what the route used, whether the lane climbed, and
- * how it ended. `readRoutes` skips these rows; outcomes.jsonl keeps its own (spec §5.6).
+ * A lane's final outcome in routes.jsonl, beside its route row: whether the lane climbed and how it ended.
+ * `readRoutes` skips these rows; outcomes.jsonl keeps its own (spec §5.6).
  */
 export interface OutcomeRouteRow {
   at: string;
@@ -222,8 +195,6 @@ export interface OutcomeRouteRow {
   decidedBy: RouteSource;
   kind: Kind | null;
   difficulty: Difficulty | null;
-  questionSet: string | null;
-  jev: RouteJev | null;
   /** some climb moved the lane to another rung (an environment climb included) */
   climbed: boolean;
   startRung: string;
@@ -243,8 +214,6 @@ export function outcomeRouteRow(rows: RouteRow[], o: OutcomeRow): OutcomeRouteRo
     decidedBy: o.source,
     kind: start?.kind ?? null,
     difficulty: start?.difficulty ?? null,
-    questionSet: o.questionSet,
-    jev: o.jevProbs,
     climbed: o.climbs.length > 0,
     startRung: o.startRung,
     finalRung: o.finalRung,
