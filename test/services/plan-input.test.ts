@@ -15,14 +15,20 @@ import {
   planInputPaths,
   planProblems,
   resolvePlanInputs,
+  roleALines,
   taskBlock,
+  UNIT_CONTEXT_MAX,
   uncoveredALines,
+  unitContext,
 } from "../../src/services/plan-input.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv, tempDir } from "../helpers.ts";
 import { freshRun, PLAN_TEXT, writeLane } from "./helpers.ts";
+
+const fixture = (name: string): string =>
+  readFileSync(join(import.meta.dir, "../fixtures/briefs", name), "utf8");
 
 afterEach(snapshotEnv());
 
@@ -331,4 +337,78 @@ it("a one-milestone plan owns every A-line, and no plan.md owns none", () => {
   expect(unowned()).toEqual([
     "A1, A2 are cited under no milestone: under the milestone that delivers each, write it in plan.md as an A<n> line",
   ]);
+});
+
+describe("the unit context", () => {
+  const briefFiles = () => ({
+    "plan.md": fixture("plan.md"),
+    "spec.md": fixture("spec.md"),
+    "credit.md": fixture("credit.md"),
+  });
+  const briefRun = async (files: Record<string, string> = briefFiles()) => {
+    const { run } = await planRun(Object.keys(files), files);
+    writeLane(run, "M1.L1", ["src/ledger.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
+    return run;
+  };
+
+  it("a task's §n resolves in its own files only", async () => {
+    const run = await briefRun();
+    const text = unitContext(run, "worker", "M1.L1").join("\n\n");
+    expect(text).toContain("### Task 1: Implement the ledger");
+    expect(text).toContain("PLAN-3.2-MARK");
+    expect(text).toContain("SPEC-4-MARK");
+    for (const absent of ["PLAN-3.1-MARK", "SPEC-3.1-MARK", "SPEC-3.2-MARK", "CREDIT-3-MARK", "SPEC-9-MARK"])
+      expect(text).not.toContain(absent);
+    const onDemand = text.slice(text.indexOf("Read on demand:"));
+    expect(onDemand).toContain("plan-input/spec.md");
+    expect(onDemand).toContain("plan-input/credit.md");
+    expect(onDemand).not.toContain("plan-input/plan.md");
+  });
+
+  it("the unit context is capped with a pointer", async () => {
+    const files = briefFiles();
+    files["plan.md"] = files["plan.md"].replace("spec.md §4", "spec.md §9");
+    const run = await briefRun(files);
+    const text = unitContext(run, "worker", "M1.L1").join("\n\n");
+    expect(text.length).toBeLessThanOrEqual(UNIT_CONTEXT_MAX);
+    expect(text).toContain("cut: read plan-input/spec.md");
+    expect(text).toContain("SPEC-9-MARK");
+  });
+
+  it("the slim lane and the bloated lane render the same unit context", async () => {
+    const slim = await briefRun();
+    const files = briefFiles();
+    files["spec.md"] += `\n## 12. Appendix\n\n${"unrelated appendix text ".repeat(4_200)}\n`;
+    const bloated = await briefRun(files);
+    expect(unitContext(bloated, "worker", "M1.L1")).toEqual(unitContext(slim, "worker", "M1.L1"));
+  });
+
+  it("a worker sees worker and run lines only", () => {
+    const { run } = freshRun();
+    writeFileSync(
+      join(run.dir, "plan.md"),
+      "# P\n## M1 — a\nA1 [worker] — x\nA2 [verifier] — y\nA3 — z\n## M2 — b\n",
+    );
+    run.meta.aLines = ["A1 [worker] — x", "A2 [verifier] — y", "A3 — z"];
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    writeLane(run, "M2.L1", ["src/b.ts"]);
+    expect(roleALines(run, "worker", "M1.L1")).toEqual(["A1 [worker] — x", "A3 — z"]);
+    expect(roleALines(run, "verifier", "M1")).toEqual(["A2 [verifier] — y", "A3 — z"]);
+    expect(roleALines(run, "judge", "M1")).toHaveLength(3);
+    expect(roleALines(run, "reviewer", "run")).toHaveLength(3);
+    expect(unitContext(run, "verifier", "M1").join("\n")).toContain("A2 [verifier] — y");
+    expect(unitContext(run, "verifier", "M1").join("\n")).not.toContain("A1 [worker]");
+  });
+
+  it("an untagged plan.md A-line is a plan problem", () => {
+    const { run } = freshRun();
+    writeFileSync(join(run.dir, "plan.md"), "# P\n## M1 — core\n- A1 — x\n- A2 [run] — y\nA3 [judge] — z\n");
+    run.meta.aLines = ["A1 — x", "A2 [run] — y", "A3 [judge] — z"];
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    const tag = (p: string) => p.includes("has no owner tag");
+    expect(planProblems(run).filter(tag)).toEqual([
+      "A1 in plan.md has no owner tag: write it A1 [worker|reviewer|verifier|run]",
+      "A3 in plan.md has no owner tag: write it A3 [worker|reviewer|verifier|run]",
+    ]);
+  });
 });

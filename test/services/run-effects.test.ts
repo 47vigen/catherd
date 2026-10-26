@@ -97,7 +97,7 @@ const DEEP = [
   "D1 — use a map — rejected: an array — slower",
   "D2 — keep it flat — rejected: nesting — simpler",
   "## M1 — core",
-  "- A1 it works",
+  "- A1 [run] it works",
   "### Task 1: do it",
   "Test: `test/a.test.ts` — asserts a",
   "",
@@ -1049,7 +1049,7 @@ describe("planning", () => {
     const { run, fx } = setup();
     writeLane(run, "M1.L1", ["src/a/"], "true", WITH_TASK);
     writeLane(run, "M2.L1", ["src/b/"], "true", WITH_TASK);
-    writeFileSync(join(run.dir, "plan.md"), `${DEEP.replace("- A1 it works\n", "")}\n## M2 — docs\n`);
+    writeFileSync(join(run.dir, "plan.md"), `${DEEP.replace("- A1 [run] it works\n", "")}\n## M2 — docs\n`);
     await appendEvent(run, { type: "run.started", ...startedFields });
     await fx.run({ type: "readPlan" }, replayRun(run));
     expect(lastOf(run, "effect.failed")?.message).toContain("A1 is cited under no milestone");
