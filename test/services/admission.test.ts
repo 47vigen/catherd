@@ -275,6 +275,7 @@ describe("admission", () => {
     // the adapter's overrides (a plain codex rung has none), the role's identity and scratch, the dispatch id
     // for catherd lock, its testcontainers session, and PWD
     expect(JSON.parse(text).env).toEqual({
+      HONCHO_ENABLED: "false",
       CATHERD_ROLE: `${run.id}/worker-M1.L1`,
       TMPDIR: realpathSync(join(run.dir, "scratch", "worker-M1.L1")),
       CATHERD_DISPATCH_ID: expect.any(String),

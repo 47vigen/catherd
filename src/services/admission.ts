@@ -388,8 +388,10 @@ export async function admit(
         // spec 1.5 plan 21: the supervisor gives the role its identity and, where granted, its scratch TMPDIR;
         // plan 23: a `catherd lock` in the role reports to this dispatch, so a long gate keeps its wall alive
         // plan 23: each dispatch its own testcontainers session, so parallel lanes never share a reaper;
-        // the gate env never overrides the role's identity, scratch, dispatch id, PWD or isolated home
+        // the gate env never overrides the role's identity, scratch, dispatch id, PWD or isolated home;
+        // a role's brief is not the owner's words, so a memory plugin (Honcho) must not store it as theirs
         env: {
+          HONCHO_ENABLED: "false",
           ...(compose ? { COMPOSE_PROJECT_NAME: compose } : {}),
           ...gate.values,
           ...plan.env,
