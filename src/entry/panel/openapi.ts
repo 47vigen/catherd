@@ -5,6 +5,7 @@ import {
   EdgeSchema,
   RunModelPatchSchema,
   RunModelSchema,
+  NodeDecisionSchema,
   RunNodeSchema,
 } from "../../domain/run-graph.ts";
 import { TranscriptItemSchema, TranscriptPageSchema } from "../../domain/transcript.ts";
@@ -314,6 +315,7 @@ const SCHEMAS: Record<string, z.ZodType> = {
   RunModel: RunModelSchema,
   RunModelPatch: RunModelPatchSchema,
   RunNode: RunNodeSchema,
+  NodeDecision: NodeDecisionSchema,
   Attempt: AttemptSchema,
   Edge: EdgeSchema,
   Overview: OverviewSchema,

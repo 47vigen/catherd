@@ -1,17 +1,17 @@
 import type { BlockedReason } from "./blocked.ts";
 import { quotaOf } from "./failover.ts";
-import { mechanicalFix } from "./cheap-fix.ts";
+import type { DecisionSource } from "./decision.ts";
 import { checkFailLines } from "./fail-lines.ts";
+import { findingKey, HARNESS_NOTE, failureSignature } from "./harness.ts";
 import { filesOf } from "./findings.ts";
 import { MEMORY_LIMITS } from "./milestone-memory.ts";
 import { tryParseRung } from "./ids.ts";
 import { type JudgeKind, judgeName, type RuleChange } from "./judge.ts";
 import type { ReplyStatus, RunStatus } from "./record.ts";
-import type { Role } from "./roles.ts";
+import { ROLES, type Role } from "./roles.ts";
 import type { NotifyMoment } from "./profile.ts";
 import { isPushAnswer } from "./branch.ts";
 import { isAccept } from "./plan-doc.ts";
-import type { ClimbReason } from "./route.ts";
 import {
   type Finding,
   issueLine,
@@ -30,10 +30,16 @@ export const REFUSAL_WAIT_MS = 5 * 60_000;
 export const ADMIT_WAITS = 12;
 /** A lane parked this many times at the top rung stops asking the judge and waits for the owner. */
 export const TOP_RUNG_JUDGES = 3;
+/** A decision dropped (stale, held, refused at admission) this many times in a row parks its unit. */
+export const REDECIDE_LIMIT = 6;
 /** A name refused as a duplicate this many times in a row parks its unit. */
 export const DUPLICATE_LIMIT = 3;
-/** A role that fails this many times without a limit parks its unit. */
+/** A role that fails this many times without a limit parks its unit; the same rung failing this often makes the floor strict. */
 export const MAX_TRIES = 2;
+/** plan 44 D16: calls to the decision model for one dispatch (or classification) before its unit parks. */
+export const DECISION_TRIES = 3;
+/** plan 44 D16: the wait between two calls to a decision model that gave no usable answer. */
+export const DECISION_RETRY_MS = 60_000;
 export const REMIND_AFTER_MS: readonly number[] = [1_800_000, 7_200_000, 21_600_000, 86_400_000];
 /** A plan the check refused goes back to its architect this many times before the run parks (plan 32). */
 export const PLAN_REVISIONS = 2;
@@ -41,17 +47,7 @@ export const PLAN_REVISIONS = 2;
 /** Spec 2.0 decision 5: a soft cap of max(3, 2 + ⌈lanes/3⌉) fix rounds. */
 export const softCap = (lanes: number): number => Math.max(3, 2 + Math.ceil(lanes / 3));
 
-/** A finding's identity across rounds: its file and its first words, without line numbers (t3herd `findingKey`). */
-export const findingKey = (f: string): string =>
-  f
-    .replace(/^[\W\d]*(BLOCKER|BUG)\**\s*/i, "")
-    .replace(/:\d+(-\d+)?/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9/._ ]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 8)
-    .join(" ");
+export { findingKey };
 
 export type MilestoneStatus =
   | "waiting"
@@ -87,7 +83,7 @@ export interface LaneState {
   after: string[];
   owns: string[];
   status: LaneStatus;
-  /** the lane's current route (after any climb) */
+  /** the rung of the lane's latest decision or dispatch (an old run: its last climb) */
   rung: string | null;
   /** the thread its CLI session is on, resumed by a check retry and a fix round; null starts fresh */
   thread: string | null;
@@ -107,36 +103,30 @@ export interface LaneState {
   notes: string[];
   /** the review round whose fix this lane was armed for (a survived finding climbs first) */
   fixedRound: number | null;
-  /** a climb the lane waits for before it runs again */
-  climbReason: ClimbReason | null;
   /** how many stops in a row named `lastReason` (a provider_error is retried once, a check_broken waits once) */
   stopRun: number;
   /** a provider_error that repeated: the next dispatch fails over although no limit was hit */
   failoverNow: boolean;
-  /** the lane's pending climb is for a too_hard stop: at the top rung the owner is asked, not the judge */
+  /** the lane's last stop was too_hard: with no rung above its floor the owner is asked, not the judge */
   tooHard: boolean;
   /** what the judge is asked about the parked lane: an owner-level question, or a lane out of rungs */
   awaiting: "question" | "unexpected" | null;
   /** an unexplained stop waiting for its classification: nothing else happens to the lane until it is in */
-  classify: (LaneEnd & { dispatchId: string }) | null;
-  /** when the lane last climbed: a sibling "untried since" is judged against it */
-  climbedAt: string | null;
+  classify: (LaneEnd & { dispatchId: string; reason?: BlockedReason | null }) | null;
+  /** when the lane's floor last rose (a failure of its rung; an old run: its last climb): a sibling "untried since" is judged against it */
+  floorAt: string | null;
   /** plan 40: judge routes that arrived while the lane was running or checking: its notes when that try ends */
   queued: string[];
   /** plan 40: sibling lanes whose files broke the lane's check: its fast check reruns once they are done */
   waitOn: string[];
-  /** plan 41: the lane's next dispatch is a cheap try: its fix is mechanical, so the cheapest capable rung runs it first */
-  cheapFirst: boolean;
-  /** plan 41: the lane's last dispatch was a cheap try: a failure of it goes back to the lane's own rung, uncounted */
-  cheapRan: boolean;
-  /** plan 41: the lane's cheap try of this round already fell back to its own rung: no second one is armed */
-  cheapSpent: boolean;
   /** plan 43: the lane's last ok reply had no STATUS line and was asked for one; a second one is a failed attempt */
   statusAsked: boolean;
   /** plan 43: the digest of the lane file (without its Owns line) the lane last ran against; null before the first plan.ready that gave one */
   digest: string | null;
   /** when the lane's unbroken run of transport failures began: it retries its rung until HOLD_MS has passed */
   transportSince: string | null;
+  /** plan 44 D10: the signature of the harness failure the lane was last repaired for; it outlives the repair dispatch; a passing or product-failing check clears it */
+  harness: string | null;
 }
 
 export interface MilestoneState {
@@ -303,6 +293,33 @@ export interface RunState {
   stuck: Record<string, { reason: ParkReason; question: string }>;
   /** `kind:unit` → a report not posted yet, so a daemon that died before it sends it again */
   owed: Record<string, OwedReport>;
+  /** plan 44: dispatch name → its decision, until the dispatch starts (a restart in between sends it, asking nothing) */
+  decisions: Record<string, MadeDecision>;
+  /** dispatch name → the `n` of its latest decision: the next decision of the name is `n + 1` */
+  decided: Record<string, number>;
+  /** dispatch name → the rung that failed it, and how often in a row: the floor of its next decision (R1, R2) */
+  floors: Record<string, { rung: string; fails: number }>;
+  /** dispatch name (or `classify:<dispatchId>`) → calls to the decision model that gave no usable answer since the last decision */
+  decisionFails: Record<string, number>;
+  /** dispatch name → rungs refused at admission (E_ADMIT_RUNG): its next decision leaves them out */
+  refusedRungs: Record<string, string[]>;
+  /** dispatch name → the rung the coordinator answered a parked decision with: the next decide records it */
+  picks: Record<string, string>;
+  /** unit → the name whose decision parked it (reason `decision`) */
+  decisionParks: Record<string, string>;
+  /** name → the rungs the parked decision's last failure listed: what an answer may name */
+  decisionRungs: Record<string, string[]>;
+  /** unit → the name whose exhausted floor parked it (reason `effect`): its floor goes with the answer */
+  exhaustedParks: Record<string, string>;
+}
+
+/** plan 44: what `decision.made` recorded for a dispatch not started yet. */
+export interface MadeDecision {
+  n: number;
+  rung: string;
+  briefFile: string;
+  briefHash: string;
+  source: DecisionSource;
 }
 
 export function emptyState(run: string): RunState {
@@ -337,7 +354,77 @@ export function emptyState(run: string): RunState {
     waiting: {},
     stuck: {},
     owed: {},
+    decisions: {},
+    decided: {},
+    floors: {},
+    decisionFails: {},
+    refusedRungs: {},
+    picks: {},
+    decisionParks: {},
+    decisionRungs: {},
+    exhaustedParks: {},
   };
+}
+
+/** The dispatch name of a lane: its role and id. */
+export const laneNameOf = (l: Pick<LaneState, "role" | "id">): string => `${l.role}-${l.id}`;
+
+/** The role a dispatch name belongs to: the longest role it starts with. */
+export const roleOfName = (name: string): Role | null =>
+  [...ROLES].sort((a, b) => b.length - a.length).find((r) => name === r || name.startsWith(`${r}-`)) ?? null;
+
+/**
+ * plan 44 R1, R2, D14: `name`'s dispatch failed on `rung`. The same rung twice in a row makes the floor strict (the
+ * next decision goes above it); another rung restarts the count. A lane's `floorAt` notes when its floor went strict,
+ * the moment a climb used to happen. `strict` makes it so at once.
+ */
+export function failedOn(s: RunState, name: string, rung: string | null, at: string, strict = false): void {
+  if (rung === null) return;
+  const f = s.floors[name];
+  if (f && f.rung === rung) f.fails += 1;
+  else s.floors[name] = { rung, fails: 1 };
+  const now = s.floors[name] as { fails: number };
+  if (strict) now.fails = Math.max(now.fails, MAX_TRIES);
+  if (now.fails < MAX_TRIES) return;
+  const lane = Object.values(s.lanes).find((l) => laneNameOf(l) === name);
+  if (lane) lane.floorAt = at;
+}
+
+/** The floor of `name`'s next decision, and whether it excludes its own rung. */
+export function floorOf(s: RunState, name: string): { floor: string | null; strict: boolean } {
+  const f = s.floors[name];
+  return { floor: f?.rung ?? null, strict: (f?.fails ?? 0) >= MAX_TRIES };
+}
+
+/** The name's dispatch was accepted: its floor goes. */
+const accepted = (s: RunState, name: string): void => {
+  delete s.floors[name];
+};
+
+/** A decision call failed (or the model's answer was unusable): wait for the next try, or park the unit at the third. */
+function decisionFailed(
+  s: RunState,
+  o: { name: string; unit: string; at: string; error: string; rungs: string[]; lane?: LaneState },
+): void {
+  const fails = (s.decisionFails[o.name] ?? 0) + 1;
+  s.decisionFails[o.name] = fails;
+  if (fails < DECISION_TRIES) {
+    s.waiting[o.name] = isoPlus(o.at, DECISION_RETRY_MS);
+    recomputeWake(s);
+    return;
+  }
+  const classify = o.name.startsWith("classify:");
+  const role = roleOfName(o.name);
+  const { floor } = floorOf(s, o.name);
+  s.decisionParks[o.unit] = o.name;
+  s.decisionRungs[o.name] = o.rungs;
+  s.stuck[o.unit] = {
+    reason: "decision",
+    question: classify
+      ? `${o.name}: the decision model gave no usable answer (${o.error}). Answer retry to ask again; any other answer lets the stop go on unclassified, as a failure of the work.`
+      : `${o.name}: the decision model gave no usable answer (${o.error}). Answer with one of the ${role ?? "role"}'s rungs${floor ? ` at or above ${floor}` : ""}: ${o.rungs.join(", ") || "none is left"}, or retry.`,
+  };
+  if (o.lane && !o.name.startsWith("judge-")) o.lane.status = "parked";
 }
 
 /** How often a landed milestone waits between two looks at origin's base. */
@@ -434,6 +521,16 @@ function recomputeWake(s: RunState): void {
 }
 
 function mergePlan(s: RunState, plan: MilestonePlan[]): void {
+  // a state older than plan 44 has none of the decision fields
+  s.decisions ??= {};
+  s.decided ??= {};
+  s.floors ??= {};
+  s.decisionFails ??= {};
+  s.refusedRungs ??= {};
+  s.picks ??= {};
+  s.decisionParks ??= {};
+  s.decisionRungs ??= {};
+  s.exhaustedParks ??= {};
   const next: MilestoneState[] = [];
   for (const mp of plan) {
     const old = milestoneOf(s, mp.id);
@@ -503,15 +600,16 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
         l.lastFailHead ??= null;
         l.queued ??= [];
         l.waitOn ??= [];
-        l.cheapFirst ??= false;
-        l.cheapRan ??= false;
-        l.cheapSpent ??= false;
+        l.floorAt ??= null;
         l.role = lp.role;
         l.kind = lp.kind;
         l.after = lp.after;
         l.owns = lp.owns;
         l.digest ??= null;
+        l.harness ??= null;
         if (lp.digest !== undefined) {
+          // a lane file the architect changed makes the unsent decision stale: it was made on the old brief
+          if (l.digest !== null && l.digest !== lp.digest) delete s.decisions[laneNameOf(l)];
           // a lane file the architect changed re-runs a done lane; the Owns line is not in the digest
           if (l.digest !== null && l.digest !== lp.digest && l.status === "done" && !isDone(m)) {
             l.status = "pending";
@@ -550,21 +648,18 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
           sameReason: 0,
           notes: [],
           fixedRound: null,
-          climbReason: null,
           stopRun: 0,
           failoverNow: false,
           tooHard: false,
           awaiting: null,
           classify: null,
-          climbedAt: null,
+          floorAt: null,
           queued: [],
           waitOn: [],
-          cheapFirst: false,
-          cheapRan: false,
-          cheapSpent: false,
           statusAsked: false,
           digest: lp.digest ?? null,
           transportSince: null,
+          harness: null,
         };
     }
     next.push(m);
@@ -600,8 +695,7 @@ function settle(s: RunState, m: MilestoneState): void {
 
 function laneDone(s: RunState, l: LaneState): void {
   l.waitOn = [];
-  l.cheapFirst = false;
-  l.cheapSpent = false;
+  accepted(s, laneNameOf(l));
   if (l.queued.length > 0) {
     // a route arrived during this try: the lane takes it as a new try, not as done
     l.notes = l.queued;
@@ -616,7 +710,6 @@ function laneDone(s: RunState, l: LaneState): void {
   l.checkFails = 0;
   l.attempts = 0;
   l.failoverFrom = null;
-  l.climbReason = null;
   l.sameReason = 0;
   l.stopRun = 0;
   l.lastReason = null;
@@ -654,13 +747,7 @@ function completeRound(s: RunState, m: MilestoneState): void {
   // no progress means not fewer than a round that had findings: a clean review before a verifier FAIL is no baseline
   const before = m.counts[r - 2] ?? 0;
   const previous = new Set(m.keys[r - 2] ?? []);
-  // a finding the cheap try left is owed the lane's own rung once (D11) before progress is judged
-  const cheapLeft = found.some(
-    (f) =>
-      previous.has(findingKey(f.text)) &&
-      [...ownersOf(f, lanes)].some((id) => (s.lanes[id] as LaneState).cheapRan),
-  );
-  const stop = r >= softCap(lanes.length) || (r >= 2 && before > 0 && n >= before && !cheapLeft);
+  const stop = r >= softCap(lanes.length) || (r >= 2 && before > 0 && n >= before);
   if (stop) {
     m.open = found;
     if (found.some((f) => f.label === "BLOCKER")) {
@@ -684,7 +771,7 @@ function completeRound(s: RunState, m: MilestoneState): void {
     m.status = "verifying";
     return;
   }
-  fixRound(s, m, found, previous);
+  fixRound(s, m, found, previous, true);
 }
 
 /** The lanes a finding goes to: each lane owning a file it names, else the owner of its file. */
@@ -700,19 +787,24 @@ function ownersOf(f: Finding, lanes: LaneState[]): Set<string> {
   return owners;
 }
 
-/** A fix round: each finding to the lane that owns its file, the rest left open for the judge; `note` to each lane. */
+/**
+ * A fix round: each finding to the lane that owns its file, the rest left open for the judge; `note` to each lane.
+ * `blame` (plan 44 D14): the finding is the lane's failure, so its rung is the floor of the fix; a finding that
+ * survived the last round's fix makes the floor strict at once, as a same-defect climb did. The owner's answer and
+ * a hook refusal blame no one, and the lane starts with no floor.
+ */
 function fixRound(
   s: RunState,
   m: MilestoneState,
   found: Finding[],
   previous: Set<string>,
+  blame: boolean,
   note?: string,
 ): void {
   const lanes = lanesOf(s, m.id);
   const unowned: Finding[] = [];
   const routed = new Set<LaneState>();
   const survived = new Set<string>();
-  const fellBack = new Set<string>();
   for (const f of found) {
     const owners = ownersOf(f, lanes);
     if (owners.size === 0) {
@@ -732,18 +824,10 @@ function fixRound(
     }
   }
   if (note) for (const lane of routed) lane.notes.push(note);
-  for (const id of survived) {
-    const lane = s.lanes[id] as LaneState;
-    if (lane.cheapRan) {
-      // the cheap try left the finding: the lane's own rung takes it once, and that is no same-defect climb
-      lane.cheapRan = false;
-      lane.thread = null;
-      fellBack.add(id);
-    } else lane.climbReason = "same-defect";
-  }
   for (const lane of routed) {
-    lane.cheapSpent = fellBack.has(lane.id);
-    lane.cheapFirst = !lane.cheapSpent && mechanicalFix(lane.notes);
+    const name = laneNameOf(lane);
+    if (!blame) delete s.floors[name];
+    else failedOn(s, name, lane.rung, s.at, survived.has(lane.id));
   }
   m.open = unowned;
   m.status = "fixing";
@@ -758,6 +842,7 @@ function failRole(
   const bad = e.status !== "ok" && e.status !== "limit";
   const refused = e.status === "ok" && (e.replyStatus === "blocked" || e.replyStatus === "refused");
   if (!bad && !refused) return;
+  failedOn(s, e.name, s.dispatches[e.dispatchId]?.rung ?? null, e.at);
   if (m) {
     m.tries[e.name] = refused ? MAX_TRIES : (m.tries[e.name] ?? 0) + 1;
     if ((m.tries[e.name] as number) >= MAX_TRIES)
@@ -776,7 +861,7 @@ function failRole(
     };
 }
 
-/** A stop that names no reason (plan 30b Ruling 7): the machine asks Jev, and with Jev off acts as 1.5 did. */
+/** A stop that names no reason (plan 30b Ruling 7): the machine asks the decision model for the stop's cause. */
 function unexplained(e: Extract<RunEvent, { type: "dispatch.ended" }>): boolean {
   if (e.reason !== null) return false;
   if (e.status === "ok") return e.replyStatus === "blocked" || e.replyStatus === "refused";
@@ -836,7 +921,7 @@ function laneStopped(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReaso
     case "too_hard":
       l.thread = null;
       l.status = "pending";
-      l.climbReason = "blocked";
+      failedOn(s, laneNameOf(l), x.rung, s.at);
       l.tooHard = true;
       return;
     case "provider_error":
@@ -896,7 +981,7 @@ export function siblingMayChange(s: RunState, l: LaneState): boolean {
     if (o.status !== "pending") return false;
     const tried = Object.values(s.dispatches).filter((d) => d.lane === o.id);
     const latest = tried.at(-1);
-    return latest === undefined || (o.climbedAt !== null && latest.startedAt < o.climbedAt);
+    return latest === undefined || (o.floorAt !== null && latest.startedAt < o.floorAt);
   });
 }
 
@@ -921,8 +1006,6 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     l.status = "pending";
     l.failoverFrom = x.rung;
     l.thread = null;
-    // a cheap try that hit a limit is still the cheap try: its stand-in takes it
-    l.cheapFirst = l.cheapRan;
     return;
   }
   l.waitOn = [];
@@ -940,35 +1023,23 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
       l.statusAsked = false;
       l.attempts += 1;
       l.thread = null;
-      if (l.attempts >= MAX_TRIES) l.climbReason = "unchanged";
+      failedOn(s, laneNameOf(l), x.rung, s.at);
     }
     l.status = "pending";
     return;
   }
   if (x.replyStatus !== null) l.statusAsked = false;
-  if (l.cheapRan && !(x.status === "ok" && (x.replyStatus === null || x.replyStatus === "complete"))) {
-    // the cheap try failed: the lane's own rung takes the work once, with no attempt counted
-    l.cheapRan = false;
-    l.cheapSpent = true;
-    l.thread = null;
-    // a stand-in of a limited cheap rung: the lane's own rung goes on its own quota
-    l.failoverFrom = null;
-    l.failoverNow = false;
-    l.status = "pending";
-    return;
-  }
   if (reason !== null) return laneStopped(s, l, x, reason);
   l.lastReason = null;
   l.stopRun = 0;
   if (x.status === "ok" && (x.replyStatus === "blocked" || x.replyStatus === "refused")) {
-    // no reason, Jev off or unsure: 1.5 climbed a stuck lane
+    // no reason given, or the decision model unsure: the lane's rung failed it
     l.thread = x.thread ?? l.thread;
     l.status = "pending";
-    l.climbReason = "blocked";
+    failedOn(s, laneNameOf(l), x.rung, s.at);
   } else if (x.status === "ok" && x.replyStatus !== "partial") {
     l.attempts = 0;
-    // a cheap try's thread is on another rung than the lane's: a later fix round must not resume it
-    if (!l.cheapRan) l.thread = x.thread ?? l.thread;
+    l.thread = x.thread ?? l.thread;
     l.failoverFrom = null;
     l.failoverNow = false;
     if (l.kind === "research") laneDone(s, l);
@@ -977,8 +1048,27 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     l.attempts += 1;
     l.thread = null;
     l.status = "pending";
-    if (l.attempts >= MAX_TRIES) l.climbReason = "unchanged";
+    failedOn(s, laneNameOf(l), x.rung, s.at);
   }
+}
+
+/**
+ * plan 44 D10: the environment failed the lane, not its work. One repair dispatch on the same thread, counted in no
+ * attempt, round or floor; the same signature again parks the lane with the evidence.
+ */
+function harnessRepair(s: RunState, l: LaneState, evidence: string): void {
+  const sig = failureSignature(evidence);
+  if (l.harness === sig) {
+    l.status = "parked";
+    s.stuck[l.id] = {
+      reason: "environment",
+      question: `${l.id} hit the same environment failure after a repair:\n${evidence}`,
+    };
+    return;
+  }
+  l.harness = sig;
+  l.notes = [HARNESS_NOTE, evidence];
+  l.status = "pending";
 }
 
 /** `notes` with the fast check's failure as its one check note. */
@@ -1049,9 +1139,18 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
     if ((e.status === "failed" || e.status === "timeout") && TRANSPORT.test(e.why))
       return transportHold(s, lane, e);
     lane.transportSince = null;
-    // a stop that names no reason waits for its classification: nothing else happens to the lane meanwhile
-    if (e.status !== "limit" && unexplained(e)) {
-      lane.classify = { dispatchId: e.dispatchId, ...x };
+    // a lane that changed test files it does not own failed its rung's attempt, whatever else its reply said
+    if (e.testEdits !== undefined && e.testEdits.length > 0 && e.status !== "limit") {
+      lane.attempts += 1;
+      lane.thread = null;
+      lane.status = "pending";
+      lane.notes.push(`Restore these test files; you do not own them: ${e.testEdits.join(", ")}`);
+      failedOn(s, laneNameOf(lane), dv.rung, e.at);
+      return;
+    }
+    // every lane stop waits for its class (and its reason, when it names none): nothing else happens to the lane meanwhile
+    if (e.status !== "limit" && (e.reason !== null || unexplained(e))) {
+      lane.classify = { dispatchId: e.dispatchId, reason: e.reason, ...x };
       return;
     }
     laneEnded(s, lane, x, e.reason);
@@ -1064,17 +1163,21 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
     return;
   }
   if (!m) {
+    if (e.status === "ok" && e.replyStatus !== "blocked" && e.replyStatus !== "refused") accepted(s, e.name);
     failRole(s, e, undefined);
     return;
   }
   if (e.name === integrateName(m.id) && m.status === "integrating") {
     const refused = e.replyStatus === "blocked" || e.replyStatus === "refused";
-    if (e.status === "ok" && !refused) m.status = "committing";
-    else failRole(s, e, m);
+    if (e.status === "ok" && !refused) {
+      accepted(s, e.name);
+      m.status = "committing";
+    } else failRole(s, e, m);
     return;
   }
   if ((dv.role === "reviewer" || dv.role === "ui-reviewer") && m.status === "review") {
     if (e.status === "ok" && e.replyStatus !== "blocked" && e.replyStatus !== "refused") {
+      accepted(s, e.name);
       m.open.push(...e.findings);
       m.nits.push(...nitLines(e.findings));
       if (e.replyStatus === "partial" && e.name === `reviewer-${m.id}`)
@@ -1087,6 +1190,8 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
   if (dv.role === "verifier" && m.status === "verifying") {
     const asked = m.verdictAsk;
     m.verdictAsk = null;
+    // a verdict is taken: no floor holds the verifier's next dispatch
+    if (e.status === "ok" && e.verdict !== null && !e.noVerdict) accepted(s, e.name);
     // A broken check needs the owner before another verifier can learn anything.
     if (e.status === "ok" && e.reason === "check_broken" && e.verdict !== "blocked") {
       m.verifierFailedOn = m.commit;
@@ -1151,37 +1256,62 @@ function onClimbed(s: RunState, e: Extract<RunEvent, { type: "lane.climbed" }>):
   l.checkFails = 0;
   l.failoverFrom = null;
   l.failoverNow = false;
-  l.climbReason = null;
   l.tooHard = false;
   l.stopRun = 0;
-  l.climbedAt = e.at;
-  l.cheapFirst = false;
-  l.cheapRan = false;
-  l.cheapSpent = false;
-  if (e.top) {
-    l.status = "parked";
-    l.sameReason += 1;
-    if (tooHard)
-      // a stronger model was the only fix, and there is none: the owner decides
-      s.stuck[l.id] = {
-        reason: "too_hard",
-        question: `${l.id} is too hard for its top rung (${e.rung}); no stronger model is left`,
-      };
-    else {
-      l.awaiting = "unexpected";
-      if (l.sameReason >= TOP_RUNG_JUDGES)
-        s.stuck[l.id] = {
-          reason: "too_hard",
-          question: `${l.id} is at the top rung and still does not get through; the judge was asked ${l.sameReason} times`,
-        };
-    }
-  } else l.status = "pending";
+  l.floorAt = e.at;
+  if (e.top) topOfLadder(s, l, e.rung, tooHard);
+  else l.status = "pending";
   const m = milestoneOf(s, l.milestone);
   if (m?.status === "fixing") l.fixedRound = m.counts.length;
 }
 
+/** A lane with no rung left above its floor: parked for the judge, the owner after TOP_RUNG_JUDGES, or at once for a too_hard stop. */
+function topOfLadder(s: RunState, l: LaneState, rung: string, tooHard: boolean): void {
+  l.status = "parked";
+  l.sameReason += 1;
+  if (tooHard)
+    // a stronger model was the only fix, and there is none: the owner decides
+    s.stuck[l.id] = {
+      reason: "too_hard",
+      question: `${l.id} is too hard for its top rung (${rung}); no stronger model is left`,
+    };
+  else {
+    l.awaiting = "unexpected";
+    if (l.sameReason >= TOP_RUNG_JUDGES)
+      s.stuck[l.id] = {
+        reason: "too_hard",
+        question: `${l.id} is at the top rung and still does not get through; the judge was asked ${l.sameReason} times`,
+      };
+  }
+}
+
+/** plan 44 D15: a strict floor with no rung above it is the top of the ladder for a lane, a parked unit for any other name. */
+function onExhausted(s: RunState, e: Extract<RunEvent, { type: "decision.exhausted" }>): void {
+  if (e.name === judgeName("rules")) return failRulesReview(s);
+  const l = s.lanes[e.unit];
+  if (l && e.name === laneNameOf(l)) {
+    const tooHard = l.tooHard;
+    l.top = true;
+    l.thread = null;
+    l.attempts = 0;
+    l.checkFails = 0;
+    l.failoverFrom = null;
+    l.failoverNow = false;
+    l.tooHard = false;
+    l.stopRun = 0;
+    topOfLadder(s, l, e.floor, tooHard);
+    return;
+  }
+  s.exhaustedParks[e.unit] = e.name;
+  s.stuck[e.unit] = {
+    reason: "effect",
+    question: `${e.name} failed on ${e.floor} and no rung above it is left to try.`,
+  };
+}
+
 function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>): void {
   delete s.judges[e.id];
+  accepted(s, judgeName(e.id));
   const d = e.decision;
   const lane = s.lanes[e.unit];
   const m = milestoneOf(s, e.unit);
@@ -1230,6 +1360,9 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
           if (m.commit !== null && m.verifierFailedOn === m.commit) {
             m.verifierPassedOn = m.commit;
             m.verifierFailedOn = null;
+            // the verdict the judge overruled was the verifier's failure (D14)
+            const verifier = lastOf(s, `verifier-${m.id}`);
+            if (verifier) failedOn(s, verifier.name, verifier.rung, e.at);
           }
           waiveCheck(m);
           m.open = [];
@@ -1246,6 +1379,7 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
         lane.notes.push(`The judge answered: ${d.answer}`);
         lane.status = "pending";
         lane.awaiting = null;
+        relaxTop(s, lane);
       }
       return;
     case "ask_owner":
@@ -1256,13 +1390,15 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
       if (lane) {
         lane.status = "pending";
         lane.awaiting = null;
+        relaxTop(s, lane);
       }
       return;
     case "climb":
       if (lane) {
         lane.status = "pending";
         lane.awaiting = null;
-        lane.climbReason = "blocked";
+        // the judge's climb: the lane's rung failed it, so the floor is the next rung above
+        failedOn(s, laneNameOf(lane), lane.rung, e.at, true);
       }
       return;
     case "skip":
@@ -1278,17 +1414,86 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
   }
 }
 
+/** A judge's retry or answer at the top of the ladder runs the lane's last rung again: its floor is no longer strict. */
+function relaxTop(s: RunState, l: LaneState): void {
+  const f = s.floors[laneNameOf(l)];
+  if (l.top && f) f.fails = 0;
+}
+
 const RETRY = /^\s*retry\b/i;
+
+/**
+ * plan 44 D16: the coordinator's answer to a parked decision. A listed rung is the pick, `retry` clears the count and
+ * asks the model again, and anything else parks the same question again. A parked classification ends the stop as
+ * unclassified (a failure of the work) unless the answer is `retry`.
+ */
+function onDecisionAnswered(
+  s: RunState,
+  e: Extract<RunEvent, { type: "question.answered" }>,
+  q: OpenQuestion,
+): void {
+  const name = s.decisionParks[e.unit] ?? "";
+  delete s.decisionParks[e.unit];
+  const word = (e.answer.trim().split(/\s+/)[0] ?? "").replace(/^[`'"*]+|[`'".,;:*]+$/g, "");
+  const retry = RETRY.test(e.answer);
+  const rungs = s.decisionRungs[name] ?? [];
+  const lane = s.lanes[e.unit];
+  const resume = (): void => {
+    delete s.decisionFails[name];
+    delete s.waiting[name];
+    delete s.decisionRungs[name];
+    // a worker's lane runs again; a judge's lane stays parked for the judge, a milestone goes back where it stood
+    if (lane && !name.startsWith("judge-")) lane.status = "pending";
+    else {
+      const m = milestoneOf(s, e.unit);
+      if (m && m.status === "parked") {
+        m.status = m.parkedFrom ?? "waiting";
+        m.parkedFrom = null;
+      }
+    }
+  };
+  // no name to answer for (a park whose state is gone): the unit just goes on
+  if (name === "") return resume();
+  if (name.startsWith("classify:")) {
+    delete s.decisionFails[name];
+    delete s.waiting[name];
+    delete s.decisionRungs[name];
+    if (retry) {
+      if (lane) lane.status = "pending";
+      return;
+    }
+    if (lane?.classify) {
+      const { dispatchId: _id, reason, ...x } = lane.classify;
+      lane.classify = null;
+      lane.status = "pending";
+      laneEnded(s, lane, x, reason ?? null);
+    }
+    return;
+  }
+  if (retry) return resume();
+  if (rungs.includes(word)) {
+    s.picks[name] = word;
+    return resume();
+  }
+  s.decisionParks[e.unit] = name;
+  s.stuck[e.unit] = { reason: "decision", question: q.question };
+}
 
 function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered" }>): void {
   const q = s.questions[e.unit];
   delete s.questions[e.unit];
   recomputeWake(s);
   delete s.stuck[e.unit];
+  // the owner's word starts a name that ran out of rungs fresh, as it does a lane
+  delete s.floors[s.exhaustedParks[e.unit] ?? ""];
+  delete s.exhaustedParks[e.unit];
   for (const k of Object.keys(s.failedEffects))
     if (k.endsWith(`@${e.unit}`) || k === `ended:${e.unit}`) delete s.failedEffects[k];
+  if (q?.reason === "decision") return onDecisionAnswered(s, e, q);
   const lane = s.lanes[e.unit];
   if (lane) {
+    // the owner's word starts the lane fresh: no rung failed it
+    delete s.floors[laneNameOf(lane)];
     lane.notes.push(`The owner answered: ${e.answer}`);
     lane.status = "pending";
     lane.attempts = 0;
@@ -1345,15 +1550,34 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
     afterVerdict(m);
   } else if (q?.reason === "blocker")
     // the owner's answer is the fix: one more round, no climb; the cap applies again only at its review's end
-    fixRound(s, m, m.open, new Set(), `The owner answered: ${e.answer}`);
+    fixRound(s, m, m.open, new Set(), false, `The owner answered: ${e.answer}`);
   else if (
     (q?.reason === "land" || q?.reason === "check_broken") &&
     !isAccept(e.answer) &&
     !RETRY.test(e.answer)
   )
     // anything but accept or retry names the fix: one BLOCKER, routed by the files it names, else to the triage judge
-    fixRound(s, m, [{ label: "BLOCKER", text: e.answer, file: null }], new Set());
+    fixRound(s, m, [{ label: "BLOCKER", text: e.answer, file: null }], new Set(), false);
   else m.status = from;
+}
+
+/** Every quota is held (a refused dispatch, or a limit's failover with no stand-in free): wait for the earliest hold to end. */
+function allHeld(s: RunState, name: string, unit: string, at: string): void {
+  const l = s.lanes[unit];
+  const heldUntil = Object.values(s.holds)
+    .filter((u) => u > at)
+    .sort()[0];
+  // a repeated provider_error holds no quota: with no stand-in free either, waiting would never end
+  if (l?.failoverNow && heldUntil === undefined) {
+    l.status = "parked";
+    s.stuck[l.id] = {
+      reason: "provider_error",
+      question: stopQuestion(l, "provider_error", "no stand-in rung is free"),
+    };
+    return;
+  }
+  s.waiting[name] = heldUntil ?? isoPlus(at, REFUSAL_WAIT_MS);
+  recomputeWake(s);
 }
 
 /** One event applied to `s` in place. */
@@ -1372,6 +1596,9 @@ function apply(s: RunState, e: RunEvent): void {
       return;
     case "plan.ready":
       mergePlan(s, e.milestones);
+      // the architect's plan is read: no floor holds its next dispatch
+      for (const k of Object.keys(s.floors))
+        if (k === "architect" || k.startsWith("architect-")) delete s.floors[k];
       // a plan the owner did not give waits for the owner's approval before its first lane
       if (s.phase === "planning") s.phase = hasPlanInput(s) ? "running" : "approval";
       s.planDirty = false;
@@ -1431,19 +1658,18 @@ function apply(s: RunState, e: RunEvent): void {
       ok(`dispatch@${e.unit}`);
       ok(`duplicate:${e.name}@${e.unit}`);
       ok(`admit:${e.name}@${e.unit}`);
+      ok(`redecide:${e.name}@${e.unit}`);
       if (e.role === "judge") {
         const id = e.name.replace(/^judge-/, "");
         s.judges[id] = { unit: e.unit, kind: e.judgeKind ?? "unexpected", tries: s.judges[id]?.tries ?? 0 };
       }
+      // the decision is spent: the next dispatch of the name is decided again (D13)
+      delete s.decisions[e.name];
+      delete s.refusedRungs[e.name];
+      delete s.picks[e.name];
       const l = e.lane ? s.lanes[e.lane] : undefined;
-      if (l && e.role !== "judge") {
-        l.cheapRan = l.cheapFirst && e.rung !== l.rung;
-        l.cheapFirst = false;
-      }
-      if (l && (l.status === "pending" || l.status === "checking")) {
-        l.status = "running";
-        l.climbReason = null;
-      }
+      if (l && e.role !== "judge") l.rung = e.rung;
+      if (l && (l.status === "pending" || l.status === "checking")) l.status = "running";
       return;
     }
     case "dispatch.refused": {
@@ -1452,24 +1678,27 @@ function apply(s: RunState, e: RunEvent): void {
         recomputeWake(s);
       };
       if (e.code === "E_RUN_CANCELLED") return;
+      // the rules review is advisory: a refusal of its judge ends it, a decision to drop included
       if (e.name === judgeName("rules") && e.unit === RUN_UNIT) return failRulesReview(s);
+      if (e.code === "E_DECISION_STALE" || e.code === "E_RUNG_HELD" || e.code === "E_ADMIT_RUNG") {
+        // D18: the decision is dropped and made again; a refused rung leaves the next list, a held quota is out already
+        delete s.decisions[e.name];
+        if (e.code === "E_ADMIT_RUNG" && e.rung)
+          s.refusedRungs[e.name] = [...new Set([...(s.refusedRungs[e.name] ?? []), e.rung])];
+        const key = `redecide:${e.name}@${e.unit}`;
+        s.failedEffects[key] = (s.failedEffects[key] ?? 0) + 1;
+        if ((s.failedEffects[key] as number) >= REDECIDE_LIMIT)
+          s.stuck[e.unit] = {
+            reason: "effect",
+            question: `${e.name} was refused (${e.code}) ${REDECIDE_LIMIT} times: ${e.message}`,
+          };
+        return;
+      }
       if (e.code === "E_RUN_BUDGET")
         s.stuck[RUN_UNIT] = { reason: "budget", question: `The run budget is spent: ${e.message}` };
       else if (e.code === "E_ADMIT_PAUSED") s.held ??= e.at;
-      else if (e.code === "E_ALL_HELD") {
-        const l = s.lanes[e.unit];
-        const heldUntil = Object.values(s.holds)
-          .filter((u) => u > e.at)
-          .sort()[0];
-        // a repeated provider_error holds no quota: with no stand-in free either, waiting would never end
-        if (l?.failoverNow && heldUntil === undefined) {
-          l.status = "parked";
-          s.stuck[l.id] = {
-            reason: "provider_error",
-            question: stopQuestion(l, "provider_error", "no stand-in rung is free"),
-          };
-        } else wait(heldUntil ?? isoPlus(e.at, REFUSAL_WAIT_MS));
-      } else if (e.code === "E_ADMIT_ORDER" || e.code === "E_ADMIT_OVERLAP") {
+      else if (e.code === "E_ALL_HELD") allHeld(s, e.name, e.unit, e.at);
+      else if (e.code === "E_ADMIT_ORDER" || e.code === "E_ADMIT_OVERLAP") {
         const key = `admit:${e.name}@${e.unit}`;
         s.failedEffects[key] = (s.failedEffects[key] ?? 0) + 1;
         if ((s.failedEffects[key] as number) >= ADMIT_WAITS)
@@ -1498,15 +1727,12 @@ function apply(s: RunState, e: RunEvent): void {
       if (e.exit === 0 || e.foreign.length > 0) {
         l.lastFails = null;
         l.lastFailHead = null;
+        l.harness = null;
         laneDone(s, l);
-      } else if (l.cheapRan) {
-        // the cheap try's failed check goes back to the lane's own rung, uncounted
-        l.cheapRan = false;
-        l.cheapSpent = true;
-        l.thread = null;
-        l.notes = failNotes(l.notes, e);
-        l.status = "pending";
+      } else if (e.failureClass === "harness") {
+        harnessRepair(s, l, e.tail);
       } else {
+        l.harness = null;
         const fails = checkFailLines(e.tail);
         const key = e.tree !== undefined ? e.tree : (milestoneOf(s, l.milestone)?.commit ?? null);
         if (
@@ -1520,7 +1746,6 @@ function apply(s: RunState, e: RunEvent): void {
             reason: "environment",
             question: `${e.lane} repeated the same check failure on an unchanged head:\n${fails.join("\n")}`,
           };
-          l.climbReason = null;
           return;
         }
         l.lastFails = fails;
@@ -1528,8 +1753,8 @@ function apply(s: RunState, e: RunEvent): void {
         l.checkFails += 1;
         l.notes = failNotes(l.notes, e);
         l.status = "pending";
-        if (l.checkFails >= MAX_TRIES) l.climbReason = "check-failed-twice";
-        else if (l.checkFails === 1 && !l.cheapSpent) l.cheapFirst = mechanicalFix(l.notes);
+        // the failed check is the failure of the rung that ran: it is the floor of the fix round
+        failedOn(s, laneNameOf(l), l.rung, e.at);
       }
       return;
     }
@@ -1596,7 +1821,7 @@ function apply(s: RunState, e: RunEvent): void {
         // the first hook refusal of a round is the lanes' to fix, routed by the files it names
         m.hookFixes = 1;
         const text = `The pre-commit hook refused the commit:\n${e.tail}`;
-        fixRound(s, m, [{ label: "BLOCKER", text, file: filesOf(e.tail)[0] ?? null }], new Set());
+        fixRound(s, m, [{ label: "BLOCKER", text, file: filesOf(e.tail)[0] ?? null }], new Set(), false);
         return;
       }
       s.stuck[e.milestone] = {
@@ -1605,6 +1830,44 @@ function apply(s: RunState, e: RunEvent): void {
       };
       return;
     }
+    case "decision.made": {
+      s.decisions[e.name] = {
+        n: e.n,
+        rung: e.rung,
+        briefFile: e.briefFile,
+        briefHash: e.briefHash,
+        source: e.source,
+      };
+      s.decided[e.name] = e.n;
+      delete s.decisionFails[e.name];
+      delete s.picks[e.name];
+      delete s.waiting[e.name];
+      recomputeWake(s);
+      const l = s.lanes[e.unit];
+      if (l && e.name === laneNameOf(l)) l.rung = e.rung;
+      return;
+    }
+    case "decision.failed":
+      // the rules review is advisory: a decision it cannot get ends it, as a refused dispatch does
+      if (
+        e.name === judgeName("rules") &&
+        (e.code === "E_ALL_HELD" || (s.decisionFails[e.name] ?? 0) + 1 >= DECISION_TRIES)
+      )
+        failRulesReview(s);
+      else if (e.code === "E_ALL_HELD") allHeld(s, e.name, e.unit, e.at);
+      else
+        decisionFailed(s, {
+          name: e.name,
+          unit: e.unit,
+          at: e.at,
+          error: e.error,
+          rungs: e.rungs,
+          ...(s.lanes[e.unit] ? { lane: s.lanes[e.unit] as LaneState } : {}),
+        });
+      return;
+    case "decision.exhausted":
+      onExhausted(s, e);
+      return;
     case "lane.climbed":
       ok(`climb@${e.lane}`);
       onClimbed(s, e);
@@ -1615,6 +1878,8 @@ function apply(s: RunState, e: RunEvent): void {
     case "judge.failed": {
       const j = s.judges[e.id];
       if (!j) return;
+      const last = lastOf(s, judgeName(e.id));
+      if (last) failedOn(s, last.name, last.rung, e.at);
       j.tries += 1;
       if (j.tries >= MAX_TRIES) {
         delete s.judges[e.id];
@@ -1786,13 +2051,18 @@ function apply(s: RunState, e: RunEvent): void {
     case "effect.failed": {
       if (e.action === "readPlan") s.planDirty = false;
       if (e.action === "classify") {
-        // a classification that cannot be made is none: the lane goes on as in 1.5
+        // plan 44 D16: a classification that cannot be made is a decision failure of its own name: tried again after a
+        // wait, the lane parked at the third, and the owner's answer ends the stop as unclassified
         const l = s.lanes[e.unit];
-        if (l?.classify) {
-          const { dispatchId: _id, ...x } = l.classify;
-          l.classify = null;
-          laneEnded(s, l, x, null);
-        }
+        if (l?.classify)
+          decisionFailed(s, {
+            name: `classify:${l.classify.dispatchId}`,
+            unit: e.unit,
+            at: e.at,
+            error: e.message,
+            rungs: [],
+            lane: l,
+          });
         return;
       }
       const key = `${e.action}@${e.unit}`;
@@ -1844,9 +2114,12 @@ function apply(s: RunState, e: RunEvent): void {
     case "stop.classified": {
       const l = Object.values(s.lanes).find((x) => x.classify?.dispatchId === e.dispatchId);
       if (!l?.classify) return;
-      const { dispatchId: _id, ...x } = l.classify;
+      const { dispatchId: _id, reason: _reason, ...x } = l.classify;
       l.classify = null;
-      laneEnded(s, l, x, e.reason);
+      delete s.decisionFails[`classify:${e.dispatchId}`];
+      delete s.waiting[`classify:${e.dispatchId}`];
+      if (e.failureClass === "harness") harnessRepair(s, l, x.why);
+      else laneEnded(s, l, x, e.reason);
       return;
     }
     case "base.behind": {

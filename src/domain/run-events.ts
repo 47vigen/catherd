@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { BLOCKED_REASONS } from "./blocked.ts";
+import { DECISION_SOURCES } from "./decision.ts";
+import { FAILURE_CLASSES } from "./harness.ts";
 import { JUDGE_KINDS, JudgeDecisionSchema } from "./judge.ts";
 import { REPLY_STATUSES, RUN_STATUSES } from "./record.ts";
 import { ROLES } from "./roles.ts";
@@ -24,6 +26,7 @@ export const PARK_REASONS = [
   "judge",
   "effect",
   "push",
+  "decision",
 ] as const;
 export type ParkReason = (typeof PARK_REASONS)[number];
 
@@ -47,7 +50,7 @@ export const ACTION_TYPES = [
   "fastCheck",
   "machineCheck",
   "commit",
-  "climb",
+  "decide",
   "judge",
   "classify",
   "park",
@@ -64,6 +67,8 @@ export const ACTION_TYPES = [
   "finish",
 ] as const;
 export type ActionType = (typeof ACTION_TYPES)[number];
+/** plan 44 D23: an old run's `effect.failed` may still name an action the machine no longer has */
+export const LEGACY_ACTION_TYPES = ["climb"] as const;
 
 export const FindingSchema = z.object({
   label: z.enum(["BLOCKER", "BUG", "NIT"]),
@@ -147,7 +152,14 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     /** a judge call's kind: the machine asks the same question again from it when the reply is unreadable */
     judgeKind: z.enum(JUDGE_KINDS).nullable().optional(),
   }),
-  ev("dispatch.refused", { name: z.string(), unit: z.string(), code: z.string(), message: z.string() }),
+  ev("dispatch.refused", {
+    name: z.string(),
+    unit: z.string(),
+    code: z.string(),
+    message: z.string(),
+    /** plan 44 D18: the decided rung an admission refusal (E_ADMIT_RUNG) named; older lines have none */
+    rung: z.string().optional(),
+  }),
   ev("dispatch.ended", {
     dispatchId: z.string(),
     name: z.string(),
@@ -167,6 +179,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     siblings: strings.optional(),
     /** a verifier's ok reply whose first line is no verdict: its `fail` is catherd's reading, not the verifier's */
     noVerdict: z.literal(true).optional(),
+    /** plan 44 D11: test files the lane changed that it does not own; older lines have none */
+    testEdits: strings.optional(),
   }),
   ev("check.ran", {
     lane: z.string(),
@@ -180,6 +194,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     waitedMs: z.number().optional(),
     /** the sibling lanes whose files the failing output names */
     siblings: strings.optional(),
+    /** plan 44 D9: whether the failure is the product's or the harness's; older lines have none */
+    failureClass: z.enum(FAILURE_CLASSES).optional(),
   }),
   /** plan 40: the daemon's check of a milestone's commit: its failing lines, the lines the base has no record of, what it covers */
   ev("milestone.checked", {
@@ -203,8 +219,49 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     /** plan 43: the pre-commit hook refused the commit (absent before) */
     hook: z.boolean().optional(),
   }),
+  /** plan 44: the decision model, the floor, a failover or the coordinator chose the rung of a dispatch, on the brief it will send */
+  ev("decision.made", {
+    name: z.string(),
+    n: z.number().int().min(1),
+    role,
+    unit: z.string(),
+    level: z.number().int().min(0),
+    levels: z.number().int().min(1),
+    levelRungs: z.array(strings),
+    rung: z.string(),
+    floor: z.string().nullable(),
+    strict: z.boolean(),
+    briefFile: z.string(),
+    briefHash: z.string(),
+    p: z.number().nullable(),
+    probabilities: z.record(z.string(), z.number()),
+    why: z.string(),
+    source: z.enum(DECISION_SOURCES),
+  }),
+  /** `E_DECISION`: the model gave no usable answer; `E_ALL_HELD`: a limit's failover found no stand-in */
+  ev("decision.failed", {
+    name: z.string(),
+    n: z.number().int().min(1),
+    unit: z.string(),
+    code: z.string(),
+    error: z.string(),
+    rungs: strings,
+  }),
+  /** a strict floor with no rung above it: the top of the ladder */
+  ev("decision.exhausted", {
+    name: z.string(),
+    n: z.number().int().min(1),
+    unit: z.string(),
+    floor: z.string(),
+  }),
+  /** plan 44 D23: old runs only; the machine no longer climbs, the reducer still applies it */
   ev("lane.climbed", { lane: z.string(), rung: z.string(), top: z.boolean() }),
-  ev("stop.classified", { dispatchId: z.string(), reason: z.enum(BLOCKED_REASONS).nullable() }),
+  ev("stop.classified", {
+    dispatchId: z.string(),
+    reason: z.enum(BLOCKED_REASONS).nullable(),
+    /** plan 44 D9: absent before, and read as product */
+    failureClass: z.enum(FAILURE_CLASSES).optional(),
+  }),
   ev("judge.decided", {
     id: z.string(),
     unit: z.string(),
@@ -272,7 +329,11 @@ export const RunEventSchema = z.discriminatedUnion("type", [
   ev("run.resumed", { by: z.literal("owner") }),
   /** plan 43: no machine pause covers the run any more: what a refused dispatch held is owed again */
   ev("pause.lifted", {}),
-  ev("effect.failed", { action: z.enum(ACTION_TYPES), unit: z.string(), message: z.string() }),
+  ev("effect.failed", {
+    action: z.enum([...ACTION_TYPES, ...LEGACY_ACTION_TYPES]),
+    unit: z.string(),
+    message: z.string(),
+  }),
   ev("report.posted", { kind: z.enum(REPORT_KINDS), unit: z.string(), text: z.string() }),
   ev("tick", {}),
   ev("run.ended", { outcome, reportPath: z.string().nullable() }),
@@ -337,6 +398,12 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
       return `${e.milestone} committed ${e.commit.slice(0, 7)} (round ${e.round})`;
     case "commit.failed":
       return `${e.milestone} commit failed (round ${e.round})`;
+    case "decision.made":
+      return `${e.name} decided: ${e.rung} (level ${e.level + 1} of ${e.levels}, ${e.source})`;
+    case "decision.failed":
+      return `${e.name} decision failed (${e.code}): ${one(e.error)}`;
+    case "decision.exhausted":
+      return `${e.name} has no rung above ${e.floor}`;
     case "lane.climbed":
       return `${e.lane} climbed to ${e.rung}${e.top ? " (top rung)" : ""}`;
     case "stop.classified":

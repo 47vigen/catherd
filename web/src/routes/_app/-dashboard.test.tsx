@@ -144,7 +144,7 @@ test("the range reads as one sheet of figures and four tiles", async () => {
   const recoveries = screen.getByText("Recoveries").closest("section")!;
   expect(within(recoveries).getByText("Failovers")).toBeInTheDocument();
   expect(within(recoveries).getByText("1")).toBeInTheDocument();
-  expect(within(recoveries).getByText("2")).toBeInTheDocument();
+  expect(within(recoveries).queryByText("Climbs")).not.toBeInTheDocument();
   const perDay = screen.getByText("Cost per day").closest("section")!;
   expect(within(perDay).getByRole("list", { name: "Backends" })).toHaveTextContent("Codex");
   expect(within(perDay).getByText("$2.00")).toBeInTheDocument();

@@ -80,6 +80,11 @@ describe("claude-code plan", () => {
     ]);
   });
 
+  it("claude-code clamps shell output", () => {
+    expect(claudeCodeAdapter.plan(req()).env.BASH_MAX_OUTPUT_LENGTH).toBe("30000");
+    expect(claudeCodeAdapter.plan(req({ isolated: true })).env.BASH_MAX_OUTPUT_LENGTH).toBe("30000");
+  });
+
   it("resumes a session, leaves the effort to claude on default, and isolates with --safe-mode", () => {
     const thread = "670d1ec2-db2b-471f-a1a5-3cda1416c061";
     const p = claudeCodeAdapter.plan(

@@ -267,10 +267,13 @@ function plan(r: RunRequest): SpawnPlan {
       ...(r.isolated ? isolationArgs(r) : []),
     ],
     // CLAUDE.md and auto-memory off, as --safe-mode turns them off (spec 1.5 plan 21)
-    env:
-      r.isolated && r.roleMcp
+    // plan 44 D12: BASH_MAX_OUTPUT_LENGTH clamps a shell command's output at 30000 characters
+    env: {
+      BASH_MAX_OUTPUT_LENGTH: "30000",
+      ...(r.isolated && r.roleMcp
         ? { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }
-        : {},
+        : {}),
+    },
     cwd: r.repo,
     stdinPath: r.briefPath,
   };

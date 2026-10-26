@@ -28,7 +28,7 @@ import {
 import { CatalogViewSchema } from "../../src/services/panel-catalog.ts";
 import { ProfileSavedSchema } from "../../src/services/panel-setup.ts";
 import { probeCache } from "../../src/services/probe-cache.ts";
-import { CHANGED_ON_DISK } from "../../src/services/profile-service.ts";
+import { CHANGED_ON_DISK, patchProfile } from "../../src/services/profile-service.ts";
 import { dispatchDir } from "../../src/services/run-files.ts";
 import { daemonLauncher } from "../../src/services/daemon.ts";
 import { runStart } from "../../src/services/run-client.ts";
@@ -43,7 +43,13 @@ afterEach(snapshotEnv());
 
 const real = daemonLauncher.launch;
 const TOKEN = "t".repeat(43);
-const deps = defaultDeps({ host: "codex", session: null, conflict: null });
+const host = { host: "codex", session: null, conflict: null } as const;
+const real0 = defaultDeps(host);
+// a run starts only on a decision model that answers: this one does, from a fake
+const deps = {
+  ...real0,
+  routing: { ...real0.routing, probe: async () => ({ ok: true as const, latencyMs: 1 }) },
+};
 let repo: string;
 let panel: Panel;
 let base: string;
@@ -52,6 +58,11 @@ beforeEach(() => {
   delete process.env.ANTHROPIC_API_KEY;
   withHome();
   repo = tempRepo();
+  patchProfile(
+    "default",
+    { decision: { url: "https://decider.example/v1", model: "test-decider" } },
+    { host: "codex" },
+  );
   daemonLauncher.launch = () => 1;
   const dist = mkdtempSync(join(tmpdir(), "catherd-dist-"));
   mkdirSync(join(dist, "assets"));
@@ -707,19 +718,21 @@ describe("the panel's v2 operations", () => {
     const cookie = await signIn();
     const put = (body: unknown) =>
       call(cookie, "/api/setup/profile", { method: "PUT", body: JSON.stringify(body) });
-    const p = await post(cookie, "/api/setup/preview", { patch: { objective: "speed" } });
+    const p = await post(cookie, "/api/setup/preview", { patch: { lock: { heavy: 3 } } });
     const preview = ProfilePreviewSchema.parse(await p.json());
-    expect([p.status, preview.saved, preview.diff.map((d) => d.path)]).toEqual([200, false, ["objective"]]);
+    expect([p.status, preview.saved, preview.diff.map((d) => d.path)]).toEqual([200, false, ["lock.heavy"]]);
     const saved = ProfileSavedSchema.parse(
-      await (await put({ patch: { objective: "speed" }, expect: preview.expect })).json(),
+      await (await put({ patch: { lock: { heavy: 3 } }, expect: preview.expect })).json(),
     );
-    expect([saved.saved, saved.diff.map((d) => d.path)]).toEqual([true, ["objective"]]);
+    expect([saved.saved, saved.diff.map((d) => d.path)]).toEqual([true, ["lock.heavy"]]);
     const stale = ProfileSavedSchema.parse(
-      await (await put({ patch: { objective: "cost" }, expect: preview.expect })).json(),
+      await (await put({ patch: { lock: { heavy: 2 } }, expect: preview.expect })).json(),
     );
     expect([stale.saved, stale.errors[0]?.path]).toEqual([false, CHANGED_ON_DISK]);
-    expect((await getJson(cookie, "/api/setup")).settings.objective).toBe("speed");
-    expect((await post(cookie, "/api/setup/preview", { patch: { objective: "fast" } })).status).toBe(400);
+    expect((await getJson(cookie, "/api/setup")).settings.heavy).toBe(3);
+    expect((await post(cookie, "/api/setup/preview", { patch: { lock: { heavy: "fast" } } })).status).toBe(
+      400,
+    );
   });
 
   it("creates a profile, uses it for the repo, and deletes it", async () => {

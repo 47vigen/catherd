@@ -43,6 +43,12 @@ describe("the panel's Setup view", () => {
     expect(SetupViewSchema.parse(await setupView(deps, repo)).settings.landAutoMerge).toBe(true);
   });
 
+  it("settings carry the decision model, not the bars", async () => {
+    const { settings } = SetupViewSchema.parse(await setupView(deps, repo));
+    expect(settings.decision).toEqual({ url: null, model: null, minConfidence: 0.8 });
+    for (const k of ["objective", "jev", "bars"]) expect(k in settings).toBe(false);
+  });
+
   it("offers older versions too, each naming the newer one that hides it by default", async () => {
     const v = SetupViewSchema.parse(await setupView(deps, repo));
     const newer = (rung: string) =>
@@ -59,8 +65,6 @@ describe("the panel's Setup view", () => {
     expect(v.host).toBe("codex");
     expect(v.repos).toEqual([{ path: repo, profile: "default" }]);
     expect(v.profile.bindings).toEqual({ [repo]: "default" });
-    expect(v.settings.objective).toBe("cost");
-    expect(v.settings.bars).toEqual({ copy: 20, build: 45, logic: 60, hard: 65 });
     expect(v.settings.timeouts).toEqual({ idleMin: expect.any(Number), wallMin: expect.any(Number) });
     expect(v.doc).toEqual(deps.profiles.raw?.(undefined, repo) as Record<string, unknown>);
     expect(v.notifyUrl).toBeNull();

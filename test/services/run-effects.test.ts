@@ -1,17 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { mergeSubject } from "../../src/domain/branch.ts";
 import { newDispatchId } from "../../src/domain/ids.ts";
 import type { RunRecord } from "../../src/domain/record.ts";
 import type { RunEvent, RunEventInput } from "../../src/domain/run-events.ts";
-import type { Action } from "../../src/domain/run-machine.ts";
+import type { Action, DecideAction, DispatchAction } from "../../src/domain/run-machine.ts";
 import { logFile } from "../../src/infra/log.ts";
 import { readJsonl } from "../../src/infra/store.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { launcher, watchersSettled } from "../../src/services/dispatch-service.ts";
+import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { liveDispatches } from "../../src/services/dispatches.ts";
+import { renderBrief } from "../../src/services/run-briefs.ts";
 import * as failoverRungs from "../../src/services/failover-rungs.ts";
 import { openQuestions } from "../../src/services/questions.ts";
 import { preflightUser } from "../../src/services/preflight.ts";
@@ -97,7 +100,7 @@ const DEEP = [
   "D1 — use a map — rejected: an array — slower",
   "D2 — keep it flat — rejected: nesting — simpler",
   "## M1 — core",
-  "- A1 it works",
+  "- A1 [run] it works",
   "### Task 1: do it",
   "Test: `test/a.test.ts` — asserts a",
   "",
@@ -109,7 +112,7 @@ function backed(run: Run): void {
   writeFileSync(join(run.dir, "plan.md"), DEEP);
 }
 
-const dispatchAction = (over: Partial<Extract<Action, { type: "dispatch" }>> = {}): Action => ({
+const dispatchAction = (over: Partial<DispatchAction> = {}): DispatchAction => ({
   type: "dispatch",
   unit: "M1.L1",
   name: "worker-M1.L1",
@@ -120,6 +123,19 @@ const dispatchAction = (over: Partial<Extract<Action, { type: "dispatch" }>> = {
   failoverFrom: null,
   brief: "lane",
   notes: [],
+  decision: null,
+  ...over,
+});
+
+const decideAction = (over: Partial<DecideAction> = {}): DecideAction => ({
+  type: "decide",
+  n: 1,
+  next: dispatchAction({ rung: null }),
+  floor: null,
+  strict: false,
+  exclude: [],
+  failoverFrom: null,
+  pick: null,
   ...over,
 });
 
@@ -173,28 +189,17 @@ describe("dispatching", () => {
     expect(liveDispatches(run, deps.now())).toEqual([]);
   });
 
-  it("a cheap dispatch starts on the profile's cheapest rung", async () => {
+  it("a dispatch writes the daemon's composed brief", async () => {
     const { run, fx } = setup();
     writeLane(run, "M1.L1", ["src/a/"]);
     await seed(run);
-    await fx.run(
-      dispatchAction({ rung: "codex:gpt-6-sol#medium", thread: null, cheap: true }),
-      replayRun(run),
+    const a = dispatchAction() as Extract<Action, { type: "dispatch" }>;
+    const s = replayRun(run);
+    await fx.run(a, s);
+    const d = listDispatches(run).find((x) => x.admit.name === "worker-M1.L1");
+    expect(readFileSync(dispatchPaths((d as NonNullable<typeof d>).dir).brief, "utf8")).toBe(
+      await renderBrief(run, s, a, false),
     );
-    expect(lastOf(run, "dispatch.started")).toMatchObject({
-      rung: "codex:gpt-6-luna#high",
-      thread: null,
-    });
-  });
-
-  it("a cheap dispatch with nothing cheaper keeps the lane's rung", async () => {
-    const view = testView();
-    view.roles.worker = role("workspace-write", ["codex:gpt-6-sol#medium"]);
-    const { run, fx } = setup(undefined, view);
-    writeLane(run, "M1.L1", ["src/a/"]);
-    await seed(run);
-    await fx.run(dispatchAction({ rung: "codex:gpt-6-sol#medium", cheap: true }), replayRun(run));
-    expect(lastOf(run, "dispatch.started")).toMatchObject({ rung: "codex:gpt-6-sol#medium" });
   });
 
   it("dispatches headless, mapping claude: to claude-code:", async () => {
@@ -246,37 +251,17 @@ describe("dispatching", () => {
     expect(existsSync(repo)).toBe(true);
   });
 
-  it("an off-ladder rung is routed again", async () => {
+  it("an off-ladder rung is refused with the rung named", async () => {
     const { run, fx } = setup();
     writeLane(run, "M1.L1", ["src/a/"]);
     await seed(run);
     await fx.run(dispatchAction({ rung: "codex:gpt-6-terra#max" }), replayRun(run));
-    expect(lastOf(run, "lanes.routed")).toMatchObject({
-      milestone: "M1",
-      lanes: [{ lane: "M1.L1", rung: "codex:gpt-6-luna#high" }],
+    expect(lastOf(run, "dispatch.refused")).toMatchObject({
+      code: "E_ADMIT_RUNG",
+      rung: "codex:gpt-6-terra#max",
     });
-    expect(lastOf(run, "dispatch.started")).toMatchObject({ rung: "codex:gpt-6-luna#high" });
-    expect(types(run)).not.toContain("dispatch.refused");
-  });
-
-  it("a reroute to another backend drops the old rung's thread", async () => {
-    const view = testView();
-    view.roles.worker = {
-      enabled: true,
-      access: "workspace-write",
-      rungs: ["claude-code:claude-sonnet-5-5#medium"],
-    };
-    const { run, fx } = setup(undefined, view);
-    const sim = withClaudeScenario({ eventsFile: join(FX, "ok.jsonl") });
-    Object.assign(process.env, sim.env);
-    writeLane(run, "M1.L1", ["src/a/"]);
-    await seed(run);
-    await fx.run(dispatchAction({ rung: "codex:gpt-6-terra#max", thread: "codex-thread-1" }), replayRun(run));
-    expect(lastOf(run, "lanes.routed")).toMatchObject({
-      lanes: [{ lane: "M1.L1", rung: "claude-code:claude-sonnet-5-5#medium" }],
-    });
-    expect(lastOf(run, "dispatch.started")).toMatchObject({ rung: "claude-code:claude-sonnet-5-5#medium" });
-    expect(types(run)).not.toContain("dispatch.refused");
+    expect(types(run)).not.toContain("lanes.routed");
+    expect(types(run)).not.toContain("dispatch.started");
   });
 
   it("a role off the profile is still refused", async () => {
@@ -291,7 +276,7 @@ describe("dispatching", () => {
     expect(types(run)).not.toContain("dispatch.started");
   });
 
-  it("refuses with E_ALL_HELD when every rung of the role is on a held quota", async () => {
+  it("a decide with no stand-in is decision.failed E_ALL_HELD", async () => {
     const { run, fx } = setup();
     writeLane(run, "M1.L1", ["src/a/"]);
     await seed(run);
@@ -301,10 +286,9 @@ describe("dispatching", () => {
       ["codex", "opencode-go", "opencode", "claude-code", "cursor"].map((q) => [q, until]),
     );
     s.at = new Date().toISOString();
-    await fx.run(dispatchAction({ failoverFrom: "codex:gpt-6-luna#high" }), s);
-    expect(lastOf(run, "dispatch.refused")).toMatchObject({
-      code: "E_ALL_HELD",
-    });
+    await fx.run(decideAction({ failoverFrom: "codex:gpt-6-luna#high" }), s);
+    expect(lastOf(run, "decision.failed")).toMatchObject({ code: "E_ALL_HELD", name: "worker-M1.L1", n: 1 });
+    expect(types(run)).not.toContain("decision.made");
   });
 
   describe("failover rows (plan 33)", () => {
@@ -317,6 +301,8 @@ describe("dispatching", () => {
       return s;
     };
     const until = () => new Date(Date.now() + 600_000).toISOString();
+    const failover = (from: string, over: Partial<DispatchAction> = {}) =>
+      decideAction({ next: dispatchAction({ rung: null, failoverFrom: from, ...over }), failoverFrom: from });
 
     it("writes a failover row for a failover, with the stand-in it chose", async () => {
       const { run, fx } = setup();
@@ -325,10 +311,7 @@ describe("dispatching", () => {
         writeLane(run, "M1.L1", ["src/a/"]);
         await seed(run);
         await fx.run(
-          dispatchAction({
-            lane: "M1.L1",
-            failoverFrom: "opencode:opencode-go/gpt-6-luna#high",
-          }),
+          failover("opencode:opencode-go/gpt-6-luna#high"),
           stateWithHolds(run, { "opencode-go": until() }),
         );
         expect(failoverRows(run)).toEqual([
@@ -353,10 +336,7 @@ describe("dispatching", () => {
       try {
         writeLane(run, "M1.L1", ["src/a/"]);
         await seed(run);
-        await fx.run(
-          dispatchAction({ failoverFrom: "codex:gpt-6-sol#medium" }),
-          stateWithHolds(run, { codex: until() }),
-        );
+        await fx.run(failover("codex:gpt-6-sol#medium"), stateWithHolds(run, { codex: until() }));
         expect(failoverRows(run)).toEqual([
           expect.objectContaining({
             rung: null,
@@ -364,9 +344,7 @@ describe("dispatching", () => {
             held: ["codex"],
           }),
         ]);
-        expect(lastOf(run, "dispatch.refused")).toMatchObject({
-          code: "E_ALL_HELD",
-        });
+        expect(lastOf(run, "decision.failed")).toMatchObject({ code: "E_ALL_HELD" });
       } finally {
         spy.mockRestore();
       }
@@ -379,7 +357,7 @@ describe("dispatching", () => {
         writeLane(run, "M1.L1", ["src/a/"]);
         await seed(run);
         await fx.run(
-          dispatchAction({ failoverFrom: "codex:gpt-6-sol#medium" }),
+          failover("codex:gpt-6-sol#medium"),
           stateWithHolds(run, {
             codex: until(),
             cursor: new Date(Date.now() - 600_000).toISOString(),
@@ -391,29 +369,16 @@ describe("dispatching", () => {
       }
     });
 
-    it("writes a failover row when a lane-less role's routed rung sits on a held quota", async () => {
+    it("refuses a decided rung whose quota has been held since, E_RUNG_HELD", async () => {
       const { run, fx } = setup();
-      const spy = spyOn(failoverRungs, "failoverRung").mockReturnValue(
-        "opencode:opencode-go/gpt-6-luna#high",
+      writeLane(run, "M1.L1", ["src/a/"]);
+      await seed(run);
+      await fx.run(
+        dispatchAction({ lane: null, rung: "codex:gpt-6-luna#high" }),
+        stateWithHolds(run, { codex: until() }),
       );
-      try {
-        writeLane(run, "M1.L1", ["src/a/"]);
-        await seed(run);
-        await fx.run(
-          dispatchAction({ lane: null, rung: "codex:gpt-6-luna#high" }),
-          stateWithHolds(run, { codex: until() }),
-        );
-        expect(failoverRows(run)).toEqual([
-          expect.objectContaining({
-            lane: null,
-            from: "codex:gpt-6-luna#high",
-            rung: "opencode:opencode-go/gpt-6-luna#high",
-            held: ["codex"],
-          }),
-        ]);
-      } finally {
-        spy.mockRestore();
-      }
+      expect(lastOf(run, "dispatch.refused")).toMatchObject({ code: "E_RUNG_HELD", name: "worker-M1.L1" });
+      expect(types(run)).not.toContain("dispatch.started");
     });
 
     it("writes no failover row for a dispatch that is not a failover", async () => {
@@ -434,6 +399,8 @@ describe("dispatching", () => {
     await fx.run(
       {
         type: "judge",
+        rung: "codex:gpt-6-sol#high",
+        decision: null,
         input: {
           id: "9",
           kind: "question",
@@ -468,6 +435,8 @@ describe("dispatching", () => {
     await fx.run(
       {
         type: "judge",
+        rung: "codex:gpt-6-sol#high",
+        decision: null,
         input: {
           id: "3",
           kind: "unexpected",
@@ -760,6 +729,74 @@ describe("what a stop says (30b)", () => {
     expect(endedEvent(run, done, "M1.L1")).toMatchObject({ reason: null });
   });
 
+  it("a verifier PASS with no RAN line fails", () => {
+    const { run } = freshRun();
+    const record = withReply(
+      run,
+      { role: "verifier", name: "verifier-M1" },
+      "VERDICT: PASS\nSTATUS: complete — ok",
+    );
+    writeFileSync(join(run.dir, dirname(record.replyPath), "brief.md"), "Verify.\nRUN: bun test\n");
+    expect(endedEvent(run, record, "M1")).toMatchObject({
+      verdict: "fail",
+      findings: [{ label: "BLOCKER", text: "FAIL bun test: NOT RUN (no RAN line)" }],
+    });
+  });
+
+  it("a verifier PASS with its RAN line and log passes", () => {
+    const { run, repo } = setup();
+    writeFileSync(join(repo, "v.log"), "ok\n");
+    const record = withReply(
+      run,
+      { role: "verifier", name: "verifier-M1" },
+      `VERDICT: PASS\nRAN: bun test — exit 0 — ${join(repo, "v.log")}\nSTATUS: complete — ok`,
+    );
+    writeFileSync(join(run.dir, dirname(record.replyPath), "brief.md"), "RUN: bun test\n");
+    expect(endedEvent(run, record, "M1")).toMatchObject({ verdict: "pass", findings: [] });
+    // a log relative to the tree reads the same
+    const rel = withReply(
+      run,
+      { role: "verifier", name: "verifier-M1" },
+      "VERDICT: PASS\nRAN: bun test — exit 0 — v.log\nSTATUS: complete — ok",
+    );
+    writeFileSync(join(run.dir, dirname(rel.replyPath), "brief.md"), "RUN: bun test\n");
+    expect(endedEvent(run, rel, "M1")).toMatchObject({ verdict: "pass" });
+  });
+
+  it("a lane end names its foreign test edits", () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/"]);
+    const record = withReply(
+      run,
+      {
+        role: "worker",
+        name: "worker-M1.L1",
+        lane: "M1.L1",
+        violations: ["test/b.test.ts", "docs/x.md"],
+      },
+      "Done.\nSTATUS: complete — ok",
+    );
+    expect(endedEvent(run, record, "M1.L1")).toMatchObject({ testEdits: ["test/b.test.ts"] });
+    const clean = withReply(run, { role: "worker", name: "worker-M1.L1", lane: "M1.L1" }, "Done.");
+    expect(endedEvent(run, clean, "M1.L1")).not.toHaveProperty("testEdits");
+  });
+
+  it("a failed fast check carries its class", async () => {
+    const { run, deps, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a.ts"], "echo 'connection refused'; exit 1");
+    await seed(run);
+    deps.routing.verdict = async (_d, _p, set) => ({
+      ok: true,
+      value: set === "failure-class" ? "harness" : "",
+      p: 0.9,
+    });
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    expect(lastOf(run, "check.ran")).toMatchObject({ exit: 1, failureClass: "harness" });
+    writeLane(run, "M1.L1", ["src/a.ts"], "true");
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    expect(lastOf(run, "check.ran")?.failureClass).toBeUndefined();
+  });
+
   it("check.ran names the blamed sibling lanes", async () => {
     const { run, fx } = setup();
     writeLane(run, "M1.L1", ["src/a.ts"], "echo 'src/a.ts:1 error'; echo 'src/b.ts:3 error'; exit 1");
@@ -802,6 +839,237 @@ describe("what a stop says (30b)", () => {
   });
 });
 
+describe("the decide effect (plan 44 task 16)", () => {
+  const sha = (text: string): string => createHash("sha256").update(text).digest("hex");
+  type DecideReq = Parameters<ReturnType<typeof setup>["deps"]["routing"]["decide"]>[0];
+  /** the fake port's decide, counting the calls it gets */
+  function counting(deps: ReturnType<typeof setup>["deps"]): DecideReq[] {
+    const calls: DecideReq[] = [];
+    const real = deps.routing.decide;
+    deps.routing.decide = async (req) => (calls.push(req), real(req));
+    return calls;
+  }
+  async function decided() {
+    const t = setup();
+    writeLane(t.run, "M1.L1", ["src/a/"]);
+    await seed(t.run);
+    const calls = counting(t.deps);
+    const a = decideAction();
+    const s = replayRun(t.run);
+    await t.fx.run(a, s);
+    const made = lastOf(t.run, "decision.made");
+    if (!made) throw new Error("no decision.made");
+    return { ...t, a, s, calls, made };
+  }
+
+  it("decide renders the brief and records the decision", async () => {
+    const { run, a, s, calls, made } = await decided();
+    expect(made).toMatchObject({
+      name: "worker-M1.L1",
+      n: 1,
+      role: "worker",
+      unit: "M1.L1",
+      rung: "codex:gpt-6-luna#high",
+      briefFile: "decisions/worker-M1.L1/1/brief.md",
+      source: "floor",
+    });
+    const text = readFileSync(join(run.dir, made.briefFile), "utf8");
+    expect(text).toBe(await renderBrief(run, s, a.next, false));
+    expect(made.briefHash).toBe(sha(text));
+    // the model is asked about the brief it will see, scrubbed and whole
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ role: "worker", name: "worker-M1.L1", unit: "M1.L1", floor: null });
+    expect(calls[0]?.state.brief).toBe(text);
+    expect(readJsonl(runPaths(run.dir).routes).rows).toEqual([
+      expect.objectContaining({
+        lane: "M1.L1",
+        role: "worker",
+        source: "route",
+        decidedBy: "decision",
+        rung: made.rung,
+        level: 0,
+        levels: made.levels,
+      }),
+    ]);
+  });
+
+  it("each decision lands one row in decisions.jsonl with the decision's identity", async () => {
+    const { run, made } = await decided();
+    expect(readJsonl(runPaths(run.dir).decisionsLog).rows).toEqual([
+      expect.objectContaining({
+        call: "decide",
+        name: "worker-M1.L1",
+        n: 1,
+        role: "worker",
+        level: made.level,
+        levels: made.levels,
+        rung: made.rung,
+        floor: null,
+        source: "floor",
+        briefHash: made.briefHash,
+      }),
+    ]);
+  });
+
+  it("the dispatch sends the decided brief byte for byte", async () => {
+    const { run, fx, made } = await decided();
+    await fx.run(
+      dispatchAction({
+        rung: made.rung,
+        decision: { n: made.n, briefFile: made.briefFile, briefHash: made.briefHash },
+      }),
+      replayRun(run),
+    );
+    const d = listDispatches(run).find((x) => x.admit.name === "worker-M1.L1");
+    expect(readFileSync(dispatchPaths((d as NonNullable<typeof d>).dir).brief, "utf8")).toBe(
+      readFileSync(join(run.dir, made.briefFile), "utf8"),
+    );
+    expect(lastOf(run, "dispatch.started")).toMatchObject({ rung: made.rung });
+  });
+
+  it("a changed decision file is refused as stale", async () => {
+    const { run, fx, made } = await decided();
+    writeFileSync(join(run.dir, made.briefFile), "edited since\n");
+    await fx.run(
+      dispatchAction({
+        rung: made.rung,
+        decision: { n: made.n, briefFile: made.briefFile, briefHash: made.briefHash },
+      }),
+      replayRun(run),
+    );
+    expect(lastOf(run, "dispatch.refused")).toMatchObject({ code: "E_DECISION_STALE", name: "worker-M1.L1" });
+    expect(listDispatches(run)).toEqual([]);
+  });
+
+  it("a limit fails over without the model", async () => {
+    const { run, deps, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    const calls = counting(deps);
+    const spy = spyOn(failoverRungs, "failoverRung").mockReturnValue("codex:gpt-6-sol#medium");
+    try {
+      const s = replayRun(run);
+      s.holds = { "opencode-go": new Date(Date.now() + 600_000).toISOString() };
+      s.at = new Date().toISOString();
+      await fx.run(
+        decideAction({
+          next: dispatchAction({ rung: null, failoverFrom: "opencode:opencode-go/gpt-6-luna#high" }),
+          failoverFrom: "opencode:opencode-go/gpt-6-luna#high",
+        }),
+        s,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    expect(lastOf(run, "decision.made")).toMatchObject({
+      source: "failover",
+      rung: "codex:gpt-6-sol#medium",
+      levels: 1,
+    });
+    expect(calls).toHaveLength(0);
+    expect(existsSync(join(run.dir, "decisions/worker-M1.L1/1/brief.md"))).toBe(true);
+  });
+
+  it("the coordinator's rung is the decision, checked against the role's rungs", async () => {
+    const { run, deps, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    const calls = counting(deps);
+    await fx.run(decideAction({ pick: "codex:gpt-6-terra#max" }), replayRun(run));
+    expect(lastOf(run, "decision.failed")).toMatchObject({ code: "E_DECISION", name: "worker-M1.L1" });
+    await fx.run(decideAction({ pick: "codex:gpt-6-sol#medium" }), replayRun(run));
+    expect(lastOf(run, "decision.made")).toMatchObject({
+      source: "coordinator",
+      rung: "codex:gpt-6-sol#medium",
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("a decision model with no answer is decision.failed, a strict floor with nothing above is exhausted", async () => {
+    const { run, deps, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    deps.routing.decide = async () => ({
+      ok: false,
+      exhausted: false,
+      error: "no usable answer",
+      rungs: ["codex:gpt-6-luna#high"],
+    });
+    await fx.run(decideAction({ n: 2 }), replayRun(run));
+    expect(lastOf(run, "decision.failed")).toMatchObject({
+      code: "E_DECISION",
+      n: 2,
+      error: "no usable answer",
+      rungs: ["codex:gpt-6-luna#high"],
+    });
+    deps.routing.decide = async (req) => ({ ok: false, exhausted: true, floor: req.floor ?? "" });
+    await fx.run(decideAction({ floor: "codex:gpt-6-sol#high", strict: true }), replayRun(run));
+    expect(lastOf(run, "decision.exhausted")).toMatchObject({
+      name: "worker-M1.L1",
+      floor: "codex:gpt-6-sol#high",
+    });
+  });
+
+  it("a decision held on every rung above the floor is decision.failed E_ALL_HELD, not E_DECISION", async () => {
+    const { run, deps, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    deps.routing.decide = async () => ({
+      ok: false,
+      exhausted: false,
+      held: true,
+      error: "every rung of the worker above the floor is on a held quota",
+      rungs: [],
+    });
+    await fx.run(decideAction(), replayRun(run));
+    expect(lastOf(run, "decision.failed")).toMatchObject({ code: "E_ALL_HELD", name: "worker-M1.L1" });
+  });
+
+  it("the judge is decided and sent its rung", async () => {
+    const { run, deps, fx } = setup({ reply: "DECISION: answer\nANSWER: ok\nSTATUS: complete — ok" });
+    deps.view.roles.judge = role("read-only", ["codex:gpt-6-sol#high", "codex:gpt-6-luna#high"]);
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    const input = {
+      id: "9",
+      kind: "question" as const,
+      unit: "M1.L1",
+      context: "Lane M1.L1 stopped.",
+      findings: [],
+      lanes: [{ id: "M1.L1", owns: ["src/a/"] }],
+    };
+    await fx.run(
+      decideAction({
+        floor: "codex:gpt-6-luna#high",
+        next: { type: "judge", input, rung: null, decision: null },
+      }),
+      replayRun(run),
+    );
+    const made = lastOf(run, "decision.made");
+    expect(made).toMatchObject({
+      name: "judge-9",
+      role: "judge",
+      unit: "M1.L1",
+      rung: "codex:gpt-6-luna#high",
+    });
+    await fx.run(
+      {
+        type: "judge",
+        input,
+        rung: made?.rung ?? null,
+        decision: { n: 1, briefFile: made?.briefFile ?? "", briefHash: made?.briefHash ?? "" },
+      },
+      replayRun(run),
+    );
+    expect(lastOf(run, "dispatch.started")).toMatchObject({
+      name: "judge-9",
+      rung: "codex:gpt-6-luna#high",
+      judgeKind: "question",
+    });
+    expect(lastOf(run, "judge.decided")).toMatchObject({ id: "9" });
+  });
+});
+
 describe("classifying a stop (30b)", () => {
   const stoppedRun = async (deps: ReturnType<typeof setup>["deps"], run: Run) => {
     await seed(run);
@@ -820,55 +1088,77 @@ describe("classifying a stop (30b)", () => {
     return r.dispatchId;
   };
 
-  it("classifies a stop with no reason through Jev, once", async () => {
+  it("classifies a stop with no reason through the decision model, once", async () => {
     const { run, deps, fx } = setup();
-    let calls = 0;
-    deps.routing.stopCause = async () => (
-      calls++,
-      { value: "needs_user", probability: 0.91, confidence: 0.5, source: "jev" }
+    const asked: string[] = [];
+    deps.routing.verdict = async (_d, _p, set) => (
+      asked.push(set),
+      { ok: true, value: set === "stop" ? "needs_user" : "product", p: 0.91 }
     );
     const dispatchId = await stoppedRun(deps, run);
     await fx.run({ type: "classify", dispatchId }, replayRun(run));
     expect(lastOf(run, "stop.classified")).toEqual(
-      expect.objectContaining({ dispatchId, reason: "needs_user" }),
+      expect.objectContaining({ dispatchId, reason: "needs_user", failureClass: "product" }),
     );
-    expect(calls).toBe(1);
+    expect(asked.filter((x) => x === "stop")).toHaveLength(1);
   });
 
-  it("classifies to null with Jev off, for other, or for an unsure answer", async () => {
+  it("a stop that names its reason is classed by failure class only", async () => {
     const { run, deps, fx } = setup();
-    deps.routing.stopCause = async () => ({
-      value: "other",
-      probability: 0.9,
-      confidence: 1,
-      source: "jev",
+    const asked: string[] = [];
+    deps.routing.verdict = async (_d, _p, set) => (
+      asked.push(set),
+      { ok: true, value: set === "stop" ? "needs_user" : "harness", p: 0.9 }
+    );
+    await stoppedRun(deps, run);
+    const named = withReply(
+      run,
+      {
+        role: "worker",
+        name: "worker-M1.L1",
+        lane: "M1.L1",
+        replyStatus: "blocked",
+        replyWhy: "too_hard: x",
+      },
+      "x\nSTATUS: blocked — too_hard: x",
+    );
+    await appendRecord(run, named);
+    await fx.run({ type: "classify", dispatchId: named.dispatchId }, replayRun(run));
+    expect(lastOf(run, "stop.classified")).toMatchObject({
+      dispatchId: named.dispatchId,
+      reason: "too_hard",
+      failureClass: "harness",
+    });
+    expect(asked).toEqual(["failure-class"]);
+  });
+
+  it("classifies to null for other, and an unsure answer is the rule's fallback", async () => {
+    const { run, deps, fx } = setup();
+    deps.routing.verdict = async (_d, _p, set) => ({
+      ok: true,
+      value: set === "stop" ? "other" : "product",
+      p: 0.9,
     });
     const dispatchId = await stoppedRun(deps, run);
     await fx.run({ type: "classify", dispatchId }, replayRun(run));
     expect(lastOf(run, "stop.classified")?.reason).toBeNull();
-    deps.routing.stopCause = async () => ({
-      value: "too_hard",
-      probability: 0.5,
-      confidence: 1,
-      source: "default",
+  });
+
+  it("a verdict failure is an effect failure, never a guessed class", async () => {
+    const { run, deps, fx } = setup();
+    deps.routing.verdict = async () => ({ ok: false, error: "the decision model is down" });
+    const dispatchId = await stoppedRun(deps, run);
+    await fx.run({ type: "classify", dispatchId }, replayRun(run));
+    expect(lastOf(run, "effect.failed")).toMatchObject({
+      action: "classify",
+      message: expect.stringContaining("the decision model is down"),
     });
-    await fx.run({ type: "classify", dispatchId }, replayRun(run));
-    expect(lastOf(run, "stop.classified")?.reason).toBeNull();
-    // off: the routing port answers its default without a call, and the effect still appends null
-    deps.view.jev = { use: "off" };
-    let usedOff = false;
-    deps.routing.stopCause = async (_d, _s, _r, use) => {
-      usedOff = use === "off";
-      return {
-        value: "other",
-        probability: null,
-        confidence: null,
-        source: "default",
-      };
-    };
-    await fx.run({ type: "classify", dispatchId }, replayRun(run));
-    expect(lastOf(run, "stop.classified")?.reason).toBeNull();
-    expect(usedOff).toBe(true);
+    expect(types(run)).not.toContain("stop.classified");
+    // a lane's fast check fails the same way: no check.ran, an effect failure to retry
+    writeLane(run, "M1.L1", ["src/a.ts"], "exit 1");
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    expect(lastOf(run, "effect.failed")).toMatchObject({ action: "fastCheck", unit: "M1.L1" });
+    expect(types(run)).not.toContain("check.ran");
   });
 });
 
@@ -975,7 +1265,12 @@ describe("planning", () => {
     });
     const actions = next(replayRun(run), lastOf(run, "question.answered")!);
     expect(actions.some((a) => a.type === "route")).toBe(false);
-    expect(actions).toContainEqual(expect.objectContaining({ type: "dispatch", name: "architect" }));
+    expect(actions).toContainEqual(
+      expect.objectContaining({
+        type: "decide",
+        next: expect.objectContaining({ type: "dispatch", name: "architect" }),
+      }),
+    );
   });
 
   it("uses an approved dependency section instead of the older owner input", async () => {
@@ -1049,7 +1344,7 @@ describe("planning", () => {
     const { run, fx } = setup();
     writeLane(run, "M1.L1", ["src/a/"], "true", WITH_TASK);
     writeLane(run, "M2.L1", ["src/b/"], "true", WITH_TASK);
-    writeFileSync(join(run.dir, "plan.md"), `${DEEP.replace("- A1 it works\n", "")}\n## M2 — docs\n`);
+    writeFileSync(join(run.dir, "plan.md"), `${DEEP.replace("- A1 [run] it works\n", "")}\n## M2 — docs\n`);
     await appendEvent(run, { type: "run.started", ...startedFields });
     await fx.run({ type: "readPlan" }, replayRun(run));
     expect(lastOf(run, "effect.failed")?.message).toContain("A1 is cited under no milestone");
@@ -1114,7 +1409,7 @@ describe("routing, checking, committing, landing", () => {
     await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
     expect(lastOf(run, "lanes.routed")).toMatchObject({
       milestone: "M1",
-      lanes: [{ lane: "M1.L1", rung: "codex:gpt-6-luna#high" }, { lane: "M1.L2" }],
+      lanes: [],
     });
     expect(lastOf(run, "preflight.done")).toMatchObject({
       milestone: "M1",
@@ -1467,20 +1762,6 @@ describe("routing, checking, committing, landing", () => {
     expect(readFileSync(join(run.dir, "ledger.md"), "utf8")).toContain(
       `verifier-M1 PASS on ${commit.slice(0, 12)}`,
     );
-  });
-
-  it("climbs a lane one rung and says whether it reached the top", async () => {
-    const { run, fx } = setup();
-    writeLane(run, "M1.L1", ["src/a/"]);
-    writeLane(run, "M1.L2", ["src/b/"]);
-    await seed(run);
-    await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
-    await fx.run({ type: "climb", lane: "M1.L1", reason: "unchanged" }, replayRun(run));
-    expect(lastOf(run, "lane.climbed")).toMatchObject({
-      lane: "M1.L1",
-      rung: "codex:gpt-6-sol#medium",
-      top: false,
-    });
   });
 });
 
@@ -1956,12 +2237,8 @@ describe("parking, reporting, finishing", () => {
   it("never throws: an unexpected error becomes effect.failed", async () => {
     const { run, fx } = setup();
     await seed(run);
-    await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
-    expect(lastOf(run, "effect.failed")).toMatchObject({
-      action: "route",
-      unit: "M1",
-    });
     await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
+    expect(lastOf(run, "effect.failed")).toMatchObject({ action: "integrate", unit: "M1" });
     expect(lastOf(run, "effect.failed")?.message).toContain("no base branch");
   });
 });

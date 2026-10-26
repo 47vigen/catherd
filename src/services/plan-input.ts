@@ -3,6 +3,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { parseLaneHeader } from "../domain/lane.ts";
 import {
+  aLineOwner,
   CHECK_COVERED,
   coverageProblems,
   depthProblems,
@@ -11,17 +12,16 @@ import {
   type PlanTask,
   parsePlanDoc,
   planInputNames,
+  readsALine,
   resolveTask,
 } from "../domain/plan-doc.ts";
 import type { Role } from "../domain/roles.ts";
 import { writeTextAtomic } from "../infra/store.ts";
-import { isDaemonRun, replayRun } from "./run-events-store.ts";
+import { replayRun } from "./run-events-store.ts";
 import { type Run, runPaths } from "./run-store.ts";
 
 /** The run's copies of the owner's plan files: isolated roles read these, never the originals (plan 32). */
 export const PLAN_INPUT_DIR = "plan-input";
-/** Past this many characters of preambles, a role's `<context>` names the copies instead of repeating them. */
-export const PLAN_CONTEXT_MAX = 100_000;
 
 const invalid = (message: string, fix: string) => new CatherdError("E_INPUT_INVALID", message, { fix });
 
@@ -85,66 +85,6 @@ function planFiles(run: Run): { path: string; doc: PlanDoc }[] {
 
 /** The run's plan as documents: the copies in `run.started.plan` order; else plan.md; none when neither exists. */
 export const planDocs = (run: Run): PlanDoc[] => planFiles(run).map((f) => f.doc);
-
-/** The `## ` sections of a taskless plan file that a milestone's tasks cite: by `§<n>`, or by quoting the heading text. */
-function citedSections(text: string, tasks: PlanTask[]): string[] {
-  const cited = new Set(tasks.flatMap((t) => [...t.text.matchAll(/§(\d+)/g)].map((m) => m[1])));
-  return text
-    .split(/^(?=##[ \t]+(?!#))/m)
-    .filter((section) => {
-      if (!/^##[ \t]/.test(section)) return false; // the text before the first `## ` is no section
-      const head = (section.split("\n", 1)[0] ?? "").replace(/^##[ \t]+/, "");
-      const n = /^(?:§)?(\d+)\b/.exec(head)?.[1];
-      if (n !== undefined && cited.has(n)) return true;
-      const words = head.replace(/^(?:§\d+|\d+\.?)[ \t]*/, "").trim();
-      return words.length >= 4 && tasks.some((t) => t.text.includes(words));
-    })
-    .map((s) => s.trim());
-}
-
-/**
- * The preambles a role reads, for every role but the architect and the judge. A milestone's role gets those of the
- * plan files its tasks come from, and of a taskless file only the sections they cite (plan 40 D15); a run-level role
- * (no milestone), or a milestone with no tasks, gets every preamble.
- */
-export function planContext(run: Run, role: Role, milestone?: string | null): string | null {
-  if (role === "architect" || role === "judge" || !isDaemonRun(run)) return null;
-  const tasks = milestone ? milestoneTasks(run, milestone) : [];
-  const parts = planFiles(run).flatMap(({ path, doc }) => {
-    let body: string | null;
-    if (tasks.length === 0) {
-      body =
-        doc.tasks.length === 0
-          ? `The plan file ${doc.name}, which every task follows:\n\n${doc.text.trim()}`
-          : doc.preamble.trim() &&
-            `The plan's preamble (${doc.name}), which applies to every task:\n\n${doc.preamble.trim()}`;
-    } else if (doc.tasks.length === 0) {
-      const sections = citedSections(doc.text, tasks);
-      body = sections.length
-        ? `The plan file ${doc.name}, the sections these tasks cite:\n\n${sections.join("\n\n")}`
-        : null;
-    } else {
-      body =
-        tasks.some((t) => t.doc === doc.name) && doc.preamble.trim()
-          ? `The plan's preamble (${doc.name}), which applies to every task:\n\n${doc.preamble.trim()}`
-          : null;
-    }
-    return body ? [{ path, body }] : [];
-  });
-  if (parts.length === 0) return null;
-  let room = PLAN_CONTEXT_MAX;
-  const out: string[] = [];
-  for (const { path, body } of parts) {
-    const kept = body.slice(0, Math.max(room, 0));
-    room -= body.length + 2;
-    out.push(
-      kept.length === body.length
-        ? body
-        : `${kept}\n[… ${body.length - kept.length} characters of ${path} cut: read it with read_run_file]`,
-    );
-  }
-  return out.join("\n\n");
-}
 
 const natural = (a: string, b: string): number => a.localeCompare(b, "en", { numeric: true });
 
@@ -248,6 +188,18 @@ function unownedALines(run: Run): string[] {
   });
 }
 
+/** The ids of plan.md's A-lines under its `## M<n>` sections that carry no owner tag (plan 44 D4). */
+function untaggedALines(plan: string): string[] {
+  const ids = new Set<string>();
+  let inside = false;
+  for (const line of plan.split("\n")) {
+    if (/^##\s/.test(line)) inside = /^##\s+M\d+\b/.test(line);
+    const id = /^\s*(?:[-*]\s+)?(A\d+)\b/.exec(line)?.[1];
+    if (inside && id && aLineOwner(line) === null) ids.add(id);
+  }
+  return [...ids];
+}
+
 /**
  * What the architect can fix: a lane that names no task or a missing one, an A-line no milestone owns, and with
  * no plan input plan.md's depth. A task of the owner's plan with neither a signature nor a test is the owner's,
@@ -259,6 +211,8 @@ export function planProblems(run: Run): string[] {
   const out = coverageProblems(docs, lanes)
     .filter((p) => p.lane !== "")
     .map((p) => p.note);
+  for (const id of untaggedALines(read(runPaths(run.dir).plan) ?? ""))
+    out.push(`${id} in plan.md has no owner tag: write it ${id} [worker|reviewer|verifier|run]`);
   const unowned = unownedALines(run);
   if (unowned.length)
     out.push(
@@ -271,3 +225,82 @@ export function planProblems(run: Run): string[] {
 /** A plan task as a brief carries it: verbatim, in a tag naming its file and number. */
 export const taskBlock = (t: PlanTask): string =>
   `<plan-task file="${t.doc}" id="${t.id}">\n${t.text.trimEnd()}\n</plan-task>`;
+
+/** Past this many characters the unit context names a plan file instead of repeating it (plan 44 D6). */
+export const UNIT_CONTEXT_MAX = 20_000;
+
+/** `§3.2` is the `###` subsection headed `3.2`; `§3` the `##` section's own text, down to its first `###`. */
+function sectionOf(text: string, ref: string): string | null {
+  const level = ref.split(".").length + 1;
+  const lines = text.split("\n");
+  const head = new RegExp(`^#{${level}}[ \\t]+(?:§)?${ref.replaceAll(".", "\\.")}(?!\\.?\\d)`);
+  const at = lines.findIndex((l) => head.test(l));
+  if (at < 0) return null;
+  const stop = new RegExp(`^#{1,${Math.max(level, 3)}}[ \\t]`);
+  const end = lines.findIndex((l, i) => i > at && stop.test(l));
+  return lines
+    .slice(at, end < 0 ? undefined : end)
+    .join("\n")
+    .trim();
+}
+
+/** The milestone a unit (`M1.L2`, `M1`) belongs to; the run unit and any other name have none. */
+const unitMilestone = (unit: string): string | null => /^(M\d+)(?:\.|$)/.exec(unit)?.[1] ?? null;
+
+/**
+ * The A-lines `role` reads for `unit`: its milestone's lines whose owner tag it reads (plan 44 D4); every line of
+ * the run for the run unit.
+ */
+export function roleALines(run: Run, role: Role, unit: string): string[] {
+  const m = unitMilestone(unit);
+  if (m === null) return numberedALines(run.meta.aLines).flatMap((a) => (a.id ? [a.line] : []));
+  return deliveredALineTexts(run, m).filter((l) => readsALine(role, aLineOwner(l)));
+}
+
+/**
+ * Part 3 of a brief minus the lane file (plan 44 D6): the unit's plan tasks verbatim, the sections they cite
+ * (`§n` resolves in the task's own file, else in the taskless plan file its line names), the role's A-lines, and the
+ * paths of the other plan files. Past `UNIT_CONTEXT_MAX` the cited sections are cut and the file named.
+ */
+export function unitContext(run: Run, role: Role, unit: string): string[] {
+  const m = unitMilestone(unit);
+  const tasks = m === null ? [] : unit.includes(".") ? laneTasks(run, unit) : milestoneTasks(run, m);
+  const files = planFiles(run);
+  const cited = new Map<string, Map<string, string>>(); // path → ref → section
+  for (const t of tasks)
+    for (const line of t.text.split("\n"))
+      for (const [, ref = ""] of line.matchAll(/§(\d+(?:\.\d+)*)/g))
+        for (const f of [
+          files.find((f) => f.doc.name === t.doc),
+          ...files.filter((f) => f.doc.tasks.length === 0 && line.includes(f.doc.name)),
+        ]) {
+          const section = f && sectionOf(f.doc.text, ref);
+          if (!f || !section) continue;
+          const held = cited.get(f.path) ?? new Map<string, string>();
+          held.set(ref, section);
+          cited.set(f.path, held);
+          break;
+        }
+  const lines = roleALines(run, role, unit);
+  const own = new Set(tasks.map((t) => t.doc));
+  const others = files.filter((f) => !own.has(f.doc.name)).map((f) => `- ${f.path}`);
+  const head = tasks.map(taskBlock);
+  const tail = [
+    ...(lines.length ? [`Your A-lines:\n${lines.join("\n")}`] : []),
+    ...(others.length ? [`Read on demand:\n${others.join("\n")}`] : []),
+  ];
+  // each block costs its length and a blank line between it and the next
+  let room = UNIT_CONTEXT_MAX - [...head, ...tail].reduce((n, b) => n + b.length + 2, 0);
+  const middle = [...cited].map(([path, sections]) => {
+    const body = `Cited from ${path}:\n\n${[...sections.values()].join("\n\n")}`;
+    if (body.length + 2 <= room) {
+      room -= body.length + 2;
+      return body;
+    }
+    const pointer = `[… cut: read ${path} with catherd run-file read]`;
+    const kept = body.slice(0, Math.max(room - pointer.length - 3, 0));
+    room = 0;
+    return kept ? `${kept}\n${pointer}` : pointer;
+  });
+  return [...head, ...middle, ...tail];
+}

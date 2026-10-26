@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
 import { mergeSubject, mrCommand, unitMilestone } from "../domain/branch.ts";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import {
@@ -9,6 +9,7 @@ import {
   parseBlockedReason,
   siblingLanesNamed,
 } from "../domain/blocked.ts";
+import { aboveFloor, decisionState, levelsOf, scrubFree, sha256 } from "../domain/decision.ts";
 import { quotaOf } from "../domain/failover.ts";
 import { fileOf, parseFailLines, parseFindings, unlistedFail } from "../domain/findings.ts";
 import { headlessRung, tryParseRung } from "../domain/ids.ts";
@@ -17,22 +18,30 @@ import { milestoneAfter, onlyAllowedHits, parseLaneHeader } from "../domain/lane
 import { milestoneProblems } from "../domain/plan-lint.ts";
 import { mayStartMilestone, memoryLimitsOf, memoryLoad, neededMb } from "../domain/milestone-memory.ts";
 import { changedDecisions, formatCommand, milestoneCheck, reapprovalQuestion } from "../domain/plan-doc.ts";
+import { parseRanLines, parseRunLines, verifierShortfall } from "../domain/ran-lines.ts";
 import type { RunRecord } from "../domain/record.ts";
-import { currentRoute } from "../domain/route.ts";
+import { guardedEdits } from "../domain/test-guard.ts";
 import type { Role } from "../domain/roles.ts";
 import { type Finding, type MilestonePlan, RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
-import { type Action, unitOf } from "../domain/run-machine.ts";
+import { type Action, type DecideAction, type Decided, decidedName, unitOf } from "../domain/run-machine.ts";
+import { decisionCandidates, quotaUsage } from "../domain/select.ts";
+import { laneSlack } from "../domain/slack.ts";
 import { lanesOf, milestoneOf, ownerOfFile, type RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
 import { currentBranch, fetchBase, gitOrigin, gitRun, isAncestor, worktreeIdentity } from "../infra/git.ts";
 import { heavyLimits, heavySlots, LOCK_HELD_ENV, type LockWait, withHeavySlot } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
+import { writeTextAtomic } from "../infra/store.ts";
 import { admit } from "./admission.ts";
 import { cancel, launcher } from "./dispatch-service.ts";
 import { type Dispatch, listDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import { failoverRung } from "./failover-rungs.ts";
-import { climb, land, routeLanes } from "./lane-service.ts";
+import { land } from "./lane-service.ts";
+import { budgetOf } from "./budget.ts";
+import { loadCatalog } from "./catalog-service.ts";
+import { logDecision } from "./decision-service.ts";
+import { workspaceBudget } from "./workspace-admission.ts";
 import { blockedByEnvironment, landedCommitOf, replyVerdict } from "./milestones.ts";
 import {
   freshFailures,
@@ -54,12 +63,12 @@ import {
 import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
 import { park } from "./questions.ts";
-import { briefFor, judgeBrief } from "./run-briefs.ts";
+import { renderBrief } from "./run-briefs.ts";
 import { appendEvent, appendEvents, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { writeRunReport } from "./run-report.ts";
-import { cheapestRung } from "./routing-service.ts";
+import { routingProfile } from "./routing-service.ts";
 import { runProfile } from "./run-pin.ts";
-import { appendRoute, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
+import { appendRoute, readRecords, type Run, runPaths } from "./run-store.ts";
 import { composeProjectOf, treeOf } from "./tree-path.ts";
 import { refreshState } from "./state.ts";
 
@@ -147,22 +156,26 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
   let verdict: "pass" | "fail" | "blocked" | null = null;
   let probe: string | null = null;
   let noVerdict = false;
+  let shortfall: string[] = [];
   let findings = record.role === "reviewer" || record.role === "ui-reviewer" ? parseFindings(reply) : [];
   if (record.role === "verifier") {
     const first = replyVerdict(run, record) ?? "";
     probe = blockedByEnvironment(first);
     if (probe !== null) verdict = "blocked";
     else if (PASS_LINE.test(first)) {
-      verdict = "pass";
+      shortfall = ranShortfall(run, record, unit, reply);
+      verdict = shortfall.length ? "fail" : "pass";
       // plan 34: a PASS lands with the NITs it lists as known issues
-      findings = parseFindings(reply).filter((f) => f.label === "NIT");
+      findings = shortfall.length ? [] : parseFindings(reply).filter((f) => f.label === "NIT");
     }
     // a reply with no readable verdict is not a pass: the next fix round starts from what it said
     else if (record.status === "ok") {
       verdict = "fail";
       noVerdict = !FIRST_LINE.test(first);
     }
-    if (verdict === "fail") {
+    if (shortfall.length)
+      findings = shortfall.map((text) => ({ label: "BLOCKER" as const, text, file: null }));
+    else if (verdict === "fail") {
       findings = parseFailLines(reply);
       // a FAIL that lists no failing line still routes what it said, so the fix round never starts empty
       if (findings.length === 0)
@@ -179,6 +192,7 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
   }
   const stopped = record.replyStatus === "blocked" || record.replyStatus === "refused";
   const reason = stopped ? (parseBlockedReason(record.replyWhy)?.reason ?? null) : null;
+  const testEdits = record.lane ? guardedEdits(record.violations, laneOwnsOf(run, record.lane).own) : [];
   return {
     type: "dispatch.ended",
     dispatchId: record.dispatchId,
@@ -197,7 +211,29 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     siblings: reason === "check_broken" && record.lane ? siblingsOf(run, record.lane, reply) : [],
     replyPath: record.replyPath,
     ...(noVerdict ? { noVerdict: true as const } : {}),
+    ...(testEdits.length ? { testEdits } : {}),
   };
+}
+
+/** Plan 44 D8: the RUN commands of the dispatch's brief that the reply's RAN lines do not show run, clean and logged. */
+function ranShortfall(run: Run, record: RunRecord, unit: string, reply: string): string[] {
+  const brief = record.replyPath ? read(join(run.dir, dirname(record.replyPath), "brief.md")) : "";
+  const required = parseRunLines(brief);
+  if (required.length === 0) return [];
+  let tree = run.meta.repo;
+  try {
+    tree = treeOf(run, unitMilestone(unit));
+  } catch {
+    // the milestone's tree is gone: a relative log is read from the repo
+  }
+  const logOk = (path: string): boolean => {
+    try {
+      return statSync(isAbsolute(path) ? path : join(tree, path)).size > 0;
+    } catch {
+      return false;
+    }
+  };
+  return verifierShortfall(required, parseRanLines(reply), logOk);
 }
 
 const ID = /^M[\w-]*\.\S+$/;
@@ -376,48 +412,6 @@ export function realEffects(deps: Deps, run: Run): Effects {
     }
   }
 
-  /** The rung a dispatch runs on, or a refusal's code and message. */
-  async function rungFor(
-    a: {
-      name: string;
-      role: Role;
-      lane: string | null;
-      rung: string | null;
-      failoverFrom: string | null;
-      cheap?: boolean;
-    },
-    s: RunState,
-  ): Promise<{ rung: string } | { code: string; message: string }> {
-    const profile = runProfile(deps, run);
-    let rung = a.failoverFrom ?? a.rung;
-    // a mechanical fix runs once on the cheapest rung; the held-quota check below still applies to it
-    if (a.cheap && !a.failoverFrom) rung = cheapestRung(profile, a.role, run.meta.repo, run.dir) ?? rung;
-    if (!rung && a.lane) rung = currentRoute(readRoutes(run), a.lane)?.rung ?? null;
-    if (!rung && a.role === "judge") rung = profile.roles.judge?.rungs[0] ?? null;
-    if (!rung) {
-      const [routed] = await routeLanes(deps, {
-        run: run.id,
-        laneFiles: [undefined],
-        role: a.role,
-      });
-      rung = routed?.rung ?? null;
-    }
-    if (!rung) throw new CatherdError("E_ADMIT_RUNG", `no rung for the ${a.role}`);
-    const parsed = tryParseRung(rung);
-    const held = heldQuotas(s);
-    if (a.failoverFrom || (parsed !== null && held.includes(quotaOf(parsed)))) {
-      const stand = failoverRung(deps, run, a.role, rung, held);
-      recordFailover(a, a.failoverFrom ?? rung, stand, s);
-      if (!stand)
-        return {
-          code: "E_ALL_HELD",
-          message: `every rung of the ${a.role} is on a held quota (${held.join(", ")})`,
-        };
-      rung = stand;
-    }
-    return { rung: headlessRung(rung) };
-  }
-
   /** Waits for a dispatch to end, then appends what it said: a judge's decision first, then `dispatch.ended`. */
   async function settle(
     d: Dispatch,
@@ -474,27 +468,179 @@ export function realEffects(deps: Deps, run: Run): Effects {
   const orphanOf = (name: string, s: RunState): Dispatch | undefined =>
     listDispatches(run).find((d) => d.admit.name === name && !s.dispatches[d.admit.dispatchId]);
 
-  /** Plan 43 D10: the lane's rung under the profile as it is now, recorded as routed; null when it is the same rung or none. */
-  async function rerouteLane(
-    lane: string,
-    role: Role,
-    milestone: string,
-    was: string,
-  ): Promise<string | null> {
-    let routed: Awaited<ReturnType<typeof routeLanes>>[number] | undefined;
-    try {
-      [routed] = await routeLanes(deps, { run: run.id, laneFiles: [`lanes/${lane}.md`], role });
-    } catch {
-      return null;
-    }
-    const rung = routed ? headlessRung(routed.rung) : null;
-    if (!routed || !rung || rung === was) return null;
-    await append({
-      type: "lanes.routed",
-      milestone,
-      lanes: [{ lane, rung: routed.rung, ladder: routed.ladder }],
+  /** The role's levels above the floor, from the catalog the decision model's port reads (plan 44 D19). */
+  function levelsFor(role: Role, floor: string | null, strict: boolean) {
+    const p = routingProfile(runProfile(deps, run), role);
+    const cands = decisionCandidates(loadCatalog({ repo: run.meta.repo, runDir: run.dir }), p, role);
+    return aboveFloor(levelsOf(cands), floor, strict);
+  }
+
+  /** Plan 44 D17, D18, D21: the brief written once, the rung chosen on it, and `decision.made` (or why not). */
+  async function decide(a: DecideAction, s: RunState): Promise<void> {
+    const next = a.next;
+    const name = decidedName(next);
+    const role: Role = next.type === "judge" ? "judge" : next.role;
+    const unit = next.type === "judge" ? next.input.unit : next.unit;
+    const lane = next.type === "judge" ? null : next.lane;
+    const held = heldQuotas(s);
+    const failed = (code: string, error: string, rungs: string[] = []) =>
+      append({ type: "decision.failed", name, n: a.n, unit, code, error, rungs });
+    const single = (rung: string, source: "failover" | "coordinator", why: string) => ({
+      ok: true as const,
+      rung,
+      level: 0,
+      levels: 1,
+      levelRungs: [[rung]],
+      source,
+      p: null,
+      probabilities: {},
+      why,
     });
-    return rung;
+
+    // a limit's stand-in is chosen here, not by the model (D17); none is a wait like a held quota
+    let answer: Awaited<ReturnType<typeof deps.routing.decide>> | ReturnType<typeof single> | null = null;
+    if (a.failoverFrom) {
+      const stand = failoverRung(deps, run, role, a.failoverFrom, held);
+      recordFailover({ name, role, lane }, a.failoverFrom, stand, s);
+      if (!stand)
+        return void (await failed(
+          "E_ALL_HELD",
+          `every rung of the ${role} is on a held quota (${held.join(", ")})`,
+        ));
+      answer = single(stand, "failover", `failed over from ${a.failoverFrom}`);
+    } else if (a.pick) {
+      const open = levelsFor(role, a.floor, a.strict).flatMap((l) => l.rungs);
+      if (!open.includes(a.pick) || a.exclude.includes(a.pick))
+        return void (await failed("E_DECISION", `${a.pick} is not an open rung of the ${role}`, open));
+      answer = single(a.pick, "coordinator", "the coordinator named this rung");
+    }
+
+    const brief = await renderBrief(run, s, next, false);
+    const briefFile = `decisions/${name}/${a.n}/brief.md`;
+    writeTextAtomic(join(run.dir, briefFile), brief);
+    const briefHash = sha256(brief);
+
+    if (answer === null) {
+      const profile = runProfile(deps, run);
+      const mine = Object.values(s.dispatches).filter((d) => d.name === name);
+      const ready = readEvents(run).findLast((e) => e.type === "plan.ready");
+      const done = new Set(
+        s.milestones.filter((m) => m.status === "landed" || m.status === "merged").map((m) => m.id),
+      );
+      try {
+        answer = await deps.routing.decide({
+          runDir: run.dir,
+          repo: run.meta.repo,
+          profile,
+          role,
+          name,
+          unit,
+          floor: a.floor,
+          strict: a.strict,
+          exclude: a.exclude,
+          held,
+          usage: quotaUsage(Object.values(s.dispatches).map((d) => d.rung)),
+          state: decisionState({
+            role,
+            unit,
+            round: mine.length,
+            isFix:
+              next.type === "dispatch" &&
+              (next.brief === "fix" || next.brief === "recheck" || next.notes.length > 0),
+            floorRung: a.floor,
+            rungs: [],
+            previous: mine.flatMap((d) =>
+              d.ended ? [{ rung: d.rung, outcome: d.ended.status, stopReason: d.ended.reason }] : [],
+            ),
+            spentFraction: Math.max(
+              budgetOf(run, profile.budget, deps.now())?.fraction ?? 0,
+              (await workspaceBudget(run, deps.now()))?.fraction ?? 0,
+            ),
+            slack:
+              lane && ready?.type === "plan.ready"
+                ? (laneSlack(ready.milestones, done).get(lane) ?? null)
+                : null,
+            brief,
+          }),
+        });
+      } catch (e) {
+        answer = { ok: false, exhausted: false, error: errorMessage(e), rungs: [] };
+      }
+    }
+    if (!answer.ok)
+      return void (answer.exhausted
+        ? await append({ type: "decision.exhausted", name, n: a.n, unit, floor: answer.floor })
+        : await failed(answer.held ? "E_ALL_HELD" : "E_DECISION", answer.error, answer.rungs));
+
+    await append({
+      type: "decision.made",
+      name,
+      n: a.n,
+      role,
+      unit,
+      level: answer.level,
+      levels: answer.levels,
+      levelRungs: answer.levelRungs,
+      rung: answer.rung,
+      floor: a.floor,
+      strict: a.strict,
+      briefFile,
+      briefHash,
+      p: answer.p,
+      probabilities: answer.probabilities,
+      why: answer.why,
+      source: answer.source,
+    });
+    // the evidence rows follow the event: a failed append never fails the dispatch
+    try {
+      const intelligence = levelsFor(role, null, false).find((l) =>
+        l.rungs.includes(answer.rung),
+      )?.intelligence;
+      const header = lane ? parseLaneHeader(read(join(runPaths(run.dir).lanes, `${lane}.md`))) : null;
+      if (lane)
+        appendRoute(run, {
+          at: at().toISOString(),
+          lane,
+          role,
+          rung: answer.rung,
+          ladder: answer.levelRungs.flat(),
+          source: "route",
+          decidedBy: "decision",
+          from: null,
+          reason: null,
+          kind: header?.kind ?? null,
+          difficulty: header?.difficulty ?? null,
+          why: answer.why,
+          level: answer.level,
+          levels: answer.levels,
+          ...(intelligence === undefined ? {} : { intelligence }),
+        });
+      logDecision(run.dir, {
+        call: "decide",
+        key: "",
+        stateHash: "",
+        model: null,
+        requestId: null,
+        usage: null,
+        latencyMs: null,
+        attempts: 0,
+        answers: null,
+        name,
+        n: a.n,
+        unit,
+        role,
+        level: answer.level,
+        levels: answer.levels,
+        rung: answer.rung,
+        floor: a.floor,
+        strict: a.strict,
+        source: answer.source,
+        briefHash,
+        probabilities: answer.probabilities,
+      });
+    } catch (e) {
+      log("warn", "routes", { decision: errorMessage(e) });
+    }
   }
 
   async function start(
@@ -506,18 +652,21 @@ export function realEffects(deps: Deps, run: Run): Effects {
       rung: string | null;
       thread: string | null;
       failoverFrom: string | null;
+      decision: Decided | null;
     },
-    brief: string,
+    // the brief as it is now: a resumed thread gets its `<this-round>` only (plan 44 R3)
+    render: (resumed: boolean) => Promise<string>,
     s: RunState,
     judge: { id: string; kind: JudgeKind } | null,
   ): Promise<void> {
-    const refuse = (code: string, message: string) =>
+    const refuse = (code: string, message: string, rung?: string) =>
       append({
         type: "dispatch.refused",
         name: a.name,
         unit: a.unit,
         code,
         message,
+        ...(rung ? { rung } : {}),
       });
     // the daemon died between its admission and its event: the dispatch is recorded and watched, never launched twice
     const adopt = async (found: Dispatch): Promise<void> => {
@@ -536,32 +685,33 @@ export function realEffects(deps: Deps, run: Run): Effects {
     };
     const orphan = orphanOf(a.name, s);
     if (orphan) return adopt(orphan);
-    const picked = await rungFor(a, s);
-    if ("code" in picked) return void (await refuse(picked.code, picked.message));
-    const tryAdmit = (rung: string, thread: string | null) =>
-      admit(deps, run, {
+    const rung = a.rung;
+    if (!rung) return void (await refuse("E_ADMIT_RUNG", `no rung was decided for ${a.name}`));
+    // plan 44 D18: the brief the decision model judged is the brief sent; a file edited since is never sent
+    const full = a.decision ? read(join(run.dir, a.decision.briefFile)) : await render(false);
+    if (a.decision && sha256(full) !== a.decision.briefHash)
+      return void (await refuse(
+        "E_DECISION_STALE",
+        `the decided brief of ${a.name} changed since it was decided`,
+      ));
+    const parsed = tryParseRung(rung);
+    if (parsed !== null && heldQuotas(s).includes(quotaOf(parsed)))
+      return void (await refuse("E_RUNG_HELD", `the quota of ${rung} has been held since it was decided`));
+    const resumed = a.thread === null ? full : await render(true);
+    let admitted: Awaited<ReturnType<typeof admit>>;
+    try {
+      admitted = await admit(deps, run, {
         role: a.role,
         name: a.name,
-        brief,
-        rung,
-        thread,
+        brief: resumed,
+        composed: true,
+        ...(a.thread === null ? {} : { fullBrief: full }),
+        rung: headlessRung(rung),
+        thread: a.thread,
         lane: a.lane,
         failoverFrom: a.failoverFrom,
         // plan 35: a base run's milestone works in its own worktree
         cwd: treeOf(run, unitMilestone(a.unit)),
-      });
-    let admitted: Awaited<ReturnType<typeof admit>>;
-    try {
-      admitted = await tryAdmit(picked.rung, a.thread).catch(async (e: unknown) => {
-        // plan 43 D10: a profile edit can leave a lane's rung off its ladder; route the lane again, admit once more
-        const m = unitMilestone(a.unit);
-        if (!isCatherdError(e) || e.code !== "E_ADMIT_RUNG" || a.failoverFrom || !a.lane || m === null)
-          throw e;
-        const again = await rerouteLane(a.lane, a.role, m, picked.rung);
-        if (!again) throw e;
-        // the old rung's thread resumes only on its own backend
-        const same = tryParseRung(again)?.backend === tryParseRung(picked.rung)?.backend;
-        return tryAdmit(again, same ? a.thread : null);
       });
     } catch (e) {
       if (!isCatherdError(e)) throw e;
@@ -569,7 +719,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
         const orphan = orphanOf(a.name, s);
         if (orphan) return await adopt(orphan);
       }
-      return void (await refuse(e.code, e.message));
+      return void (await refuse(e.code, e.message, e.code === "E_ADMIT_RUNG" ? rung : undefined));
     }
     const { d, specPath } = admitted;
     // a cancel that landed while this start was in flight: the role must not start after the run is cancelled
@@ -651,24 +801,9 @@ export function realEffects(deps: Deps, run: Run): Effects {
     );
   }
 
-  async function route(a: Extract<Action, { type: "route" }>, s: RunState): Promise<void> {
-    const lanes = lanesOf(s, a.milestone);
-    const roles = [...new Set(lanes.map((l) => l.role))];
-    const routed: { lane: string; rung: string; ladder: string[] }[] = [];
-    for (const role of roles) {
-      const ids = lanes.filter((l) => l.role === role).map((l) => l.id);
-      const out = await routeLanes(deps, {
-        run: run.id,
-        laneFiles: ids.map((id) => `lanes/${id}.md`),
-        role,
-      });
-      for (const r of out) if (r.lane) routed.push({ lane: r.lane, rung: r.rung, ladder: r.ladder });
-    }
-    await append({
-      type: "lanes.routed",
-      milestone: a.milestone,
-      lanes: routed,
-    });
+  async function route(a: Extract<Action, { type: "route" }>): Promise<void> {
+    // plan 44 D22: the rungs are decided one dispatch at a time; this event only moves the milestone on
+    await append({ type: "lanes.routed", milestone: a.milestone, lanes: [] });
     const rep = await preflight(deps, {
       run: run.id,
       milestone: a.milestone,
@@ -697,6 +832,18 @@ export function realEffects(deps: Deps, run: Run): Effects {
           },
     );
   }
+
+  /** One verdict of the decision model; its failure is an effect failure, retried and then parked (plan 44 A5, R6). */
+  async function verdictOf(set: "stop" | "failure-class", state: Record<string, unknown>): Promise<string> {
+    const v = await deps.routing.verdict(run.dir, runProfile(deps, run), set, state);
+    if (!v.ok) throw new Error(`the decision model gave no ${set} verdict: ${v.error}`);
+    return v.value;
+  }
+
+  const failureClassOf = async (text: string): Promise<"product" | "harness"> =>
+    (await verdictOf("failure-class", { text: scrubFree(text.slice(-4000)) })) === "harness"
+      ? "harness"
+      : "product";
 
   async function fastCheck(a: Extract<Action, { type: "fastCheck" }>): Promise<void> {
     const header = parseLaneHeader(read(join(runPaths(run.dir).lanes, `${a.lane}.md`)));
@@ -742,11 +889,14 @@ export function realEffects(deps: Deps, run: Run): Effects {
     // an absence check whose only hits are the lane's Allow: exceptions has passed
     const allowed = r.code !== 0 && !r.timedOut && onlyAllowedHits(r.lines, header.allow);
     const failed = !allowed && r.code !== 0;
+    // plan 44 D9: a failed check is the work's or the machine's: the class question decides which
+    const failureClass = failed ? await failureClassOf(r.tail.join("\n")) : undefined;
     await append({
       type: "check.ran",
       lane: a.lane,
       exit: allowed ? 0 : r.code,
       tail: r.tail.join("\n"),
+      ...(failureClass ? { failureClass } : {}),
       tree,
       // a check that fails only in a sibling's files still counts: the sibling is not done writing them
       foreign: failed ? foreignOf(run, a.lane, (r.lines.length ? r.lines : r.tail).join("\n")) : [],
@@ -849,29 +999,31 @@ export function realEffects(deps: Deps, run: Run): Effects {
     });
   }
 
-  /** Why a stop gave no reason: Jev reads the end of the reply; null when it is off, unsure or says other. */
+  /**
+   * Every lane stop is classed before it acts (plan 44 D9): the failure class always, and the cause only when the end
+   * names none. A verdict the decision model cannot give throws: the effect fails and the machine retries, then parks.
+   */
   async function classify(a: Extract<Action, { type: "classify" }>): Promise<void> {
     const record = readRecords(run).records.find((r) => r.dispatchId === a.dispatchId);
     let reason: BlockedReason | null = null;
+    let failureClass: "product" | "harness" | undefined;
     if (record) {
       const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
-      try {
-        const v = await deps.routing.stopCause(
-          run.dir,
-          `${record.status}${record.replyStatus ? `, STATUS ${record.replyStatus}` : ""}`,
-          reply,
-          runProfile(deps, run).jev.use,
-        );
-        if (v.source === "jev" && v.value !== "other") reason = v.value;
-      } catch (e) {
-        log("warn", "daemon", {
-          run: run.id,
-          action: "classify",
-          error: errorMessage(e),
-        });
+      const stopped = record.replyStatus === "blocked" || record.replyStatus === "refused";
+      reason = stopped ? (parseBlockedReason(record.replyWhy)?.reason ?? null) : null;
+      if (reason === null) {
+        const status = `${record.status}${record.replyStatus ? `, STATUS ${record.replyStatus}` : ""}`;
+        const cause = await verdictOf("stop", { status, reply: scrubFree(reply.slice(-4000)) });
+        if (cause !== "other") reason = cause as BlockedReason;
       }
+      failureClass = await failureClassOf(reply);
     }
-    await append({ type: "stop.classified", dispatchId: a.dispatchId, reason });
+    await append({
+      type: "stop.classified",
+      dispatchId: a.dispatchId,
+      reason,
+      ...(failureClass ? { failureClass } : {}),
+    });
   }
 
   async function commit(a: Extract<Action, { type: "commit" }>, s: RunState): Promise<void> {
@@ -1200,7 +1352,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
   async function perform(a: Action, s: RunState): Promise<void> {
     switch (a.type) {
       case "dispatch":
-        return start(a, briefFor(run, s, a), s, null);
+        return start(a, (resumed) => renderBrief(run, s, a, resumed), s, null);
       case "judge":
         return start(
           {
@@ -1208,11 +1360,12 @@ export function realEffects(deps: Deps, run: Run): Effects {
             name: judgeName(a.input.id),
             role: "judge",
             lane: null,
-            rung: null,
+            rung: a.rung,
             thread: null,
             failoverFrom: null,
+            decision: a.decision,
           },
-          judgeBrief(run, a.input),
+          (resumed) => renderBrief(run, s, a, resumed),
           s,
           { id: a.input.id, kind: a.input.kind },
         );
@@ -1226,26 +1379,15 @@ export function realEffects(deps: Deps, run: Run): Effects {
       case "readPlan":
         return readPlan();
       case "route":
-        return route(a, s);
+        return route(a);
       case "fastCheck":
         return fastCheck(a);
       case "machineCheck":
         return machineCheck(a, s);
       case "commit":
         return commit(a, s);
-      case "climb": {
-        const r = await climb(deps, {
-          run: run.id,
-          lane: a.lane,
-          reason: a.reason,
-        });
-        return void (await append({
-          type: "lane.climbed",
-          lane: a.lane,
-          rung: r.rung,
-          top: r.top,
-        }));
-      }
+      case "decide":
+        return decide(a, s);
       case "park":
         // the push question is the daemon's own: a 1.5 question would hold the run's pause and ask twice
         if (milestoneOf(s, a.unit) && a.reason !== "push")

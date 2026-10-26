@@ -3,7 +3,6 @@ import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
 import { assertLaneHeader, LANE_HEADER_FIX } from "../../src/domain/lane.ts";
 import { admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
-import { route } from "../../src/services/lane-service.ts";
 import { preflight } from "../../src/services/preflight.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
@@ -53,13 +52,6 @@ describe("lane headers (spec 1.1 §6)", () => {
     );
     expect(e.code).toBe("E_LANE_INVALID");
     expect(e.message).toContain('Chore "maybe"');
-  });
-
-  it("route refuses such a lane before asking anyone", async () => {
-    const { run } = freshRun();
-    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: code\nDifficulty: easy\n");
-    const e = await refused(route(fakeDeps(), { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" }));
-    expect(e.code).toBe("E_LANE_INVALID");
   });
 
   it("dispatch (admission) refuses it", async () => {

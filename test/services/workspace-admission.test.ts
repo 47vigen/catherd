@@ -1,7 +1,6 @@
 import { afterEach, expect, it } from "bun:test";
 import { appendFileSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { newDispatchId } from "../../src/domain/ids.ts";
-import { route } from "../../src/services/lane-service.ts";
 import { writeRunFile } from "../../src/services/run-service.ts";
 import {
   appendAgentRun,
@@ -132,25 +131,6 @@ it("raises a spent workspace budget so the next sibling is admitted (#43 finding
   const raised = await setWorkspaceBudget(deps, { workspace: workspace.id, tokens: 5000 });
   expect(raised.budget).toEqual({ tokens: 5000 });
   expect(await withWorkspaceAdmission(consumer, deps.now(), async () => "admitted")).toBe("admitted");
-});
-
-it("cost routing sees sibling spend at the shared 80 percent threshold", async () => {
-  const { deps, producer, consumer } = await setup();
-  await appendRecord(
-    producer,
-    makeRecord({
-      runId: producer.id,
-      tokens: { input: 800, cached: 0, output: 0 },
-    }),
-  );
-  let fraction = -1;
-  const routing = deps.routing.route;
-  deps.routing.route = async (request) => {
-    fraction = request.spentFraction;
-    return routing(request);
-  };
-  await route(deps, { run: consumer.id, role: "worker" });
-  expect(fraction).toBe(0.8);
 });
 
 it("serializes sibling admission and rejects the second after aggregate budget is spent", async () => {

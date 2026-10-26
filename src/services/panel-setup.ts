@@ -3,7 +3,6 @@ import type { BackendAdapter } from "../adapters/backend.ts";
 import type { HostContext } from "../domain/host.ts";
 import { BILLING_MODES } from "../domain/cost.ts";
 import { pairOf } from "../domain/catalog.ts";
-import { effectiveBars } from "../domain/bars.ts";
 import { NOTIFY, roleTimeouts } from "../domain/profile.ts";
 import { ACCESS } from "../domain/record.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "../domain/roles.ts";
@@ -54,7 +53,6 @@ export const ProfileSavedSchema = z.object({
 });
 /** Every profile setting, resolved (defaults filled): what the profile editor starts from. */
 export const SettingsSchema = z.object({
-  objective: z.enum(["cost", "speed"]),
   budget: z.object({
     minutes: z.number().optional(),
     tokens: z.number().optional(),
@@ -63,13 +61,12 @@ export const SettingsSchema = z.object({
   timeouts: z.object({ idleMin: z.number(), wallMin: z.number() }),
   failover: z.record(z.string(), z.string()),
   maxEffort: z.record(z.string(), z.string()),
-  bars: z.record(z.string(), z.number()),
   heavy: z.union([z.number().int(), z.literal("cpus/2")]),
   memory: z.object({ reserveMb: z.number(), perMilestoneMb: z.number(), floorMb: z.number() }),
   preflightConfirm: z.boolean(),
   landAutoMerge: z.boolean(),
+  decision: z.object({ url: z.string().nullable(), model: z.string().nullable(), minConfidence: z.number() }),
   notify: z.array(z.enum(NOTIFY)),
-  jev: z.enum(["auto", "off"]),
   billing: z.record(z.string(), z.enum(BILLING_MODES)),
   isolated: z.record(z.string(), z.boolean()),
 });
@@ -203,18 +200,16 @@ export async function setupView(
     probedAt: probedAt.toSorted()[0] ?? null,
     pending: late.size > 0,
     settings: {
-      objective: v.objective,
       budget: v.budget,
       timeouts: v.timeouts,
       failover: v.failover,
       maxEffort: v.maxEffort ?? {},
-      bars: effectiveBars(v),
       heavy: v.heavy,
       memory: v.limits.memory,
       preflightConfirm: v.preflight.confirm,
       landAutoMerge: v.land.autoMerge,
+      decision: v.decision,
       notify: v.notify as (typeof NOTIFY)[number][],
-      jev: v.jev.use,
       billing: v.billing as Record<string, (typeof BILLING_MODES)[number]>,
       isolated: v.isolated as Record<string, boolean>,
     },

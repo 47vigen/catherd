@@ -1,15 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { MilestonePlan, RunEvent, RunEventInput } from "../../src/domain/run-events.ts";
-import type { Action } from "../../src/domain/run-machine.ts";
+import { type Action, decidedName, unitOf } from "../../src/domain/run-machine.ts";
 import { daemonAlive, daemonLimits, readHeartbeat, runDaemon } from "../../src/services/daemon.ts";
 import type { Effects } from "../../src/services/run-effects.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { PLAN, newId, startedFields } from "../domain/run-fixtures.ts";
-import { fakeDeps, freshRun, waitFor } from "./helpers.ts";
+import { realEffects } from "../../src/services/run-effects.ts";
+import { simPath, withScenario } from "../sim/scenario.ts";
+import { watchersSettled } from "../../src/services/dispatch-service.ts";
+import { fakeDeps, freshRun, testView, waitFor, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
+afterEach(() => watchersSettled());
 const limits = { ...daemonLimits };
 beforeEach(() => {
   daemonLimits.beatMs = 0;
@@ -68,12 +72,39 @@ const ended = (
   ...over,
 });
 
+/** The `decision.made` the machine's `decide` is answered with: the floor, or a stand-in's single level. */
+function made(a: Extract<Action, { type: "decide" }>): RunEventInput {
+  const name = decidedName(a.next);
+  const rung = a.pick ?? "codex:gpt-6-sol#medium";
+  return {
+    type: "decision.made",
+    name,
+    n: a.n,
+    role: a.next.type === "judge" ? "judge" : a.next.role,
+    unit: unitOf(a),
+    level: 0,
+    levels: 1,
+    levelRungs: [[rung]],
+    rung,
+    floor: a.floor,
+    strict: a.strict,
+    briefFile: `decisions/${name}/${a.n}/brief.md`,
+    briefHash: "h",
+    p: null,
+    probabilities: {},
+    why: "test",
+    source: "floor",
+  };
+}
+
 /** The happy path: every action succeeds at once. `tweak` replaces the answer to some of them. */
 function happy(plan: MilestonePlan[] = PLAN, tweak: Script = () => []): Script {
   return async (a, s) => {
     const own = await tweak(a, s);
     if (own.length) return own;
     switch (a.type) {
+      case "decide":
+        return [made(a)];
       case "dispatch": {
         const dispatchId = newId();
         return [
@@ -317,6 +348,19 @@ describe("the daemon loop", () => {
       run,
       clock,
       happy(PLAN, (a, s) => {
+        // the quota is held: no rung is free until the hold ends
+        if (a.type === "decide" && a.failoverFrom && Object.values(s.holds).some((until) => until > s.at))
+          return [
+            {
+              type: "decision.failed",
+              name: decidedName(a.next),
+              n: a.n,
+              unit: unitOf(a),
+              code: "E_ALL_HELD",
+              error: "held",
+              rungs: [],
+            },
+          ];
         if (a.type !== "dispatch" || a.name !== "worker-M1.L1") return [];
         if (!limited) {
           limited = true;
@@ -335,16 +379,13 @@ describe("the daemon loop", () => {
             ended(a.name, a.unit, { dispatchId, status: "limit", replyStatus: null, thread: null }),
           ];
         }
-        // the quota is held: no rung is free until the hold ends
-        return a.failoverFrom && Object.values(s.holds).some((until) => until > s.at)
-          ? [{ type: "dispatch.refused", name: a.name, unit: a.unit, code: "E_ALL_HELD", message: "held" }]
-          : [];
+        return [];
       }),
     );
     await start(run);
     await runDaemon(fakeDeps({ now: clock.now }), run.id, { effects: fx, clock });
     expect(types(run).filter((t) => t === "tick")).toHaveLength(1);
-    const names = readEvents(run).flatMap((e) => (e.type === "dispatch.refused" ? [e.code] : []));
+    const names = readEvents(run).flatMap((e) => (e.type === "decision.failed" ? [e.code] : []));
     expect(names).toEqual(["E_ALL_HELD"]);
     expect(endOf(run)).toMatchObject({ type: "run.ended", outcome: "done" });
     const tick = readEvents(run).find((e) => e.type === "tick");
@@ -398,5 +439,66 @@ describe("the daemon loop", () => {
     await runDaemon(fakeDeps({ now: clock.now }), run.id, { effects: fx, clock });
     expect(fx.actions.filter((a) => a.type === "fastCheck" && a.lane === "M1.L1")).toHaveLength(2);
     expect(endOf(run)).toMatchObject({ type: "run.ended", outcome: "done" });
+  });
+
+  it("a daemon run decides, then dispatches, end to end", async () => {
+    const { run } = freshRun();
+    process.env.PATH = simPath();
+    Object.assign(process.env, withScenario({ reply: "Done.\nSTATUS: complete — ok" }).env);
+    const view = testView();
+    for (const r of ["judge", "architect"] as const)
+      view.roles[r] = { enabled: true, access: "read-only", rungs: ["codex:gpt-6-sol#high"] };
+    const deps = fakeDeps({ view });
+    writeLane(run, "M1.L1", ["src/a/"]);
+    const plan: MilestonePlan[] = [
+      {
+        id: "M1",
+        title: "the core",
+        after: [],
+        lanes: [{ id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: ["src/a/"] }],
+      },
+    ];
+    // the decisions, the roles and the fast check are the real effects on the fake backend; the commit and the gate are scripted
+    const real = realEffects(deps, run);
+    const clock = { now: Date.now, sleep: () => new Promise<void>((r) => setImmediate(r)) };
+    const scriptedFx = scripted(
+      run,
+      clock,
+      happy(plan, (a) =>
+        a.type === "machineCheck"
+          ? [
+              {
+                type: "milestone.checked",
+                milestone: a.milestone,
+                head: a.commit,
+                command: "true",
+                missing: [],
+                findings: [],
+                uncovered: [],
+                checkOnly: true,
+                verdictCarried: false,
+                startedAt: new Date().toISOString(),
+                durationMs: 0,
+                waitedMs: 0,
+              },
+            ]
+          : [],
+      ),
+    );
+    const live = new Set<Action["type"]>(["decide", "dispatch", "judge", "watch", "classify", "fastCheck"]);
+    const fx: Effects = { run: (a, st) => (live.has(a.type) ? real : scriptedFx).run(a, st) };
+    await start(run);
+    expect(await runDaemon(deps, run.id, { effects: fx, clock })).toBe("ended");
+    expect(endOf(run)).toMatchObject({ type: "run.ended", outcome: "done" });
+    const events = readEvents(run);
+    const started = events.flatMap((e) => (e.type === "dispatch.started" ? [e] : []));
+    expect(started.map((e) => e.role)).toEqual(expect.arrayContaining(["worker", "reviewer", "judge"]));
+    for (const d of started) {
+      const at = events.findIndex((e) => e.type === "decision.made" && e.name === d.name);
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(at).toBeLessThan(events.indexOf(d));
+      // the decided rung is the dispatched rung
+      expect(events[at]).toMatchObject({ rung: d.rung });
+    }
   });
 });

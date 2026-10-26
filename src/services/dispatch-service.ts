@@ -1,6 +1,5 @@
 import { assertNativeHost } from "./backends.ts";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import { assertId, parseRung } from "../domain/ids.ts";
 import type { RunRecord } from "../domain/record.ts";
@@ -19,7 +18,7 @@ import { log } from "../infra/log.ts";
 import { isAlive, isSurelyAlive, killGroup } from "../infra/proc.ts";
 import { groupAlive, stopGroup } from "../infra/supervisor.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
-import { admit, fullBriefPath, killLimits, laneFile, laneOwns, launch } from "./admission.ts";
+import { admit, fullBriefPath, killLimits, laneFile, launch } from "./admission.ts";
 import { standInFor } from "./backends.ts";
 import {
   type Dispatch,
@@ -36,9 +35,8 @@ import {
 import { finalizeDispatch, finalizingElsewhere, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { isDaemonRun } from "./run-events-store.ts";
-import { route } from "./lane-service.ts";
 import { currentRoute } from "../domain/route.ts";
-import { appendRoute, findRun, readRecords, readRoleRoutes, readRoutes, type Run } from "./run-store.ts";
+import { appendRoute, findRun, readRecords, readRoutes, type Run } from "./run-store.ts";
 import { sessionKey } from "../domain/host.ts";
 import { claimRun, currentSession, ownsRun, runOwner, type SessionRef } from "./sessions.ts";
 import { pinChanges, runProfile } from "./run-pin.ts";
@@ -323,35 +321,6 @@ function unannounced(run: Run): { d: Dispatch; record: RunRecord }[] {
   });
 }
 
-/** How long a dispatch waits for another dispatch's route of the same lane (Jev may take tens of seconds). */
-const ROUTE_LOCK_MS = 120_000;
-
-/**
- * What admission would refuse anyway, refused before a lane is routed, so a refused dispatch asks Jev nothing
- * and writes no route row: the role off, the lane file missing or with no Owns:, the name or the lane already
- * running. Admission checks them again under its lock.
- */
-function refuseBeforeRouting(deps: Deps, run: Run, i: DispatchInput & { lane: string }): void {
-  const profile = runProfile(deps, run);
-  if (!profile.roles[i.role]?.enabled)
-    throw new CatherdError("E_ADMIT_RUNG", `the ${i.role} role is off in profile ${profile.name}`, {
-      fix: "skip the role, or turn it on with profile_set",
-    });
-  laneOwns(run, i.lane);
-  // live only: a finished, unrecorded dispatch is recorded by admission (finalizeFinished), not refused here
-  const pending = liveDispatches(run, deps.now());
-  const same = pending.find((d) => d.admit.name === i.name);
-  if (same)
-    throw new CatherdError("E_ADMIT_DUPLICATE", `${i.name} is already running on ${same.admit.rung}`, {
-      fix: `its record is announced when it finishes; or cancel(run, "${i.name}")`,
-    });
-  const lane = pending.find((d) => d.admit.lane === i.lane);
-  if (lane)
-    throw new CatherdError("E_ADMIT_OVERLAP", `lane ${i.lane} is already running as ${lane.admit.name}`, {
-      fix: `dispatch it after ${lane.admit.name} finishes`,
-    });
-}
-
 /**
  * Plan 22: the thread a dispatch resumes. `"latest"` is the name's last recorded thread; any other id must be one
  * the name's records in this run hold (`runs.jsonl`), in any case, so a wrong id is refused before a CLI starts
@@ -422,40 +391,20 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
   if (i.lane !== undefined) {
     const lane = i.lane;
     assertId("lane", lane);
-    // spec 1.1 §6: a lane is routed before its first dispatch; a rung off the routed ladder starts at the routed one
-    let current = currentRoute(readRoutes(run), lane);
-    let routed: Awaited<ReturnType<typeof route>> | null = null;
-    if (!current) {
-      refuseBeforeRouting(deps, run, { ...i, lane });
-      // one route per lane: a second dispatch of the lane waits for the first's route and takes it
-      const got = await withFileLock(
-        join(run.dir, `route-${lane}`),
-        async () => {
-          const now = currentRoute(readRoutes(run), lane);
-          return now
-            ? { current: now, routed: null }
-            : {
-                current: null,
-                routed: await route(deps, { run: i.run, laneFile: `lanes/${lane}.md`, role: i.role }),
-              };
-        },
-        { timeoutMs: ROUTE_LOCK_MS },
-      );
-      current = got.current;
-      routed = got.routed;
-    }
-    // spec 1.5 plan 24: without a rung, a lane runs at its current rung (its route, after any climb)
-    rung = i.rung ?? routed?.rung ?? (current?.rung as string);
-    if (routed && i.rung !== undefined && !routed.ladder.includes(i.rung)) {
-      rung = routed.rung;
-      hints.push(`${i.rung} is not on ${lane}'s routed ladder: dispatched at ${routed.rung}`);
-    }
+    // plan 44 D31: this path never decides. A lane runs at the rung passed, else at its current route's; a rung
+    // that is not its current route is recorded, once admitted, as the coordinator's pick
+    const picked = i.rung ?? currentRoute(readRoutes(run), lane)?.rung;
+    if (picked === undefined)
+      throw new CatherdError("E_INPUT_INVALID", `dispatch ${i.name}: lane ${lane} has no rung yet`, {
+        fix: "pass rung: the decision model decides it in a daemon run, the coordinator names it here",
+      });
+    rung = picked;
   } else if (i.rung === undefined)
     throw new CatherdError("E_INPUT_INVALID", `dispatch ${i.name}: a role outside a lane needs a rung`, {
-      fix: `route(run, role: "${i.role}") gives the role's rung; pass it as rung`,
+      fix: "pass rung: the coordinator names the rung of a role outside a lane",
     });
   else rung = i.rung;
-  // the rung that runs, after routing: an off-ladder native rung routing replaced is never launched
+  // the rung that runs: a native rung is only launched from its own host
   assertNativeHost(rung, deps.host.host);
   const { d, specPath } = await admit(
     deps,
@@ -481,6 +430,7 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
     watch(deps, run, d);
   }
   if (i.lane === undefined) recordRoleDispatch(deps, run, i.role, i.name, rung);
+  else recordLaneRoute(deps, run, i.lane, i.role, rung);
   // spec 1.5: a change since the run's pin is logged in state.md each time a role starts
   const changes = pinChanges(deps, run);
   if (changes.length)
@@ -492,28 +442,48 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
 }
 
 /**
- * Spec 1.5 plan 24: a lane-less dispatch's rung in routes.jsonl, so every role's decision can be audited:
- * `route` when it is the rung the role's last `route` gave (with that ladder), else the coordinator's own pick.
+ * A lane's rung in routes.jsonl when it is not the rung of its current route (or it has none), so `land` writes
+ * the lane's outcome and the protocol sees where the lane runs. A failed write is logged, never a failed dispatch.
+ */
+function recordLaneRoute(deps: Deps, run: Run, lane: string, role: Role, rung: string): void {
+  try {
+    const current = currentRoute(readRoutes(run), lane);
+    if (current?.rung === rung) return;
+    appendRoute(run, {
+      at: new Date(deps.now()).toISOString(),
+      lane,
+      role,
+      rung,
+      ladder: [rung],
+      source: "route",
+      decidedBy: "orchestrator",
+      from: current?.rung ?? null,
+      reason: null,
+      kind: null,
+      difficulty: null,
+      why: "the coordinator's rung",
+    });
+  } catch (e) {
+    log("warn", "dispatch", { run: run.id, lane, routes: errorMessage(e) });
+  }
+}
+
+/**
+ * A lane-less dispatch's rung in routes.jsonl, so every role's decision can be audited: the coordinator's own pick.
  * A failed write is logged, never a failed dispatch: the role is already running.
  */
 function recordRoleDispatch(deps: Deps, run: Run, role: Role, name: string, rung: string): void {
   try {
-    const last = readRoleRoutes(run).findLast((r) => r.role === role && r.source === "route");
-    const routed = last?.rung === rung;
     appendRoute(run, {
       at: new Date(deps.now()).toISOString(),
       lane: null,
       role,
       name,
       rung,
-      ladder: last?.ladder ?? [rung],
+      ladder: [rung],
       source: "dispatch",
-      decidedBy: routed ? last.decidedBy : "orchestrator",
-      why: routed
-        ? `the rung route gave the ${role}`
-        : last
-          ? `the coordinator's rung; route gave the ${role} ${last.rung}`
-          : `the coordinator's rung; the ${role} was never routed`,
+      decidedBy: "orchestrator",
+      why: "the coordinator's rung",
     });
   } catch (e) {
     log("warn", "dispatch", { run: run.id, name, routes: errorMessage(e) });
@@ -711,6 +681,8 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
       role: d.admit.role,
       name: d.admit.name,
       brief: standInBrief(run, d),
+      // a fresh round reruns its own composed brief as it is (plan 44)
+      ...(d.admit.thread === null ? { composed: true as const } : {}),
       rung: standIn,
       thread: null,
       lane: d.admit.lane,

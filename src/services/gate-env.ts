@@ -90,6 +90,7 @@ const RESERVED = new Set([
   "AGENT_CLI_CREDENTIAL_STORE",
   "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
   "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+  "BASH_MAX_OUTPUT_LENGTH",
 ]);
 
 /** Whether `name` is one catherd sets in a dispatch itself (exported for the coverage test). */

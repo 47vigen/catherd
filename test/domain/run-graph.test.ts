@@ -11,6 +11,7 @@ import {
 import type { MilestoneStatus } from "../../src/domain/run-state.ts";
 import { makeRecord } from "./make-record.ts";
 import {
+  decide,
   endDispatch,
   finishLane,
   type Log,
@@ -354,8 +355,24 @@ describe("statuses", () => {
     expect(node(model(planning), "architect").now).toBe("Claude Code is writing the plan for the run");
   });
 
-  it("a lane that is not dispatched yet carries its routed rung", () => {
-    expect(node(model(runningLog()), "M1/lane/M1.L1").rung).toBe("codex:gpt-6-sol#medium");
+  it("a lane that is not dispatched yet carries the rung of its decision", () => {
+    const log = runningLog();
+    expect(node(model(log), "M1/lane/M1.L1").rung).toBeNull();
+    decide(log, "worker-M1.L1", "codex:gpt-6-sol#high");
+    expect(node(model(log), "M1/lane/M1.L1").rung).toBe("codex:gpt-6-sol#high");
+  });
+
+  it("a lane of an old run carries its routed rung, and the route node counts a milestone routed with no lanes", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    log.add("plan.approved", { by: "owner" });
+    log.add("lanes.routed", {
+      milestone: "M1",
+      lanes: [{ lane: "M1.L1", rung: "codex:gpt-6-sol#medium", ladder: ["codex:gpt-6-sol#medium"] }],
+    });
+    expect(node(model(log), "M1/lane/M1.L1").rung).toBe("codex:gpt-6-sol#medium");
+    expect(node(model(runningLog()), "M1/route").status).toBe("done");
   });
 });
 
@@ -380,6 +397,46 @@ describe("check attempts", () => {
     const a = checkAttempt({});
     expect(a.at).toBe(a.endedAt);
     expect(a.secs).toBeNull();
+  });
+});
+
+describe("the decision of a node", () => {
+  const made = (n: number, rung: string) => ({
+    name: "worker-M1.L1",
+    n,
+    role: "worker" as const,
+    unit: "M1.L1",
+    level: 1,
+    levels: 2,
+    levelRungs: [["codex:gpt-6-sol#low"], [rung]],
+    rung,
+    floor: null,
+    strict: false,
+    briefFile: `decisions/worker-M1.L1/${n}/brief.md`,
+    briefHash: `hash-${n}`,
+    p: 0.9,
+    probabilities: { "1": 0.9 },
+    why: "a small change",
+    source: "model" as const,
+  });
+
+  it("a role node carries its latest decision", () => {
+    const log = runningLog();
+    log.add("decision.made", made(1, "codex:gpt-6-sol#medium"));
+    log.add("decision.made", made(2, "codex:gpt-6-sol#high"));
+    const m = model(log);
+    expect(node(m, "M1/lane/M1.L1").decision).toMatchObject({
+      n: 2,
+      rung: "codex:gpt-6-sol#high",
+      level: 1,
+      levels: 2,
+      levelRungs: [["codex:gpt-6-sol#low"], ["codex:gpt-6-sol#high"]],
+      p: 0.9,
+      source: "model",
+      why: "a small change",
+    });
+    expect(node(m, "M1/lane/M1.L2").decision).toBeNull();
+    expect(node(m, "M1/check/M1.L1").decision).toBeNull();
   });
 });
 

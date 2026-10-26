@@ -5,7 +5,7 @@ import type { ExitInfo, RunRecord } from "../domain/record.ts";
 import { awaitsCollect, dispatchPaths, readExit } from "../infra/dispatch-dir.ts";
 import { redact } from "../infra/log.ts";
 import { type Dispatch, listDispatches } from "./dispatches.ts";
-import { registerSavedSecrets } from "./jev-service.ts";
+import { registerSavedSecrets } from "./decision-service.ts";
 import { runOwner } from "./sessions.ts";
 import { readRecords, type Run } from "./run-store.ts";
 

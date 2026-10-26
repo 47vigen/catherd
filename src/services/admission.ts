@@ -41,7 +41,7 @@ import { finalizeDispatch } from "./finalize.ts";
 import { gateEnvParts, readGateEnv } from "./gate-env.ts";
 import { assertNotPaused } from "./pause.ts";
 import { currentOwns } from "./lane-edit.ts";
-import { planContext } from "./plan-input.ts";
+import { unitContext } from "./plan-input.ts";
 import { standingRules } from "./run-service.ts";
 import { unfinishedAfter } from "./protocol.ts";
 import { runProfile } from "./run-pin.ts";
@@ -67,6 +67,10 @@ export interface AdmitInput {
   host?: KnownHost;
   /** plan 35: where the role works (its milestone's worktree in a base run); absent means the run's repo */
   cwd?: string;
+  /** plan 44: `brief` is the daemon's composed brief, written verbatim */
+  composed?: true;
+  /** plan 44: the whole brief of a resumed composed dispatch, for `brief-full.md` */
+  fullBrief?: string;
 }
 
 /** Spec §3.3: SIGTERM, then SIGKILL this long after; tests shorten it. */
@@ -346,35 +350,45 @@ export async function admit(
       ...(sessionId ? { sessionId, host: i.host ?? session?.host ?? "claude-code" } : {}),
     };
     ensurePrivateDir(dir);
-    // plan 34: the repo's standing rules for this role; a knowledge file that cannot be read adds nothing
-    const rules = await standingRules(run.meta.repo, i.role).catch(() => "");
     // plan 23: the verifier runs with the repo's gate environment (DOCKER_HOST, a proxy, …)
     const gate =
       i.role === "verifier" ? gateEnvParts(await readGateEnv(run.meta.repo)) : { values: {}, refs: {} };
-    // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included; spec 1.5 plan 21:
-    // before it, the lane file as it stands now, and who the role is, its scratch and its catherd tools; plan 23:
     // plan 43: each milestone tree its own compose project; a gate env value wins (it spreads after)
     const compose = composeProjectOf(run, milestoneOfName(i.lane ?? i.name));
-    // a verifier's brief also carries the gate's rules and the run's recorded items
-    const briefCtx: BriefContext = {
-      run: run.id,
-      name: i.name,
-      role: i.role,
-      lane: i.lane === null ? null : { id: i.lane, text: readFileSync(laneFile(run, i.lane), "utf8") },
-      scratch,
-      roleServer,
-      version: deps.version,
-      resumed: i.thread !== null,
-      context:
-        [planContext(run, i.role, milestoneOfName(i.lane ?? i.name)), rulesBlock(rules, i.role)]
-          .filter(Boolean)
-          .join("\n\n") || null,
-    };
-    const task = await verifierBrief(run, i.role, i.name, i.brief);
-    writeTextAtomic(p.brief, composeBrief(task, briefCtx));
-    // a failover stand-in has no thread to resume, so it reads the whole brief by path (dispatch-service standInBrief)
-    if (briefCtx.resumed)
-      writeTextAtomic(fullBriefPath(p.brief), composeBrief(task, { ...briefCtx, resumed: false }));
+    const resumed = i.thread !== null;
+    if (i.composed) {
+      // plan 44 D2: the daemon composed this brief, since the decision had to judge the exact text before the rung
+      // was known; a failover stand-in has no thread to resume, so it reads the whole brief by path
+      writeTextAtomic(p.brief, i.brief);
+      if (resumed && i.fullBrief !== undefined) writeTextAtomic(fullBriefPath(p.brief), i.fullBrief);
+    } else {
+      // the 1.x path (tests, a 1.5 coordinator): the task is part 4; plan 32 and 34: the plan's preamble and the
+      // repo's standing rules for this role are part 3 (a knowledge file that cannot be read adds nothing)
+      const rules = await standingRules(run.meta.repo, i.role).catch(() => "");
+      const unit = [
+        ...unitContext(run, i.role, i.lane ?? milestoneOfName(i.name) ?? i.name),
+        rulesBlock(rules, i.role),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const briefCtx: BriefContext = {
+        run: run.id,
+        name: i.name,
+        role: i.role,
+        version: deps.version,
+        resumed,
+        lane: i.lane === null ? null : { id: i.lane, text: readFileSync(laneFile(run, i.lane), "utf8") },
+      };
+      // a verifier's task also carries the gate's rules and the run's recorded items
+      const parts = {
+        facts: [],
+        unit: unit ? [unit] : [],
+        round: [await verifierBrief(run, i.role, i.name, i.brief)],
+      };
+      writeTextAtomic(p.brief, composeBrief(parts, briefCtx));
+      if (resumed)
+        writeTextAtomic(fullBriefPath(p.brief), composeBrief(parts, { ...briefCtx, resumed: false }));
+    }
     // Spec §10.4: the adapter's overrides only; the supervisor adds its own inherited env at spawn
     // time (src/entry/supervise-command.ts), so no credential is ever written to disk. 0600 all the same.
     writeJsonAtomic(

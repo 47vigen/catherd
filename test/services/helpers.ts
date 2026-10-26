@@ -1,19 +1,10 @@
 import type { HostContext } from "../../src/domain/host.ts";
 import { execFileSync } from "node:child_process";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { checkItems } from "../../src/domain/fail-lines.ts";
 import { milestoneCheck } from "../../src/domain/plan-doc.ts";
 import { composeBrief } from "../../src/domain/brief.ts";
 import type { Role } from "../../src/domain/roles.ts";
-import { grantsScratch, ROLE_SERVER_BACKENDS } from "../../src/domain/role-tools.ts";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { newDispatchId, parseRung } from "../../src/domain/ids.ts";
@@ -24,47 +15,62 @@ import { processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { dispatch, type DispatchInput, watchersSettled } from "../../src/services/dispatch-service.ts";
-import {
-  type Admit,
-  admitPath,
-  type Dispatch,
-  roleDir,
-  scratchDir,
-  setLatest,
-} from "../../src/services/dispatches.ts";
+import { type Admit, admitPath, type Dispatch, roleDir, setLatest } from "../../src/services/dispatches.ts";
 import type { Deps, ProfilePort, ProfileView, RoutingPort } from "../../src/services/ports.ts";
+import { decisionQuestions } from "../../src/services/decision-service.ts";
+import { unitContext } from "../../src/services/plan-input.ts";
+import { milestoneOfName } from "../../src/services/verifier-brief.ts";
 import { result } from "../../src/services/run-service.ts";
-import { appendRecord, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
+import {
+  appendOutcome,
+  appendRecord,
+  appendRoute,
+  createRun,
+  findRun,
+  readRoutes,
+  type Run,
+  runPaths,
+} from "../../src/services/run-store.ts";
+import {
+  type ClimbReason,
+  currentRoute,
+  laneOutcome,
+  nextRung,
+  outcomeRouteRow,
+  type RouteRow,
+} from "../../src/domain/route.ts";
 import { makeRecord } from "../domain/make-record.ts";
 import { repoWithOrigin, tempRepo, withHome } from "../helpers.ts";
 
 export { makeRecord } from "../domain/make-record.ts";
 
 /**
- * The brief admission writes for `text` (spec 1.5 plan 21): the lane file inlined, the role's notes, its reply
- * contract. `backend` (and `isolated`) decide the scratch folder and the role server, as admission does.
+ * The brief admission composes for `text` on the 1.x path (plan 44 D2): the four parts, `text` as part 4, the lane
+ * file at the end of part 3. A brief names no backend, so `backend` and `isolated` change nothing in it.
  */
 export function briefFor(
   run: Run,
   text: string,
   o: { name?: string; role?: Role; lane?: string | null; backend?: string; isolated?: boolean } = {},
 ): string {
-  const name = o.name ?? "worker-M1.L1";
   const lane = o.lane === undefined ? "M1.L1" : o.lane;
-  const backend = o.backend ?? "codex";
-  return composeBrief(text, {
-    run: run.id,
-    name,
-    role: o.role ?? "worker",
-    lane:
-      lane === null
-        ? null
-        : { id: lane, text: readFileSync(join(runPaths(run.dir).lanes, `${lane}.md`), "utf8") },
-    scratch: grantsScratch(backend, o.isolated ?? false) ? realpathSync(scratchDir(run, name)) : null,
-    roleServer: ROLE_SERVER_BACKENDS.includes(backend),
-    version: "0.0.0-test",
-    context: null,
-  });
+  const name = o.name ?? "worker-M1.L1";
+  const role = o.role ?? "worker";
+  return composeBrief(
+    // part 3 as admission composes it (plan 44 D12): the unit's context, whose unit is the lane, else the milestone
+    { facts: [], unit: unitContext(run, role, lane ?? milestoneOfName(name) ?? name), round: [text] },
+    {
+      run: run.id,
+      name,
+      role,
+      lane:
+        lane === null
+          ? null
+          : { id: lane, text: readFileSync(join(runPaths(run.dir).lanes, `${lane}.md`), "utf8") },
+      version: "0.0.0-test",
+      resumed: false,
+    },
+  );
 }
 
 export const LADDER = [
@@ -79,9 +85,8 @@ const role = (access: Access, rungs: string[]) => ({ enabled: true, access, rung
 export function testView(over: Partial<ProfileView> = {}): ProfileView {
   return {
     name: "test",
-    objective: "cost",
     billing: {},
-    jev: { use: "auto" },
+    decision: { url: "https://decision.test/v1", model: "test-decider", minConfidence: 0.8 },
     roles: {
       worker: role("workspace-write", LADDER),
       writer: role("workspace-write", ["codex:gpt-6-luna#high"]),
@@ -107,42 +112,34 @@ export function fakeDeps(
 ): Deps & { view: ProfileView } {
   const view = o.view ?? testView();
   const routing: RoutingPort = {
-    async route(req) {
+    // the role's first rung at or above the floor, no call; a test that wants a pick replaces it
+    async decide(req) {
       const rungs = view.roles[req.role]?.rungs ?? [];
+      const at = req.floor === null ? -1 : rungs.indexOf(req.floor);
+      const open = rungs.slice(Math.max(0, req.strict ? at + 1 : at)).filter((r) => !req.exclude.includes(r));
+      const rung = open[0];
+      if (rung === undefined)
+        return req.strict && req.floor !== null
+          ? { ok: false, exhausted: true, floor: req.floor }
+          : { ok: false, exhausted: false, error: "no rung", rungs: [] };
       return {
-        rung: rungs[0] ?? "",
-        ladder: rungs,
-        source: "default",
-        kind: null,
-        difficulty: null,
-        questionSet: null,
-        jev: null,
-        jevSaid: null,
-        why: "the role's default rung",
+        ok: true,
+        rung,
+        level: 0,
+        levels: open.length,
+        levelRungs: open.map((r) => [r]),
+        source: "floor",
+        p: null,
+        probabilities: {},
+        why: "the fake decides the first rung above the floor",
       };
     },
-    // a test that replaces route gets it for every lane of a batch too
-    async routeMany(reqs) {
-      return Promise.all(reqs.map((r) => routing.route(r)));
-    },
-    finding: async (_runDir, _laneText, _finding, _use) => ({
-      value: "code",
-      probability: null,
-      confidence: null,
-      source: "default",
+    verdict: async (_runDir, _profile, set) => ({
+      ok: true,
+      value: decisionQuestions().sets[set].rule.fallback,
+      p: 0,
     }),
-    sameDefect: async (_runDir, _before, _after, _use) => ({
-      value: "no",
-      probability: null,
-      confidence: null,
-      source: "default",
-    }),
-    stopCause: async (_runDir, _status, _reply, _use) => ({
-      value: "other",
-      probability: null,
-      confidence: null,
-      source: "default",
-    }),
+    probe: async () => ({ ok: true, latencyMs: 1 }),
     checkStart: async () => ({ unusable: [], index: null }),
     catalog: () => ({ total: 0, models: [] }),
   };
@@ -184,7 +181,7 @@ export function fakeDeps(
 /** An isolated CATHERD_HOME, a fresh git repo and a run in it. Call `afterEach(snapshotEnv())` in the file. */
 export function freshRun(title = "t"): { repo: string; run: Run } {
   withHome();
-  delete process.env.TYPESAFE_API_KEY;
+  delete process.env.CATHERD_DECISION_KEY;
   const repo = tempRepo();
   return { repo, run: createRun({ repo, title, aLines: ["A1 it works"], version: "0.0.0-test" }) };
 }
@@ -192,7 +189,7 @@ export function freshRun(title = "t"): { repo: string; run: Run } {
 /** plan 35: a run with `base: "main"` over a repo whose origin is a local bare clone (never a URL). */
 export function branchRun(title = "t"): { repo: string; origin: string; run: Run } {
   withHome();
-  delete process.env.TYPESAFE_API_KEY;
+  delete process.env.CATHERD_DECISION_KEY;
   const { repo, origin } = repoWithOrigin();
   return {
     repo,
@@ -466,3 +463,65 @@ export const PLAN_TEXT = [
   "Test: `docs.test.ts` — links",
   "",
 ].join("\n");
+
+/**
+ * A lane's route row as `dispatch` writes it for a coordinator's rung, and as every earlier catherd wrote it: the
+ * lane starts on the role's first rung, the profile's rungs are its ladder. The readers of old runs (climbs,
+ * outcomes, the protocol's next step) are tested on these rows.
+ */
+export async function route(
+  deps: Deps,
+  i: { run: string; laneFile: string; role: Role; row?: Partial<RouteRow> },
+): Promise<{ lane: string; rung: string; ladder: string[] }> {
+  const run = findRun(i.run);
+  const lane = (i.laneFile.match(/^lanes\/(.+)\.md$/) as RegExpMatchArray)[1] as string;
+  const ladder = deps.profiles.forRepo(run.meta.repo).roles[i.role]?.rungs ?? [];
+  appendRoute(run, {
+    at: new Date(deps.now()).toISOString(),
+    lane,
+    role: i.role,
+    rung: ladder[0] as string,
+    ladder,
+    source: "route",
+    decidedBy: "default",
+    from: null,
+    reason: null,
+    kind: null,
+    difficulty: null,
+    why: "the role's first rung",
+    ...i.row,
+  });
+  return { lane, rung: ladder[0] as string, ladder };
+}
+
+/**
+ * One rung up the lane's ladder, as an earlier catherd's `climb` wrote it: a `climb` row, and past the top rung
+ * the lane's open outcome. Returns the rung it stands on and whether that is the top.
+ */
+export function climb(
+  deps: Deps,
+  i: { run: string; lane: string; reason: ClimbReason; evidence?: string; env?: boolean },
+): { rung: string; top: boolean } {
+  const run = findRun(i.run);
+  const cur = currentRoute(readRoutes(run), i.lane) as RouteRow;
+  const next = nextRung(cur.ladder, cur.rung);
+  const at = new Date(deps.now()).toISOString();
+  appendRoute(run, {
+    ...cur,
+    at,
+    source: "climb",
+    from: cur.rung,
+    rung: next ?? cur.rung,
+    reason: i.evidence ? `${i.reason}: ${i.evidence}` : i.reason,
+    env: i.env === true,
+  });
+  if (!next) {
+    const routes = readRoutes(run);
+    const o = laneOutcome(routes, i.lane, false, at);
+    if (o) {
+      appendOutcome(run, o);
+      appendRoute(run, outcomeRouteRow(routes, o));
+    }
+  }
+  return { rung: next ?? cur.rung, top: next === null };
+}

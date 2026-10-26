@@ -2151,7 +2151,8 @@
                       "budget",
                       "judge",
                       "effect",
-                      "push"
+                      "push",
+                      "decision"
                     ]
                   },
                   "question": {
@@ -2164,6 +2165,16 @@
                   "question"
                 ],
                 "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NodeDecision"
               },
               {
                 "type": "null"
@@ -2190,7 +2201,79 @@
           "startedAt",
           "endedAt",
           "question",
+          "decision",
           "attempts"
+        ],
+        "additionalProperties": false
+      },
+      "NodeDecision": {
+        "type": "object",
+        "properties": {
+          "n": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "rung": {
+            "type": "string"
+          },
+          "level": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "levels": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "levelRungs": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "p": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "model",
+              "floor",
+              "failover",
+              "coordinator"
+            ]
+          },
+          "why": {
+            "type": "string"
+          },
+          "probabilities": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "n",
+          "rung",
+          "level",
+          "levels",
+          "levelRungs",
+          "p",
+          "source",
+          "why",
+          "probabilities"
         ],
         "additionalProperties": false
       },
@@ -3463,7 +3546,8 @@
               "budget",
               "judge",
               "effect",
-              "push"
+              "push",
+              "decision"
             ]
           },
           "at": {
@@ -3539,27 +3623,37 @@
       "ProfilePatch": {
         "type": "object",
         "properties": {
-          "objective": {
-            "type": "string",
-            "enum": [
-              "cost",
-              "speed"
-            ]
-          },
-          "jev": {
+          "decision": {
             "type": "object",
             "properties": {
-              "use": {
-                "type": "string",
-                "enum": [
-                  "auto",
-                  "off"
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^https?:\\/\\/\\S+$"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
+              },
+              "model": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "minConfidence": {
+                "type": "number",
+                "minimum": 0.5,
+                "maximum": 1
               }
             },
-            "required": [
-              "use"
-            ],
             "additionalProperties": false
           },
           "billing": {
@@ -3674,37 +3768,6 @@
                       "type": "null"
                     }
                   ]
-                },
-                "bars": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "propertyNames": {
-                        "type": "string",
-                        "enum": [
-                          "copy",
-                          "build",
-                          "logic",
-                          "hard"
-                        ]
-                      },
-                      "additionalProperties": {
-                        "anyOf": [
-                          {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 100
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
                 }
               },
               "additionalProperties": false
@@ -3771,37 +3834,6 @@
                 }
               ]
             }
-          },
-          "bars": {
-            "anyOf": [
-              {
-                "type": "object",
-                "propertyNames": {
-                  "type": "string",
-                  "enum": [
-                    "copy",
-                    "build",
-                    "logic",
-                    "hard"
-                  ]
-                },
-                "additionalProperties": {
-                  "anyOf": [
-                    {
-                      "type": "number",
-                      "minimum": 0,
-                      "maximum": 100
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                }
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "budget": {
             "type": "object",
@@ -4053,13 +4085,6 @@
       "Settings": {
         "type": "object",
         "properties": {
-          "objective": {
-            "type": "string",
-            "enum": [
-              "cost",
-              "speed"
-            ]
-          },
           "budget": {
             "type": "object",
             "properties": {
@@ -4109,15 +4134,6 @@
               "type": "string"
             }
           },
-          "bars": {
-            "type": "object",
-            "propertyNames": {
-              "type": "string"
-            },
-            "additionalProperties": {
-              "type": "number"
-            }
-          },
           "heavy": {
             "anyOf": [
               {
@@ -4157,6 +4173,32 @@
           "landAutoMerge": {
             "type": "boolean"
           },
+          "decision": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "model": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "minConfidence": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "url",
+              "model",
+              "minConfidence"
+            ],
+            "additionalProperties": false
+          },
           "notify": {
             "type": "array",
             "items": {
@@ -4167,13 +4209,6 @@
                 "blocked"
               ]
             }
-          },
-          "jev": {
-            "type": "string",
-            "enum": [
-              "auto",
-              "off"
-            ]
           },
           "billing": {
             "type": "object",
@@ -4201,18 +4236,16 @@
           }
         },
         "required": [
-          "objective",
           "budget",
           "timeouts",
           "failover",
           "maxEffort",
-          "bars",
           "heavy",
           "memory",
           "preflightConfirm",
           "landAutoMerge",
+          "decision",
           "notify",
-          "jev",
           "billing",
           "isolated"
         ],
@@ -4401,7 +4434,8 @@
               "budget",
               "judge",
               "effect",
-              "push"
+              "push",
+              "decision"
             ]
           },
           "at": {

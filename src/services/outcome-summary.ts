@@ -1,4 +1,4 @@
-import { CHORE_WHY, type LaneRecord, type OutcomeStat, summarize } from "../domain/track-record.ts";
+import { type LaneRecord, type OutcomeStat, summarize } from "../domain/track-record.ts";
 import { latestOutcomes } from "../domain/route.ts";
 import { ownerOfFile } from "../domain/run-state.ts";
 import type { MilestonePlan } from "../domain/run-events.ts";
@@ -40,7 +40,6 @@ export function laneRecords(run: Run): LaneRecord[] {
       rung: o.startRung,
       kind: route?.kind ?? null,
       difficulty: route?.difficulty ?? null,
-      chore: route?.why?.includes(CHORE_WHY) ?? false,
       landed: o.landed,
       firstPass: o.landed && o.start_ok && n === 1,
       rounds: n,

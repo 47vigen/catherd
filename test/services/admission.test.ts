@@ -1,18 +1,18 @@
 import * as git from "../../src/infra/git.ts";
 import { replyContract } from "../../src/domain/role-prompts.ts";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cursorAdapter } from "../../src/adapters/cursor/index.ts";
 import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
-import { type AdmitInput, admit } from "../../src/services/admission.ts";
+import { type AdmitInput, admit, fullBriefPath } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { setGateEnv } from "../../src/services/gate-env.ts";
 import { latestDispatch } from "../../src/services/dispatches.ts";
 import { ownsAdd } from "../../src/services/lane-edit.ts";
-import { copyPlanInputs, planContext } from "../../src/services/plan-input.ts";
+import { copyPlanInputs } from "../../src/services/plan-input.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import { addKnowledge } from "../../src/services/run-service.ts";
 import { appendRecord, readRecords } from "../../src/services/run-store.ts";
@@ -20,6 +20,7 @@ import { claimTree } from "../../src/services/milestone-tree.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
+import { type OpencodeModel, withOpencodeScenario } from "../sim/sim-scenarios.ts";
 import {
   branchRun,
   briefFor,
@@ -33,6 +34,10 @@ import {
   testView,
   writeLane,
 } from "./helpers.ts";
+
+const OC_MODELS = JSON.parse(
+  readFileSync(join(import.meta.dir, "..", "fixtures", "adapters", "opencode", "models.json"), "utf8"),
+).data as OpencodeModel[];
 
 afterEach(snapshotEnv());
 // a test that needs a backend with no adapter unregisters a real one (plan 17 Ruling X2)
@@ -114,6 +119,40 @@ describe("admission in a worktree (plan 35)", () => {
     expect((await envOf(verifier)).COMPOSE_PROJECT_NAME).toBe("mine");
   });
 
+  it("a role runs with Honcho off, and a gate env value HONCHO_ENABLED=true wins", async () => {
+    const { repo, run } = setup();
+    const base = testView();
+    const deps = fakeDeps({
+      view: testView({
+        roles: { ...base.roles, verifier: { enabled: true, access: "read-only", rungs: [LADDER[0]!] } },
+      }),
+    });
+    const envOf = async (over: Partial<AdmitInput>) =>
+      JSON.parse(readFileSync((await admit(deps, run, input(over))).specPath, "utf8")).env;
+    const verifier = {
+      role: "verifier" as const,
+      name: "verifier-M1",
+      lane: null,
+      rung: "codex:gpt-6-luna#high",
+    };
+    expect((await envOf({})).HONCHO_ENABLED).toBe("false");
+    expect((await envOf(verifier)).HONCHO_ENABLED).toBe("false");
+    await setGateEnv(repo, "HONCHO_ENABLED", { value: "true" });
+    expect((await envOf({ ...verifier, name: "verifier-M2" })).HONCHO_ENABLED).toBe("true");
+  });
+
+  it("an opencode role gets its scratch TMPDIR", async () => {
+    const { run } = setup();
+    Object.assign(process.env, withOpencodeScenario({ models: OC_MODELS }).env);
+    const rung = "opencode:opencode-go/kimi-k3#max";
+    const view = testView();
+    view.roles.worker = { enabled: true, access: "workspace-write", rungs: [rung] };
+    const { specPath } = await admit(fakeDeps({ view }), run, input({ rung }));
+    expect(JSON.parse(readFileSync(specPath, "utf8")).env.TMPDIR).toBe(
+      realpathSync(join(run.dir, "scratch", "worker-M1.L1")),
+    );
+  });
+
   it("without cwd, admits in the repo as 1.5", async () => {
     const { repo, run } = setup();
     const { d, specPath } = await admit(fakeDeps(), run, input());
@@ -130,11 +169,11 @@ describe("admission", () => {
     copyPlanInputs(run, [plan]);
     const { d } = await admit(fakeDeps(), run, input());
     const brief = readFileSync(dispatchPaths(d.dir).brief, "utf8");
+    // plan 44 D12: part 3 is the unit's context (its plan tasks), not the plan's preamble
     expect(brief).toContain(
-      "<context>\nThe plan's preamble (p.md), which applies to every task:\n\n# Plan P\nGoal: a wallet.\n</context>\n\n<role>\n",
+      "<unit-context>\nYour A-lines:\nA1 it works\n\nRead on demand:\n- plan-input/p.md",
     );
-    // the architect's brief carries no preamble: it translates the plan itself
-    expect(planContext(run, "architect")).toBeNull();
+    expect(brief).not.toContain("which applies to every task");
   });
 
   it("a lane's context comes from its own milestone", async () => {
@@ -148,11 +187,11 @@ describe("admission", () => {
     writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
     const { d } = await admit(fakeDeps(), run, input());
     const brief = readFileSync(dispatchPaths(d.dir).brief, "utf8");
-    expect(brief).toContain("Goal: alpha.");
-    expect(brief).not.toContain("Goal: beta.");
+    expect(brief).toContain("### Task 1: add the store");
+    expect(brief).not.toContain("### Task 2: docs");
   });
 
-  it("a resumed dispatch's brief.md has no role section", async () => {
+  it("a resumed dispatch's brief.md is this round only, and brief-full.md the four parts", async () => {
     const { repo, run } = setup();
     const plan = join(repo, "p.md");
     writeFileSync(plan, PLAN_TEXT);
@@ -169,7 +208,12 @@ describe("admission", () => {
       }),
     );
     const again = await admit(fakeDeps(), run, input({ thread: THREAD }));
-    expect(readFileSync(dispatchPaths(again.d.dir).brief, "utf8").startsWith("<task>")).toBe(true);
+    const resumed = readFileSync(dispatchPaths(again.d.dir).brief, "utf8");
+    expect(resumed).toStartWith("<this-round>\n");
+    expect(resumed).not.toContain("<role-contract>");
+    expect(readFileSync(fullBriefPath(dispatchPaths(again.d.dir).brief), "utf8")).toStartWith(
+      "<role-contract>\n",
+    );
   });
 
   it("puts the role's standing rules in every brief, and no block when the role has none (plan 34)", async () => {
@@ -183,19 +227,47 @@ describe("admission", () => {
     await addKnowledge(repo, "[reviewer] only R");
     const { d } = await admit(fakeDeps(), run, input());
     const brief = readFileSync(dispatchPaths(d.dir).brief, "utf8");
-    const context = brief.slice(brief.indexOf("<context>"), brief.indexOf("</context>"));
+    const context = brief.slice(brief.indexOf("<unit-context>"), brief.indexOf("</unit-context>"));
     expect(context).toContain("Standing rules for the worker role in this repo (its knowledge.md):");
     expect(context).toContain("always A");
     expect(context).toContain("only W");
     expect(context).not.toContain("only R");
-    expect(context.indexOf("The plan's preamble")).toBeLessThan(context.indexOf("Standing rules"));
+    expect(context.indexOf("Your A-lines")).toBeLessThan(context.indexOf("Standing rules"));
 
     const other = setup();
     const { d: none } = await admit(fakeDeps(), other.run, input());
     const bare = readFileSync(dispatchPaths(none.dir).brief, "utf8");
     expect(bare).toBe(briefFor(other.run, "Read lanes/M1.L1.md"));
-    for (const text of ["<context>", "Standing rules", "no knowledge recorded"])
+    for (const text of ["The plan's preamble", "Standing rules", "no knowledge recorded"])
       expect(bare).not.toContain(text);
+  });
+
+  it("a composed brief is written verbatim", async () => {
+    const { run } = setup();
+    const brief = "<role-contract>\nX\n</role-contract>\n";
+    const { d } = await admit(fakeDeps(), run, input({ brief, composed: true }));
+    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toBe(brief);
+    // no plan context, standing rules or lane file is added to it
+    expect(existsSync(fullBriefPath(dispatchPaths(d.dir).brief))).toBe(false);
+  });
+
+  it("a composed resumed dispatch keeps the whole brief beside the trimmed one", async () => {
+    const { run } = setup();
+    const first = await admit(fakeDeps(), run, input());
+    appendRecord(
+      run,
+      makeRecord({
+        runId: run.id,
+        dispatchId: first.d.admit.dispatchId,
+        name: "worker-M1.L1",
+        thread: THREAD,
+      }),
+    );
+    const brief = "<this-round>\nfix\n</this-round>\n";
+    const fullBrief = "<role-contract>\nX\n</role-contract>\n\n<this-round>\nfix\n</this-round>\n";
+    const { d } = await admit(fakeDeps(), run, input({ thread: THREAD, brief, fullBrief, composed: true }));
+    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toBe(brief);
+    expect(readFileSync(fullBriefPath(dispatchPaths(d.dir).brief), "utf8")).toBe(fullBrief);
   });
 
   it("writes the brief, admit.json, a spec without the brief in argv or catherd's secrets, and the latest pointer", async () => {
@@ -208,8 +280,8 @@ describe("admission", () => {
     expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toBe(
       briefFor(run, "--help me, do not read me as a flag"),
     );
-    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toEndWith(
-      `\n\n<reply_contract>\n${replyContract("worker")}\n</reply_contract>\n`,
+    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toContain(
+      `\n\n${replyContract("worker")}\n</role-contract>`,
     );
     // spec 1.5 plan 21: the lane file itself travels in the brief, so an isolated worker never guesses its Owns
     expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toContain(

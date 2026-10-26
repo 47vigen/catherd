@@ -45,13 +45,11 @@ export function SettingsSections({ view, issues, propose, disabled }: Props) {
   const p = { issues, propose, disabled };
   return (
     <div className="bg-border grid min-w-0 grid-cols-[minmax(0,1fr)] gap-px lg:grid-cols-2 [&>section]:min-w-0">
-      <ObjectiveSection key={`o${s.objective}`} value={s.objective} {...p} />
-      <JevSection key={`j${s.jev}`} value={s.jev} {...p} />
+      <DecisionSection key={`j${JSON.stringify(s.decision)}`} value={s.decision} {...p} />
       <BudgetSection key={`b${JSON.stringify(s.budget)}`} value={s.budget} {...p} />
       <TimeoutsSection key={`t${JSON.stringify(s.timeouts)}`} value={s.timeouts} {...p} />
       <FailoverSection key={`f${JSON.stringify(s.failover)}`} value={s.failover} roles={view.roles} {...p} />
       <EffortSection key={`e${JSON.stringify(s.maxEffort)}`} value={s.maxEffort} {...p} />
-      <BarsSection key={`d${JSON.stringify(s.bars)}`} value={s.bars} {...p} />
       <LimitsSection key={`l${JSON.stringify([s.heavy, s.memory])}`} value={s} {...p} />
       <PreflightSection key={`p${s.preflightConfirm}`} value={s.preflightConfirm} {...p} />
       <LandSection key={`m${s.landAutoMerge}`} value={s.landAutoMerge} {...p} />
@@ -69,62 +67,70 @@ type SectionProps<T> = {
   disabled: boolean;
 };
 
-function ObjectiveSection({ value, issues, propose, disabled }: SectionProps<Settings["objective"]>) {
-  const [draft, setDraft] = useState(value);
-  return (
-    <SettingSection
-      id="objective"
-      title={<Term name="objective">Objective</Term>}
-      meaning="What routing favours when two rungs both fit: the cheaper one or the faster one."
-      issues={issuesAt(issues, "objective")}
-      dirty={draft !== value}
-      disabled={disabled}
-      onReview={() => propose(patchFor("objective", { objective: draft }))}
-    >
-      <Choice<"cost" | "speed">
-        label="Objective"
-        value={draft}
-        onChange={setDraft}
-        disabled={disabled}
-        options={[
-          {
-            id: "cost",
-            label: "Cost",
-            description: "Prefer the cheapest rung that fits.",
-          },
-          {
-            id: "speed",
-            label: "Speed",
-            description: "Prefer the fastest rung that fits.",
-          },
-        ]}
-      />
-    </SettingSection>
-  );
-}
+const parseConfidence = (t: string): number | undefined => {
+  const n = Number(t.trim());
+  return t.trim() !== "" && Number.isFinite(n) && n >= 0.5 && n <= 1 ? n : undefined;
+};
+const httpUrl = (t: string) => /^https?:\/\/\S+$/.test(t.trim());
 
-function JevSection({ value, issues, propose, disabled }: SectionProps<Settings["jev"]>) {
-  const [draft, setDraft] = useState(value);
+function DecisionSection({ value, issues, propose, disabled }: SectionProps<Settings["decision"]>) {
+  const initial = { url: value.url ?? "", model: value.model ?? "", minConfidence: String(value.minConfidence) };
+  const [d, setD] = useState(initial);
+  const confidence = parseConfidence(d.minConfidence);
+  const badUrl = d.url.trim() !== "" && !httpUrl(d.url) ? "Enter an http or https address, or leave empty." : undefined;
   return (
     <SettingSection
-      id="jev"
-      title={<Term name="Jev">Jev</Term>}
-      meaning="Let the advisor pick the model and effort of each lane, or keep to your ladders as they are."
-      issues={issuesAt(issues, "jev")}
-      dirty={draft !== value}
+      id="decision"
+      title={<Term name="Decision model">Decision model</Term>}
+      meaning="The model behind an OpenAI-compatible gateway that picks the model and effort of each dispatch. Its key is set with catherd init, not here."
+      issues={issuesAt(issues, "decision")}
+      dirty={changed(d, initial)}
+      valid={confidence !== undefined && badUrl === undefined}
       disabled={disabled}
-      onReview={() => propose(patchFor("jev", { use: draft }))}
+      onReview={() =>
+        propose(
+          patchFor(
+            "decision",
+            {
+              url: d.url.trim() || null,
+              model: d.model.trim() || null,
+              minConfidence: confidence ?? value.minConfidence,
+            },
+            value,
+          ),
+        )
+      }
     >
-      <Choice<"auto" | "off">
-        label="Jev"
-        value={draft}
-        onChange={setDraft}
-        disabled={disabled}
-        options={[
-          { id: "auto", label: "Automatic" },
-          { id: "off", label: "Off" },
-        ]}
-      />
+      <div className="flex flex-wrap gap-4">
+        <TextField
+          value={d.url}
+          onChange={(v) => setD({ ...d, url: v })}
+          isInvalid={badUrl !== undefined}
+          isDisabled={disabled}
+          className="min-w-56 flex-1 basis-64"
+        >
+          <Label>Gateway URL</Label>
+          <Input placeholder="https://<your-gateway>/v1" />
+          {badUrl ? <p className="text-danger text-xs">{badUrl}</p> : null}
+        </TextField>
+        <TextField
+          value={d.model}
+          onChange={(v) => setD({ ...d, model: v })}
+          isDisabled={disabled}
+          className="min-w-40 flex-1 basis-48"
+        >
+          <Label>Model</Label>
+          <Input />
+        </TextField>
+        <NumberText
+          label="Minimum confidence"
+          unit="from 0.5 to 1"
+          value={d.minConfidence}
+          invalid={confidence === undefined ? "Enter a number from 0.5 to 1." : undefined}
+          disabled={disabled}
+          onChange={(v) => setD({ ...d, minConfidence: v })}
+        />
+      </div>
     </SettingSection>
   );
 }
@@ -427,44 +433,6 @@ function EffortSection({ value, issues, propose, disabled }: SectionProps<Settin
         >
           Add ceiling
         </Button>
-      </div>
-    </SettingSection>
-  );
-}
-
-const parseBar = (t: string): number | undefined => {
-  const n = Number(t.trim());
-  return t.trim() !== "" && Number.isFinite(n) && n >= 0 && n <= 100 ? n : undefined;
-};
-
-function BarsSection({ value, issues, propose, disabled }: SectionProps<Settings["bars"]>) {
-  const initial = Object.fromEntries(Object.entries(value).map(([k, n]) => [k, String(n)]));
-  const [d, setD] = useState(initial);
-  const parsed = Object.fromEntries(Object.entries(d).map(([k, t]) => [k, parseBar(t)]));
-  const valid = Object.values(parsed).every((n) => n !== undefined);
-  return (
-    <SettingSection
-      id="bars"
-      title="Difficulty bars"
-      meaning="How capable a model must be, as a percentile of the indexed models, for each difficulty of lane."
-      issues={issuesAt(issues, "bars")}
-      dirty={changed(d, initial)}
-      valid={valid}
-      disabled={disabled}
-      onReview={() => propose(patchFor("bars", parsed as Record<string, number>, value))}
-    >
-      <div className="flex flex-wrap gap-4">
-        {Object.keys(d).map((k) => (
-          <NumberText
-            key={k}
-            label={k}
-            unit="percentile, 0 to 100"
-            value={d[k] ?? ""}
-            invalid={parsed[k] === undefined ? "Enter a number from 0 to 100." : undefined}
-            disabled={disabled}
-            onChange={(v) => setD({ ...d, [k]: v })}
-          />
-        ))}
       </div>
     </SettingSection>
   );

@@ -3,12 +3,15 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { GATE_NOTES_HEADING, gateNotes, VERIFIER_GATE_RULES } from "../../src/domain/gate-brief.ts";
-import { replyContract, roleSections, rolePrompt } from "../../src/domain/role-prompts.ts";
+import { replyContract, rolePrompt } from "../../src/domain/role-prompts.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { admit } from "../../src/services/admission.ts";
 import { setGateEnv } from "../../src/services/gate-env.ts";
 import { gateCheck, gatePass } from "../../src/services/gate-service.ts";
+import { issueTitle } from "../../src/services/brief-cap.ts";
+import { renderBrief } from "../../src/services/run-briefs.ts";
 import { milestoneOfName, verifierBrief } from "../../src/services/verifier-brief.ts";
+import { runningLog } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDeps, freshRun, testView } from "./helpers.ts";
@@ -85,7 +88,7 @@ describe("the verifier's brief (plan 23)", () => {
     });
     const text = readFileSync(dispatchPaths(d.dir).brief, "utf8");
     expect(text).toContain(GATE_NOTES_HEADING);
-    expect(text).toEndWith(`\n\n<reply_contract>\n${replyContract("verifier")}\n</reply_contract>\n`);
+    expect(text).toContain(`\n\n${replyContract("verifier")}\n</role-contract>`);
   });
 
   it("the gate rules appear once", async () => {
@@ -94,6 +97,62 @@ describe("the verifier's brief (plan 23)", () => {
     const brief = await verifierBrief(run, "verifier", "verifier-M1", "Verify M1.");
     expect(brief).toContain(GATE_NOTES_HEADING);
     const first = VERIFIER_GATE_RULES[0] as string;
-    expect(roleSections("verifier", "1.0.0", { task: brief }).split(first)).toHaveLength(2);
+    expect(`${rolePrompt("verifier", "1.0.0")}\n\n${brief}`.split(first)).toHaveLength(2);
+  });
+});
+
+describe("the composed verifier brief (plan 44)", () => {
+  const verify = {
+    type: "dispatch" as const,
+    unit: "M1",
+    name: "verifier-M1",
+    role: "verifier" as const,
+    lane: null,
+    rung: null,
+    thread: null,
+    failoverFrom: null,
+    brief: "verify" as const,
+    notes: [],
+    decision: null,
+  };
+
+  it("known issues are titles", async () => {
+    const { run } = freshRun();
+    const issue = `A8 red-first: accepted by the owner\n${"second line of the reason ".repeat(20)}\nthird line ${"z".repeat(300)}`;
+    expect(issue.split("\n")).toHaveLength(3);
+    expect(issue.length).toBeGreaterThan(800);
+    expect(issueTitle(issue)).toBe("A8 red-first: accepted by the owner");
+    const s = runningLog().state();
+    (s.milestones.find((m) => m.id === "M1") as { knownIssues: string[] }).knownIssues = [issue];
+    const text = await renderBrief(run, s, verify, false);
+    expect(text).toContain("- A8 red-first: accepted by the owner\n");
+    expect(text).toContain("the milestone's digest");
+    expect(text).not.toContain("second line of the reason");
+    expect(text).not.toContain("third line");
+  });
+
+  it("carries the gate notes at the end of this round, once", async () => {
+    const { repo, run } = freshRun();
+    await setGateEnv(repo, "DOCKER_HOST", { value: "unix:///tmp/d.sock" });
+    const text = await renderBrief(run, runningLog().state(), verify, false);
+    expect(text.indexOf(GATE_NOTES_HEADING)).toBeGreaterThan(text.indexOf("<this-round>"));
+    expect(text.split(GATE_NOTES_HEADING)).toHaveLength(2);
+    expect(text).toContain("DOCKER_HOST=unix:///tmp/d.sock");
+    // a resumed thread gets the notes too: the gate environment can change between rounds
+    expect(await renderBrief(run, runningLog().state(), verify, true)).toContain(GATE_NOTES_HEADING);
+  });
+
+  it("a verifier brief lists the commands to run", async () => {
+    const { run } = freshRun();
+    writeFileSync(join(run.dir, "plan.md"), "# P\n\n## M1 — core\n- A1 [run] it works\nCheck: bun test\n");
+    const s = runningLog().state();
+    const m = s.milestones.find((x) => x.id === "M1") as { commit: string | null; checkedOn: string | null };
+    m.commit = "abc123def456abc";
+    m.checkedOn = null;
+    const open = await renderBrief(run, s, verify, false);
+    expect(open).toContain("\nRUN: bun test\n");
+    expect(open).toContain("RAN: <command> — exit <n> — <log path>");
+    m.checkedOn = m.commit;
+    expect(await renderBrief(run, s, verify, false)).not.toContain("RUN: bun test");
   });
 });

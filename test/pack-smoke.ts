@@ -27,7 +27,7 @@ const SHIPPED = [
   "src/entry/check-bin.ts",
   "web/dist/index.html",
   "catalog/models.json",
-  "catalog/jev.json",
+  "catalog/decision.json",
   "plugin/.claude-plugin/plugin.json",
   "plugin/.mcp.json",
   "plugin/.codex-plugin/plugin.json",
@@ -73,7 +73,7 @@ writeFileSync(join(app, "package.json"), JSON.stringify({ name: "catherd-pack-sm
 const added = run([process.execPath, "add", tgz], app);
 must(added.code === 0, "bun add <tarball>", added.err);
 
-// 3. it runs in a fresh home, with no backend login and no Jev key needed
+// 3. it runs in a fresh home, with no backend login and no decision key needed
 const bin = join(app, "node_modules", ".bin", "catherd");
 const home = join(work, "home");
 // the installed bin on PATH, as after `bun add -g`: doctor's `mcp` row starts the server through the
@@ -86,7 +86,7 @@ const env = {
   CATHERD_HOME: home,
   CLAUDE_CONFIG_DIR: join(home, "claude"),
   CATHERD_CLAUDE_AGENTS_DIR: join(home, "claude-agents"),
-  TYPESAFE_API_KEY: "",
+  CATHERD_DECISION_KEY: "",
   ANTHROPIC_API_KEY: "",
   // the server doctor starts would fetch the Slopalytics index in the background (spec 1.2 §3.2): not here
   CATHERD_NO_SYNC: "1",

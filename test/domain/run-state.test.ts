@@ -1,13 +1,23 @@
 import { describe, expect, it } from "bun:test";
-import { next, actionKey, confirms } from "../../src/domain/run-machine.ts";
-import { type Finding, issueLine, type MilestonePlan } from "../../src/domain/run-events.ts";
+import {
+  type Action,
+  actionKey,
+  confirms,
+  type DecideAction,
+  decidedName,
+  next,
+} from "../../src/domain/run-machine.ts";
+import { HARNESS_NOTE } from "../../src/domain/harness.ts";
+import { type Finding, issueLine, type MilestonePlan, type RunEvent } from "../../src/domain/run-events.ts";
 import {
   activeMilestones,
   ADMIT_WAITS,
   findingKey,
+  floorOf,
   HOLD_MS,
   liveDispatches,
   ownerOfFile,
+  REDECIDE_LIMIT,
   reduce,
   replay,
   softCap,
@@ -17,17 +27,33 @@ import {
 } from "../../src/domain/run-state.ts";
 import {
   PLAN,
+  decide,
   endDispatch,
   finishLane,
   makeLog,
   routeMilestone,
   runningLog,
+  settled,
   START,
   startDispatch,
   startedFields,
 } from "./run-fixtures.ts";
 
 const bug = (text: string, file: string | null, label: "BUG" | "BLOCKER" = "BUG") => ({ label, text, file });
+
+const of = <T extends Action["type"]>(as: Action[], type: T): Extract<Action, { type: T }>[] =>
+  as.filter((a): a is Extract<Action, { type: T }> => a.type === type);
+
+const SOL = "codex:gpt-6-sol#medium";
+const SOL_HIGH = "codex:gpt-6-sol#high";
+const LUNA = "codex:gpt-6-luna#high";
+
+/** M1 routed, and its first lane decided on SOL: its failures have a rung to count against */
+function decidedLog() {
+  const log = runningLog();
+  decide(log, "worker-M1.L1", SOL);
+  return log;
+}
 
 /** M1's two lanes with no `After:` between them */
 const independent: MilestonePlan[] = [
@@ -252,6 +278,7 @@ describe("run state", () => {
       replyStatus: "blocked",
       reason: "needs_user",
     });
+    log.add("stop.classified", { dispatchId: w, reason: "needs_user" });
     expect(log.state().lanes["M1.L1"]?.status).toBe("parked");
     log.add("question.parked", { unit: "M1.L1", question: "q", reason: "needs_user" });
     log.add("question.answered", { unit: "M1.L1", answer: "use v2", by: "owner" });
@@ -261,7 +288,7 @@ describe("run state", () => {
     });
   });
 
-  it("counts a lane's attempts since its latest climb", () => {
+  it("counts a lane's attempts, and two on one rung make its floor strict", () => {
     const log = runningLog();
     for (let i = 0; i < 2; i++) {
       const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
@@ -270,16 +297,13 @@ describe("run state", () => {
       expect(log.state().lanes["M1.L1"]?.classify).toMatchObject({ dispatchId: w });
       log.add("stop.classified", { dispatchId: w, reason: null });
     }
-    expect(log.state().lanes["M1.L1"]).toMatchObject({
-      attempts: 2,
-      climbReason: "unchanged",
-      status: "pending",
-    });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ attempts: 2, status: "pending" });
+    expect(floorOf(log.state(), "worker-M1.L1")).toEqual({ floor: SOL, strict: true });
+    // an old run's climb still moves the lane
     log.add("lane.climbed", { lane: "M1.L1", rung: "codex:gpt-6-sol#high", top: false });
     expect(log.state().lanes["M1.L1"]).toMatchObject({
       attempts: 0,
       rung: "codex:gpt-6-sol#high",
-      climbReason: null,
       thread: null,
     });
   });
@@ -289,7 +313,7 @@ describe("run state", () => {
     const name = "worker-M1.L1";
     const why =
       "API Error: Couldn't connect through your proxy (ERR_PROXY_TUNNEL) — the proxy refused the tunnel";
-    const rung = log.state().lanes["M1.L1"]?.rung;
+    const rung = SOL;
     const t0 = Date.parse(START) + 3_600_000;
     for (const min of [0, 4, 12, 25]) {
       const at = new Date(t0 + min * 60_000).toISOString();
@@ -300,9 +324,9 @@ describe("run state", () => {
         status: "pending",
         classify: null,
         attempts: 0,
-        climbReason: null,
         rung,
       });
+      expect(s.floors[name]).toBeUndefined();
       expect(s.waiting[name]! > at).toBe(true);
       expect(s.stuck["M1.L1"]).toBeUndefined();
     }
@@ -328,8 +352,79 @@ describe("run state", () => {
     expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "pending", checkFails: 1, thread: "t-9" });
     expect(log.state().lanes["M1.L1"]?.notes[0]).toContain("1 failed");
     log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "1 failed", foreign: [] });
-    expect(log.state().lanes["M1.L1"]).toMatchObject({ checkFails: 2, climbReason: "check-failed-twice" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ checkFails: 2 });
+    expect(floorOf(log.state(), "worker-M1.L1")).toEqual({ floor: SOL, strict: true });
     expect(log.state().lanes["M1.L1"]?.notes).toHaveLength(1);
+  });
+
+  it("a harness failure gets one repair outside the round count", () => {
+    const log = runningLog();
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", thread: "t-9" });
+    const tail = "(fail) db > connects";
+    log.add("check.ran", { lane: "M1.L1", exit: 1, tail, foreign: [], failureClass: "harness" });
+    const l = log.state().lanes["M1.L1"];
+    expect(l).toMatchObject({ status: "pending", attempts: 0, checkFails: 0, thread: "t-9" });
+    expect(l?.notes[0]).toBe(HARNESS_NOTE);
+    expect(l?.notes[1]).toContain(tail);
+    log.add("check.ran", { lane: "M1.L1", exit: 1, tail, foreign: [], failureClass: "harness" });
+    expect(log.state().stuck["M1.L1"]?.reason).toBe("environment");
+    expect(log.state().stuck["M1.L1"]?.question).toContain(tail);
+  });
+
+  it("the signature survives the repair dispatch, so the same failure after it parks", () => {
+    const log = runningLog();
+    const name = "worker-M1.L1";
+    const w = startDispatch(log, { name, unit: "M1.L1" });
+    endDispatch(log, w, { name, unit: "M1.L1", thread: "t-9" });
+    const tail = "(fail) db > connects";
+    log.add("check.ran", { lane: "M1.L1", exit: 1, tail, foreign: [], failureClass: "harness" });
+    const repair = startDispatch(log, { name, unit: "M1.L1", thread: "t-9" });
+    endDispatch(log, repair, { name, unit: "M1.L1", thread: "t-9", replyStatus: "complete" });
+    log.add("stop.classified", { dispatchId: repair, reason: null, failureClass: "product" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "checking" });
+    log.add("check.ran", { lane: "M1.L1", exit: 1, tail, foreign: [], failureClass: "harness" });
+    expect(log.state().stuck["M1.L1"]?.reason).toBe("environment");
+  });
+
+  it("a product failure after a repair clears the signature", () => {
+    const log = runningLog();
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", thread: "t-9" });
+    log.add("check.ran", {
+      lane: "M1.L1",
+      exit: 1,
+      tail: "(fail) db > connects",
+      foreign: [],
+      failureClass: "harness",
+    });
+    expect(log.state().lanes["M1.L1"]?.harness).not.toBeNull();
+    log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "1 failed", foreign: [], failureClass: "product" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ harness: null, checkFails: 1 });
+  });
+
+  it("a harness stop is repaired once, then parks on the same signature", () => {
+    const log = runningLog();
+    const name = "worker-M1.L1";
+    const why = "docker: Cannot connect to the Docker daemon";
+    const w = startDispatch(log, { name, unit: "M1.L1", thread: "t-1" });
+    endDispatch(log, w, { name, unit: "M1.L1", replyStatus: "blocked", reason: "check_broken", why });
+    log.add("stop.classified", { dispatchId: w, reason: "check_broken", failureClass: "harness" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "pending", attempts: 0, stopRun: 0 });
+    expect(log.state().lanes["M1.L1"]?.notes[0]).toBe(HARNESS_NOTE);
+    const w2 = startDispatch(log, { name, unit: "M1.L1", thread: "t-1" });
+    endDispatch(log, w2, { name, unit: "M1.L1", replyStatus: "blocked", reason: "check_broken", why });
+    log.add("stop.classified", { dispatchId: w2, reason: "check_broken", failureClass: "harness" });
+    expect(log.state().stuck["M1.L1"]).toMatchObject({ reason: "environment" });
+  });
+
+  it("a lane that edited a foreign test file is sent back", () => {
+    const log = runningLog();
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", testEdits: ["test/b.test.ts"] });
+    const l = log.state().lanes["M1.L1"];
+    expect(l).toMatchObject({ status: "pending", attempts: 1, thread: null });
+    expect(l?.notes.join("\n")).toContain("Restore these test files; you do not own them: test/b.test.ts");
   });
 
   it("records a review round's counts, open findings and keys", () => {
@@ -566,9 +661,7 @@ describe("plan 39 orchestration guards", () => {
     log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
     review(log, []);
     checked(log, "c1");
-    expect(
-      next(log.state(), log.events.at(-1)!).some((a) => a.type === "dispatch" && a.role === "verifier"),
-    ).toBe(true);
+    expect(settled(log).some((a) => a.type === "dispatch" && a.role === "verifier")).toBe(true);
   });
 
   it("check_broken parks at once", () => {
@@ -650,44 +743,44 @@ describe("repeated fast check failures", () => {
   const check = { lane: "M1.L1", exit: 1, tail: "error: database unavailable [12ms]", foreign: [] };
 
   it("a worker's uncommitted change frees a repeated failure", () => {
-    const log = runningLog();
+    const log = decidedLog();
     log.add("check.ran", { ...check, tree: "t1" });
     log.add("check.ran", { ...check, tree: "t2" });
     expect(log.state().stuck[check.lane]).toBeUndefined();
     expect(log.state().lanes[check.lane]).toMatchObject({
       lastFailHead: "t2",
       checkFails: 2,
-      climbReason: "check-failed-twice",
     });
+    expect(floorOf(log.state(), "worker-M1.L1").strict).toBe(true);
   });
 
   it("the same tree and the same failure parks environment", () => {
     for (const commitBetween of [false, true]) {
-      const log = runningLog();
+      const log = decidedLog();
       log.add("check.ran", { ...check, tree: "t1" });
       expect(log.state().lanes[check.lane]?.lastFailHead).toBe("t1");
       if (commitBetween) log.add("commit.made", { milestone: "M1", round: 0, commit: "c1" });
       log.add("check.ran", { ...check, tree: "t1" });
       expect(log.state().stuck[check.lane]?.reason).toBe("environment");
-      expect(log.state().lanes[check.lane]?.climbReason).toBeNull();
+      expect(floorOf(log.state(), "worker-M1.L1").strict).toBe(false);
     }
   });
 
   it("an unknown tree never parks", () => {
-    const log = runningLog();
+    const log = decidedLog();
     log.add("check.ran", { ...check, tree: null });
     log.add("check.ran", { ...check, tree: null });
     expect(log.state().stuck[check.lane]).toBeUndefined();
     expect(log.state().lanes[check.lane]).toMatchObject({
       lastFailHead: null,
       checkFails: 2,
-      climbReason: "check-failed-twice",
     });
+    expect(floorOf(log.state(), "worker-M1.L1").strict).toBe(true);
   });
 
   it("an identical check failure on an unchanged head parks without a climb", () => {
     for (const head of [null, "c0"]) {
-      const log = runningLog();
+      const log = decidedLog();
       if (head) log.add("commit.made", { milestone: "M1", round: 0, commit: head });
       log.add("check.ran", check);
       expect(log.state().lanes[check.lane]).toMatchObject({
@@ -701,38 +794,36 @@ describe("repeated fast check failures", () => {
         question: expect.stringContaining("error: database unavailable"),
       });
       expect(s.stuck[check.lane]?.question).toContain(check.lane);
-      expect(s.lanes[check.lane]?.climbReason).toBeNull();
+      expect(floorOf(s, "worker-M1.L1").strict).toBe(false);
       expect(next(s, log.events.at(-1)!)).toContainEqual(
         expect.objectContaining({ type: "park", unit: check.lane, reason: "environment" }),
       );
     }
   });
 
-  it("a new milestone commit or different failures keep the normal climb", () => {
+  it("a new milestone commit or different failures keep the normal floor", () => {
     for (const change of ["head", "fails"]) {
-      const log = runningLog();
+      const log = decidedLog();
       log.add("check.ran", check);
       if (change === "head") log.add("commit.made", { milestone: "M1", round: 0, commit: "c1" });
       log.add("check.ran", { ...check, tail: change === "fails" ? "error: missing module" : check.tail });
       expect(log.state().stuck[check.lane]).toBeUndefined();
-      expect(log.state().lanes[check.lane]).toMatchObject({
-        checkFails: 2,
-        climbReason: "check-failed-twice",
-      });
+      expect(log.state().lanes[check.lane]).toMatchObject({ checkFails: 2 });
+      expect(floorOf(log.state(), "worker-M1.L1").strict).toBe(true);
     }
   });
 
   it("a sibling milestone commit does not free an unchanged lane head", () => {
-    const log = runningLog();
+    const log = decidedLog();
     log.add("check.ran", check);
     log.add("commit.made", { milestone: "M2", round: 0, commit: "sibling" });
     log.add("check.ran", check);
     expect(log.state().stuck[check.lane]?.reason).toBe("environment");
-    expect(log.state().lanes[check.lane]?.climbReason).toBeNull();
+    expect(floorOf(log.state(), "worker-M1.L1").strict).toBe(false);
   });
 
   it("a passing check clears the last failure", () => {
-    const log = runningLog();
+    const log = decidedLog();
     log.add("check.ran", check);
     log.add("check.ran", { ...check, exit: 0, tail: "passed" });
     expect(log.state().lanes[check.lane]).toMatchObject({ lastFails: null, lastFailHead: null });
@@ -741,11 +832,11 @@ describe("repeated fast check failures", () => {
   });
 
   it("empty failing lines never count as a repeated environment failure", () => {
-    const log = runningLog();
+    const log = decidedLog();
     log.add("check.ran", { ...check, tail: "no diagnostic" });
     log.add("check.ran", { ...check, tail: "no diagnostic" });
     expect(log.state().stuck[check.lane]).toBeUndefined();
-    expect(log.state().lanes[check.lane]?.climbReason).toBe("check-failed-twice");
+    expect(floorOf(log.state(), "worker-M1.L1").strict).toBe(true);
   });
 });
 
@@ -753,14 +844,14 @@ describe("plan 40: the verifying flow", () => {
   it("a green check lands a check-only milestone, and no verifier is owed", () => {
     const log = reviewing();
     review(log, []);
-    expect(next(log.state(), log.events.at(-1)!)).toContainEqual({
+    expect(settled(log)).toContainEqual({
       type: "machineCheck",
       milestone: "M1",
       commit: "c0",
     });
     checked(log, "c0", { checkOnly: true });
     expect(log.state().milestones[0]).toMatchObject({ status: "landing", checkOnly: true, checkedOn: "c0" });
-    const out = next(log.state(), log.events.at(-1)!);
+    const out = settled(log);
     expect(out.some((a) => a.type === "dispatch" && a.role === "verifier")).toBe(false);
     expect(out).toContainEqual({ type: "land", milestone: "M1", knownIssues: [] });
   });
@@ -774,7 +865,7 @@ describe("plan 40: the verifying flow", () => {
       status: "pending",
       notes: ["BLOCKER src/a/x.ts:3 — the test fails"],
     });
-    const out = next(log.state(), log.events.at(-1)!);
+    const out = settled(log);
     expect(out.some((a) => a.type === "dispatch" && a.role === "verifier")).toBe(false);
     expect(out).toContainEqual(expect.objectContaining({ type: "dispatch", name: "worker-M1.L1" }));
   });
@@ -785,7 +876,7 @@ describe("plan 40: the verifying flow", () => {
     const before = log.state().milestones[0];
     checked(log, "c9");
     expect(log.state().milestones[0]).toEqual(before);
-    expect(next(log.state(), log.events.at(-1)!)).toContainEqual({
+    expect(settled(log)).toContainEqual({
       type: "machineCheck",
       milestone: "M1",
       commit: "c0",
@@ -814,7 +905,7 @@ describe("plan 40: the verifying flow", () => {
     log.add("question.parked", { unit: "M1", question: "A8 is not met", reason: "blocker" });
     log.add("question.answered", { unit: "M1", answer: "accept: A8 is judged from the tree", by: "owner" });
     expect(log.state().milestones[0]).toMatchObject({ status: "landing", verifierPassedOn: "c2" });
-    const out = next(log.state(), log.events.at(-1)!);
+    const out = settled(log);
     expect(out.some((a) => a.type === "dispatch" && a.role === "verifier")).toBe(false);
     expect(out).toContainEqual(expect.objectContaining({ type: "land", milestone: "M1" }));
   });
@@ -830,13 +921,11 @@ describe("plan 40: the verifying flow", () => {
     log.add("question.parked", { unit: "M1", question: "lost data", reason: "blocker" });
     log.add("question.answered", { unit: "M1", answer: "accept", by: "owner" });
     expect(log.state().milestones[0]).toMatchObject({ status: "verifying", verifierPassedOn: null });
-    const owed = next(log.state(), log.events.at(-1)!);
+    const owed = settled(log);
     expect(owed).toContainEqual({ type: "machineCheck", milestone: "M1", commit: "c1" });
     expect(owed.some((a) => a.type === "dispatch" && a.role === "verifier")).toBe(false);
     checked(log, "c1");
-    expect(next(log.state(), log.events.at(-1)!)).toContainEqual(
-      expect.objectContaining({ type: "dispatch", role: "verifier" }),
-    );
+    expect(settled(log)).toContainEqual(expect.objectContaining({ type: "dispatch", role: "verifier" }));
   });
 
   it("a first land refusal reruns the check, not the verifier", () => {
@@ -857,7 +946,7 @@ describe("plan 40: the verifying flow", () => {
       checkedOn: null,
       verifierPassedOn: "c0",
     });
-    const out = next(log.state(), log.events.at(-1)!);
+    const out = settled(log);
     expect(out).toContainEqual({ type: "machineCheck", milestone: "M1", commit: "c0" });
     expect(out.some((a) => a.type === "dispatch")).toBe(false);
     checked(log, "c0");
@@ -881,7 +970,7 @@ describe("plan 40: the verifying flow", () => {
     };
     noVerdict("tv-1");
     expect(log.state().milestones[0]).toMatchObject({ status: "verifying", verifierFailedOn: null });
-    expect(next(log.state(), log.events.at(-1)!)).toContainEqual(
+    expect(settled(log)).toContainEqual(
       expect.objectContaining({ type: "dispatch", role: "verifier", thread: "tv-1", notes: [VERDICT_ASK] }),
     );
     noVerdict("tv-1");
@@ -966,9 +1055,7 @@ describe("plan 40: the verifying flow", () => {
       checkedOn: "c0",
       knownIssues: [missing],
     });
-    expect(next(log.state(), log.events.at(-1)!)).toContainEqual(
-      expect.objectContaining({ type: "dispatch", role: "verifier" }),
-    );
+    expect(settled(log)).toContainEqual(expect.objectContaining({ type: "dispatch", role: "verifier" }));
   });
 
   it("unowned BLOCKERs at the cap go to the triage judge once, and the second stop parks", () => {
@@ -984,7 +1071,7 @@ describe("plan 40: the verifying flow", () => {
     // no lane owns them and the cap is reached: the triage judge reads them, the owner is not asked yet
     expect(log.state().milestones[0]).toMatchObject({ status: "fixing", disputes: 1, disputing: true });
     expect(log.state().stuck).toEqual({});
-    expect(next(log.state(), log.events.at(-1)!)).toContainEqual(
+    expect(settled(log)).toContainEqual(
       expect.objectContaining({
         type: "judge",
         input: expect.objectContaining({ kind: "triage", unit: "M1" }),
@@ -1045,7 +1132,7 @@ describe("plan 40: the verifying flow", () => {
       checkedOn: "c1",
       checkWaivedOn: "c1",
     });
-    const out = next(log.state(), log.events.at(-1)!);
+    const out = settled(log);
     expect(out.some((a) => a.type === "machineCheck")).toBe(false);
     expect(out).toContainEqual(expect.objectContaining({ type: "dispatch", role: "verifier" }));
     const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
@@ -1074,7 +1161,7 @@ describe("plan 40: the verifying flow", () => {
       checkedOn: "c1",
       checkWaivedOn: "c1",
     });
-    const out = next(log.state(), log.events.at(-1)!);
+    const out = settled(log);
     expect(out.some((a) => a.type === "machineCheck")).toBe(false);
     expect(out).toContainEqual(expect.objectContaining({ type: "dispatch", role: "verifier" }));
   });
@@ -1097,7 +1184,7 @@ describe("plan 40: the verifying flow", () => {
       checkedOn: "c2",
       knownIssues: ["BUG src/a/x.ts:4 — the check"],
     });
-    const out = next(log.state(), log.events.at(-1)!);
+    const out = settled(log);
     expect(out.some((a) => a.type === "machineCheck")).toBe(false);
     expect(out).toContainEqual(expect.objectContaining({ type: "dispatch", role: "verifier" }));
   });
@@ -1317,184 +1404,6 @@ describe("pending reminder wake scheduling", () => {
     log.add("check.ran", { lane: "M1.L2", exit: 0, tail: "", foreign: [] });
     expect(owed()).toContain("M1.L1");
   });
-
-  describe("the cheap try of a mechanical fix", () => {
-    const CHEAP = "codex:gpt-5-luna#low";
-    const comment = bug("BUG src/a/x.ts:3 — the comment restates the code", "src/a/x.ts");
-    const unused = bug("BUG src/a/y.ts:1 — unused import", "src/a/y.ts");
-    const logic = bug("BUG src/a/z.ts:5 — off by one in the total", "src/a/z.ts");
-    const lane = (log: ReturnType<typeof makeLog>) => log.state().lanes["M1.L1"];
-
-    /** M1.L1 done, committed and reviewed with `findings`: its fix round is armed */
-    function armed(findings: Finding[]) {
-      const log = runningLog();
-      finishLane(log, "M1.L1");
-      finishLane(log, "M1.L2");
-      log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
-      review(log, findings);
-      return log;
-    }
-    /** the lane's fix dispatch on `rung` ends ok */
-    function fixOn(log: ReturnType<typeof makeLog>, rung: string, o: { ok?: boolean } = {}) {
-      const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", rung });
-      endDispatch(log, id, {
-        name: "worker-M1.L1",
-        unit: "M1.L1",
-        thread: "t-cheap",
-        ...(o.ok === false ? { status: "failed" as const, replyStatus: null, environment: "network" } : {}),
-      });
-    }
-
-    it("a fix round of convention findings arms the cheap try", () => {
-      expect(lane(armed([comment, unused]))).toMatchObject({ status: "pending", cheapFirst: true });
-      expect(lane(armed([comment, logic]))?.cheapFirst).toBe(false);
-    });
-
-    it("a cheap dispatch is spent once", () => {
-      const log = armed([comment]);
-      const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", rung: CHEAP });
-      expect(lane(log)).toMatchObject({ cheapRan: true, cheapFirst: false });
-      endDispatch(log, id, { name: "worker-M1.L1", unit: "M1.L1" });
-      log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "src/a/x.ts:3 bad", foreign: [] });
-      startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
-      expect(lane(log)).toMatchObject({ cheapRan: false, cheapFirst: false });
-    });
-
-    it("a cheap fix on the lane's own rung is an ordinary fix", () => {
-      const log = armed([comment]);
-      startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", rung: "codex:gpt-6-sol#medium" });
-      expect(lane(log)).toMatchObject({ cheapRan: false, cheapFirst: false });
-    });
-
-    it("a failed check after the cheap try goes back to the lane's rung and does not count", () => {
-      const log = armed([comment]);
-      fixOn(log, CHEAP);
-      // the cheap try's thread is not the lane's: a later fix round must not resume it on the lane's rung
-      expect(lane(log)?.thread).toBe("t-M1.L1");
-      log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "src/a/x.ts:3 error", foreign: [] });
-      expect(lane(log)).toMatchObject({
-        status: "pending",
-        thread: null,
-        checkFails: 0,
-        attempts: 0,
-        climbReason: null,
-        cheapRan: false,
-        cheapFirst: false,
-      });
-      expect(lane(log)?.notes.at(-1)).toContain("The fast check failed");
-    });
-
-    it("a failed cheap dispatch retries on the lane's rung with no attempt counted", () => {
-      const log = armed([comment]);
-      fixOn(log, CHEAP, { ok: false });
-      expect(lane(log)).toMatchObject({
-        status: "pending",
-        thread: null,
-        attempts: 0,
-        climbReason: null,
-        cheapRan: false,
-      });
-    });
-
-    it("a cheap try that hit a limit is still the cheap try on its stand-in", () => {
-      const log = armed([comment]);
-      const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", rung: CHEAP });
-      endDispatch(log, id, { name: "worker-M1.L1", unit: "M1.L1", status: "limit", replyStatus: null });
-      expect(lane(log)).toMatchObject({ status: "pending", cheapFirst: true });
-    });
-
-    it("a failed stand-in of a limited cheap try falls back to the lane's own rung, not another stand-in", () => {
-      const log = armed([comment]);
-      const cheap = "claude-code:claude-haiku-5-5#low";
-      const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", rung: cheap });
-      endDispatch(log, id, { name: "worker-M1.L1", unit: "M1.L1", status: "limit", replyStatus: null });
-      fixOn(log, "opencode:glm-5#low", { ok: false });
-      expect(lane(log)).toMatchObject({ status: "pending", failoverFrom: null, failoverNow: false });
-      const owed = next(log.state(), log.events.at(-1) as never).find(
-        (a) => a.type === "dispatch" && a.unit === "M1.L1",
-      );
-      expect(owed).toMatchObject({ rung: "codex:gpt-6-sol#medium", failoverFrom: null });
-      expect(owed).not.toHaveProperty("cheap");
-    });
-
-    it("a lint failure of a lane's first try arms the cheap try, a test failure does not", () => {
-      const log = runningLog();
-      const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
-      endDispatch(log, id, { name: "worker-M1.L1", unit: "M1.L1" });
-      log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "oxlint: unused variable x", foreign: [] });
-      expect(lane(log)).toMatchObject({ checkFails: 1, cheapFirst: true });
-      const tests = runningLog();
-      const t = startDispatch(tests, { name: "worker-M1.L1", unit: "M1.L1" });
-      endDispatch(tests, t, { name: "worker-M1.L1", unit: "M1.L1" });
-      tests.add("check.ran", {
-        lane: "M1.L1",
-        exit: 1,
-        tail: "(fail) wallet > adds\nexpect(1).toBe(2)",
-        foreign: [],
-      });
-      expect(lane(tests)?.cheapFirst).toBe(false);
-    });
-
-    it("the cheap try runs once per round: a lint failure after the fallback does not arm another", () => {
-      const log = armed([comment]);
-      fixOn(log, CHEAP);
-      log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "src/a/x.ts:3 error", foreign: [] });
-      fixOn(log, "codex:gpt-6-sol#medium");
-      log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "oxlint: unused variable x", foreign: [] });
-      expect(lane(log)).toMatchObject({ checkFails: 1, cheapFirst: false });
-    });
-
-    it("a survived finding's fallback spends the cheap try too", () => {
-      const log = armed([comment, unused]);
-      fixOn(log, CHEAP);
-      log.add("check.ran", { lane: "M1.L1", exit: 0, tail: "", foreign: [] });
-      log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
-      review(log, [bug("BUG src/a/x.ts:9 — the comment restates the code", "src/a/x.ts")]);
-      fixOn(log, "codex:gpt-6-sol#medium");
-      log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "oxlint: unused variable x", foreign: [] });
-      expect(lane(log)).toMatchObject({ checkFails: 1, cheapFirst: false });
-    });
-
-    it("a finding the cheap try left is no same-defect climb", () => {
-      const log = armed([comment, unused]);
-      fixOn(log, CHEAP);
-      log.add("check.ran", { lane: "M1.L1", exit: 0, tail: "", foreign: [] });
-      expect(lane(log)).toMatchObject({ status: "done", cheapRan: true });
-      log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
-      review(log, [bug("BUG src/a/x.ts:9 — the comment restates the code", "src/a/x.ts")]);
-      expect(lane(log)).toMatchObject({
-        status: "pending",
-        thread: null,
-        climbReason: null,
-        cheapRan: false,
-        cheapFirst: false,
-      });
-    });
-
-    it("a lone finding the cheap try left gets the lane's own rung, not a no-progress stop", () => {
-      const log = armed([comment]);
-      fixOn(log, CHEAP);
-      log.add("check.ran", { lane: "M1.L1", exit: 0, tail: "", foreign: [] });
-      log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
-      review(log, [comment]);
-      expect(lane(log)).toMatchObject({ status: "pending", cheapRan: false, cheapFirst: false });
-      expect(log.state().milestones[0]).toMatchObject({ status: "fixing", knownIssues: [] });
-    });
-
-    it("a finding left by an ordinary fix still climbs as same-defect", () => {
-      const log = armed([comment, unused]);
-      fixOn(log, "codex:gpt-6-sol#medium");
-      log.add("check.ran", { lane: "M1.L1", exit: 0, tail: "", foreign: [] });
-      log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
-      review(log, [bug("BUG src/a/x.ts:9 — the comment restates the code", "src/a/x.ts")]);
-      expect(lane(log)?.climbReason).toBe("same-defect");
-    });
-
-    it("a replay of a log from before the cheap try owes none", () => {
-      const log = runningLog();
-      expect(lane(log)).toMatchObject({ cheapFirst: false, cheapRan: false });
-    });
-  });
 });
 
 describe("plan 43 M3: owners, parks and STATUS asks", () => {
@@ -1525,7 +1434,7 @@ describe("plan 43 M3: owners, parks and STATUS asks", () => {
     return log;
   };
   const workerNames = (log: ReturnType<typeof makeLog>) =>
-    next(log.state(), log.events.at(-1)!).flatMap((a) => (a.type === "dispatch" ? [a.name] : []));
+    settled(log).flatMap((a) => (a.type === "dispatch" ? [a.name] : []));
 
   it("a check_broken stop with no sibling at work parks at once", () => {
     const log = runningLog(lone);
@@ -1537,6 +1446,7 @@ describe("plan 43 M3: owners, parks and STATUS asks", () => {
       reason: "check_broken",
       why: "test/x.test.ts:12 asserts the old head",
     });
+    log.add("stop.classified", { dispatchId: w, reason: "check_broken" });
     const s = log.state();
     expect(s.lanes["M1.L1"]?.status).toBe("parked");
     expect(s.stuck["M1.L1"]?.question).toContain("test/x.test.ts:12 asserts the old head");
@@ -1552,6 +1462,7 @@ describe("plan 43 M3: owners, parks and STATUS asks", () => {
       reason: "check_broken",
       why: "lint fails",
     });
+    busy.add("stop.classified", { dispatchId: w2, reason: "check_broken" });
     expect(busy.state().lanes["M1.L1"]?.status).toBe("pending");
     expect(busy.state().stuck["M1.L1"]).toBeUndefined();
   });
@@ -1659,7 +1570,7 @@ describe("plan 43 M3: owners, parks and STATUS asks", () => {
       const log = parked();
       log.add("question.answered", { unit: "M1", answer: "retry", by: "owner" });
       expect(log.state().milestones[0]?.status).toBe("verifying");
-      expect(next(log.state(), log.events.at(-1)!).filter((a) => a.type === "machineCheck")).toEqual([
+      expect(settled(log).filter((a) => a.type === "machineCheck")).toEqual([
         { type: "machineCheck", milestone: "M1", commit: "c0" },
       ]);
     });
@@ -1703,7 +1614,7 @@ describe("plan 43 M4: digests, hook refusals, the pause hold", () => {
       notes: ["The architect changed lanes/M1.L1.md: re-read it and make the change it asks for."],
     });
     expect(s.lanes["M1.L2"]).toMatchObject({ status: "done", digest: "b" });
-    const out = next(s, log.events.at(-1)!);
+    const out = settled(log);
     expect(out).toContainEqual(expect.objectContaining({ type: "dispatch", name: "worker-M1.L1" }));
     expect(out.some((a) => a.type === "commit")).toBe(false);
   });
@@ -1821,11 +1732,11 @@ describe("plan 43 M4: digests, hook refusals, the pause hold", () => {
     expect(s.waiting).toEqual({});
     const tick = log.add("tick", {});
     const out = next(log.state(), tick);
-    expect(out.filter((a) => a.type === "dispatch" || a.type === "judge")).toEqual([]);
+    expect(out.filter((a) => a.type === "decide" || a.type === "dispatch" || a.type === "judge")).toEqual([]);
     const lifted = log.add("pause.lifted", {});
     expect(log.state().held).toBeNull();
     expect(next(log.state(), lifted)).toContainEqual(
-      expect.objectContaining({ type: "dispatch", name: "worker-M1.L1" }),
+      expect.objectContaining({ type: "decide", next: expect.objectContaining({ name: "worker-M1.L1" }) }),
     );
   });
 
@@ -1891,5 +1802,382 @@ describe("plan 43 M5: catherd merges its own landed milestones", () => {
     expect(log.state().autoMerge).toBe(false);
     expect(last(log).filter((a) => a.type === "mergeLanded")).toEqual([]);
     expect(last(log).filter((a) => a.type === "park")).toHaveLength(1);
+  });
+});
+
+describe("plan 44 task 15: floors, decision failures and the top of the ladder", () => {
+  const W1 = "worker-M1.L1";
+  const owedDecide = (log: ReturnType<typeof makeLog>, name: string) =>
+    next(log.state(), log.events.at(-1) as RunEvent).find(
+      (a): a is DecideAction => a.type === "decide" && decidedName(a.next) === name,
+    );
+  /** a time `ms` after the log's last event */
+  const after = (log: ReturnType<typeof makeLog>, ms: number): string =>
+    new Date(Date.parse(log.events.at(-1)?.at as string) + ms).toISOString();
+  /** M1.L1 decided on `rung`, dispatched and ended ok */
+  function ran(log: ReturnType<typeof makeLog>, rung: string, o: { thread?: string } = {}) {
+    decide(log, W1, rung);
+    const id = startDispatch(log, { name: W1, unit: "M1.L1", rung });
+    endDispatch(log, id, { name: W1, unit: "M1.L1", thread: o.thread ?? "t1" });
+  }
+  const checkFails = (log: ReturnType<typeof makeLog>, tail: string) =>
+    log.add("check.ran", { lane: "M1.L1", exit: 1, tail, foreign: [] });
+  const downAt = (log: ReturnType<typeof makeLog>, at?: string) =>
+    log.add(
+      "decision.failed",
+      {
+        name: W1,
+        n: 1,
+        unit: "M1.L1",
+        code: "E_DECISION",
+        error: "no usable answer",
+        rungs: [SOL, SOL_HIGH],
+      },
+      at,
+    );
+
+  it("a failed fast check is the floor of the fix round", () => {
+    const log = runningLog();
+    ran(log, LUNA);
+    checkFails(log, "error: first");
+    expect(owedDecide(log, W1)).toMatchObject({ n: 2, floor: LUNA, strict: false });
+    ran(log, LUNA);
+    checkFails(log, "error: second");
+    expect(owedDecide(log, W1)).toMatchObject({ n: 3, floor: LUNA, strict: true });
+    // a pass is an accepted dispatch: the floor goes
+    ran(log, SOL_HIGH);
+    log.add("check.ran", { lane: "M1.L1", exit: 0, tail: "", foreign: [] });
+    expect(floorOf(log.state(), W1)).toEqual({ floor: null, strict: false });
+  });
+
+  it("a failure on another rung restarts the count", () => {
+    const log = runningLog();
+    ran(log, LUNA);
+    checkFails(log, "error: first");
+    ran(log, SOL_HIGH);
+    checkFails(log, "error: second");
+    expect(owedDecide(log, W1)).toMatchObject({ floor: SOL_HIGH, strict: false });
+  });
+
+  it("a review BLOCKER floors only its lane", () => {
+    const log = reviewing();
+    review(log, [bug("BLOCKER src/b/x.ts:1 — boom", "src/b/x.ts", "BLOCKER")]);
+    expect(owedDecide(log, "worker-M1.L2")).toMatchObject({ floor: SOL, strict: false });
+    expect(floorOf(log.state(), W1)).toEqual({ floor: null, strict: false });
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    // the reviewer's recheck has no floor: a worker's BLOCKER is not the reviewer's failure
+    expect(owedDecide(log, "reviewer-M1")).toMatchObject({ floor: null, strict: false });
+  });
+
+  it("a finding that survived its fix makes the floor strict at once", () => {
+    const log = reviewing();
+    review(log, [
+      bug("BUG src/a/x.ts:3 — null deref", "src/a/x.ts"),
+      bug("BUG src/a/y.ts:1 — other", "src/a/y.ts"),
+    ]);
+    expect(owedDecide(log, W1)).toMatchObject({ floor: SOL, strict: false });
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    review(log, [bug("BUG src/a/x.ts:9 — null deref", "src/a/x.ts")]);
+    expect(owedDecide(log, W1)).toMatchObject({ floor: SOL, strict: true });
+  });
+
+  it("the owner's fix answer is no floor", () => {
+    // a blocker park answered with a fix
+    const log = reviewing();
+    const blocker = bug("BLOCKER src/a/x.ts:1 — data loss", "src/a/x.ts", "BLOCKER");
+    review(log, [blocker]);
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    review(log, [blocker]);
+    const q = log.state().stuck.M1;
+    expect(q?.reason).toBe("blocker");
+    log.add("question.parked", { unit: "M1", question: q?.question as string, reason: "blocker" });
+    log.add("question.answered", { unit: "M1", answer: "return early instead", by: "owner" });
+    expect(owedDecide(log, W1)).toMatchObject({ floor: null, strict: false });
+    // a lane that carried a floor: the owner's word starts it fresh
+    const lane = runningLog();
+    ran(lane, LUNA);
+    checkFails(lane, "error: first");
+    expect(floorOf(lane.state(), W1).floor).toBe(LUNA);
+    lane.add("question.parked", { unit: "M1.L1", question: "q", reason: "effect" });
+    lane.add("question.answered", { unit: "M1.L1", answer: "use the v2 api", by: "owner" });
+    expect(owedDecide(lane, W1)).toMatchObject({ floor: null, strict: false });
+  });
+
+  it("an exhausted park for a name that is no lane clears its floor when answered", () => {
+    const log = reviewing();
+    const id = startDispatch(log, {
+      name: "reviewer-M1",
+      role: "reviewer",
+      unit: "M1",
+      lane: null,
+      rung: SOL,
+    });
+    endDispatch(log, id, { name: "reviewer-M1", unit: "M1", status: "failed", replyStatus: null });
+    expect(floorOf(log.state(), "reviewer-M1").floor).toBe(SOL);
+    log.add("decision.exhausted", { name: "reviewer-M1", n: 2, unit: "M1", floor: SOL });
+    const q = log.state().stuck.M1;
+    expect(q?.reason).toBe("effect");
+    log.add("question.parked", { unit: "M1", question: q?.question as string, reason: "effect" });
+    log.add("question.answered", { unit: "M1", answer: "try again", by: "owner" });
+    expect(floorOf(log.state(), "reviewer-M1")).toEqual({ floor: null, strict: false });
+  });
+
+  it("no rung above a strict floor goes to the judge", () => {
+    const log = runningLog();
+    ran(log, SOL);
+    checkFails(log, "error: first");
+    ran(log, SOL);
+    checkFails(log, "error: second");
+    log.add("decision.exhausted", { name: W1, n: 3, unit: "M1.L1", floor: SOL });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "parked", top: true, awaiting: "unexpected" });
+    expect(of(settled(log), "judge")[0]?.input).toMatchObject({ kind: "unexpected", unit: "M1.L1" });
+    // the third stands at the top for the owner
+    log.add("decision.exhausted", { name: W1, n: 3, unit: "M1.L1", floor: SOL });
+    expect(log.state().stuck["M1.L1"]).toBeUndefined();
+    log.add("decision.exhausted", { name: W1, n: 3, unit: "M1.L1", floor: SOL });
+    expect(log.state().stuck["M1.L1"]).toMatchObject({ reason: "too_hard" });
+  });
+
+  it("a too_hard stop with no rung above goes straight to the owner", () => {
+    const log = runningLog();
+    decide(log, W1, SOL);
+    const id = startDispatch(log, { name: W1, unit: "M1.L1", rung: SOL });
+    endDispatch(log, id, {
+      name: W1,
+      unit: "M1.L1",
+      replyStatus: "blocked",
+      reason: "too_hard",
+      why: "too_hard: x",
+    });
+    log.add("stop.classified", { dispatchId: id, reason: "too_hard" });
+    expect(owedDecide(log, W1)).toMatchObject({ floor: SOL, strict: false });
+    log.add("decision.exhausted", { name: W1, n: 2, unit: "M1.L1", floor: SOL });
+    expect(log.state().stuck["M1.L1"]).toMatchObject({ reason: "too_hard" });
+    expect(log.state().lanes["M1.L1"]?.awaiting).toBeNull();
+  });
+
+  it("a judge's retry at the top of the ladder runs the rung again", () => {
+    const log = runningLog();
+    ran(log, SOL);
+    checkFails(log, "error: first");
+    ran(log, SOL);
+    checkFails(log, "error: second");
+    log.add("decision.exhausted", { name: W1, n: 3, unit: "M1.L1", floor: SOL });
+    const judgeId = "M1.L1-unexpected-0";
+    const j = startDispatch(log, {
+      name: `judge-${judgeId}`,
+      role: "judge",
+      unit: "M1.L1",
+      lane: null,
+      judgeKind: "unexpected",
+    });
+    log.add("judge.decided", {
+      id: judgeId,
+      unit: "M1.L1",
+      kind: "unexpected",
+      decision: { verb: "retry", why: "flaky" },
+      dispatchId: j,
+    });
+    expect(owedDecide(log, W1)).toMatchObject({ floor: SOL, strict: false });
+  });
+
+  it("a decision model down parks after three tries", () => {
+    const log = runningLog();
+    const first = downAt(log);
+    expect(log.state().waiting[W1]).toBe(after(log, 60_000));
+    expect(owedDecide(log, W1)).toBeUndefined();
+    // a minute later the same decision (the same n) is asked again
+    log.add("tick", {}, new Date(Date.parse(first.at) + 60_000).toISOString());
+    expect(owedDecide(log, W1)).toMatchObject({ n: 1 });
+    const second = downAt(log);
+    expect(log.state().waiting[W1]).toBe(new Date(Date.parse(second.at) + 60_000).toISOString());
+    log.add("tick", {}, new Date(Date.parse(second.at) + 60_000).toISOString());
+    expect(owedDecide(log, W1)).toMatchObject({ n: 1 });
+    downAt(log);
+    const s = log.state();
+    expect(s.stuck["M1.L1"]).toMatchObject({ reason: "decision" });
+    expect(s.stuck["M1.L1"]?.question).toContain(SOL);
+    expect(s.stuck["M1.L1"]?.question).toContain(SOL_HIGH);
+    expect(s.stuck["M1.L1"]?.question).toContain("retry");
+    expect(s.lanes["M1.L1"]?.status).toBe("parked");
+    expect(of(next(s, log.events.at(-1) as RunEvent), "park")).toMatchObject([
+      { unit: "M1.L1", reason: "decision" },
+    ]);
+  });
+
+  /** the lane's decision parked, as the park effect records it */
+  function parked() {
+    const log = runningLog();
+    downAt(log);
+    downAt(log);
+    downAt(log);
+    const q = log.state().stuck["M1.L1"];
+    log.add("question.parked", { unit: "M1.L1", question: q?.question as string, reason: "decision" });
+    return { log, question: q?.question as string };
+  }
+
+  it("the coordinator's rung is the decision", () => {
+    const { log } = parked();
+    log.add("question.answered", {
+      unit: "M1.L1",
+      answer: `${SOL_HIGH} — it needs the stronger one`,
+      by: "owner",
+    });
+    expect(owedDecide(log, W1)).toMatchObject({ n: 1, pick: SOL_HIGH });
+    expect(log.state().lanes["M1.L1"]?.notes).toEqual([]);
+    // the next decision of the name asks the model again
+    decide(log, W1, SOL_HIGH);
+    startDispatch(log, { name: W1, unit: "M1.L1", rung: SOL_HIGH });
+    expect(log.state().picks[W1]).toBeUndefined();
+  });
+
+  it("a rung off the list parks the same question again, and retry asks the model again", () => {
+    const { log, question } = parked();
+    log.add("question.answered", { unit: "M1.L1", answer: LUNA, by: "owner" });
+    expect(log.state().stuck["M1.L1"]).toEqual({ reason: "decision", question });
+    expect(log.state().lanes["M1.L1"]?.status).toBe("parked");
+    expect(owedDecide(log, W1)).toBeUndefined();
+    log.add("question.parked", { unit: "M1.L1", question, reason: "decision" });
+    log.add("question.answered", { unit: "M1.L1", answer: "retry", by: "owner" });
+    expect(owedDecide(log, W1)).toMatchObject({ n: 1, pick: null });
+    // the count starts again: one failure waits, it does not park
+    downAt(log);
+    expect(log.state().stuck["M1.L1"]).toBeUndefined();
+  });
+
+  it("a decision with no stand-in waits for a hold to end, like a refused dispatch", () => {
+    const log = runningLog();
+    const lim = startDispatch(log, { name: W1, unit: "M1.L1", rung: SOL });
+    endDispatch(log, lim, { name: W1, unit: "M1.L1", status: "limit", replyStatus: null });
+    const failed = log.add("decision.failed", {
+      name: W1,
+      n: 1,
+      unit: "M1.L1",
+      code: "E_ALL_HELD",
+      error: "every rung is held",
+      rungs: [],
+    });
+    const until = Object.values(log.state().holds)[0] as string;
+    expect(until > failed.at).toBe(true);
+    expect(log.state().waiting[W1]).toBe(until);
+    expect(log.state().stuck["M1.L1"]).toBeUndefined();
+  });
+
+  it("a classification the decision model cannot make is tried again, then parked", () => {
+    const log = runningLog();
+    decide(log, W1, SOL);
+    const id = startDispatch(log, { name: W1, unit: "M1.L1", rung: SOL });
+    endDispatch(log, id, { name: W1, unit: "M1.L1", status: "failed", replyStatus: null });
+    const fail = () => log.add("effect.failed", { action: "classify", unit: "M1.L1", message: "down" });
+    fail();
+    fail();
+    expect(log.state().lanes["M1.L1"]?.classify).toMatchObject({ dispatchId: id });
+    fail();
+    expect(log.state().stuck["M1.L1"]).toMatchObject({ reason: "decision" });
+    log.add("question.parked", {
+      unit: "M1.L1",
+      question: log.state().stuck["M1.L1"]?.question as string,
+      reason: "decision",
+    });
+    // the owner's answer ends the stop as an unexplained failure of the work
+    log.add("question.answered", { unit: "M1.L1", answer: "go on", by: "owner" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ classify: null, status: "pending", attempts: 1 });
+    expect(floorOf(log.state(), W1)).toEqual({ floor: SOL, strict: false });
+  });
+
+  it("a stale or refused rung is decided again", () => {
+    const refused = runningLog();
+    decide(refused, W1, SOL);
+    refused.add("dispatch.refused", {
+      name: W1,
+      unit: "M1.L1",
+      code: "E_ADMIT_RUNG",
+      message: "no",
+      rung: SOL,
+    });
+    expect(refused.state().decisions[W1]).toBeUndefined();
+    expect(owedDecide(refused, W1)).toMatchObject({ n: 2, exclude: [SOL] });
+    const stale = runningLog();
+    decide(stale, W1, SOL);
+    stale.add("dispatch.refused", { name: W1, unit: "M1.L1", code: "E_DECISION_STALE", message: "edited" });
+    expect(stale.state().decisions[W1]).toBeUndefined();
+    expect(owedDecide(stale, W1)).toMatchObject({ n: 2, exclude: [] });
+    const held = runningLog();
+    decide(held, W1, SOL);
+    held.add("dispatch.refused", { name: W1, unit: "M1.L1", code: "E_RUNG_HELD", message: "quota held" });
+    expect(owedDecide(held, W1)).toMatchObject({ n: 2, exclude: [] });
+    // the next dispatch of the name forgets what it refused
+    decide(refused, W1, SOL_HIGH);
+    startDispatch(refused, { name: W1, unit: "M1.L1", rung: SOL_HIGH });
+    expect(refused.state().refusedRungs[W1]).toBeUndefined();
+  });
+
+  it("a decision dropped again and again parks the unit", () => {
+    const log = runningLog();
+    for (let i = 0; i < REDECIDE_LIMIT; i++) {
+      decide(log, W1, SOL);
+      log.add("dispatch.refused", { name: W1, unit: "M1.L1", code: "E_DECISION_STALE", message: "edited" });
+    }
+    expect(log.state().stuck["M1.L1"]).toMatchObject({ reason: "effect" });
+  });
+
+  const digested = (l1: string): MilestonePlan[] =>
+    PLAN.map((m) =>
+      m.id === "M1"
+        ? { ...m, lanes: m.lanes.map((l) => ({ ...l, digest: l.id === "M1.L1" ? l1 : "b" })) }
+        : m,
+    );
+
+  it("a replan drops a lane's unsent decision", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: digested("a") });
+    log.add("plan.approved", { by: "owner" });
+    routeMilestone(log, PLAN[0] as MilestonePlan);
+    decide(log, W1, SOL);
+    log.add("plan.ready", { milestones: digested("a") });
+    expect(log.state().decisions[W1]).toMatchObject({ rung: SOL });
+    log.add("plan.ready", { milestones: digested("c") });
+    expect(log.state().decisions[W1]).toBeUndefined();
+    // made again on the new brief, never sent stale
+    expect(owedDecide(log, W1)).toMatchObject({ n: 2 });
+  });
+
+  it("an old run with climb events replays and decides", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    log.add("plan.approved", { by: "owner" });
+    log.add("lanes.routed", {
+      milestone: "M1",
+      lanes: PLAN[0]!.lanes.map((l) => ({ lane: l.id, rung: SOL, ladder: [SOL, SOL_HIGH] })),
+    });
+    log.add("preflight.done", { milestone: "M1", blocking: [], confirm: null, lint: [] });
+    log.add("lane.climbed", { lane: "M1.L1", rung: SOL_HIGH, top: false });
+    log.add("effect.failed", { action: "climb", unit: "M1.L1", message: "no rung above" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ rung: SOL_HIGH, status: "pending" });
+    expect(owedDecide(log, W1)).toMatchObject({ n: 1, floor: null, strict: false });
+    // the climb's own top-of-ladder path still applies
+    log.add("lane.climbed", { lane: "M1.L1", rung: SOL_HIGH, top: true });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "parked", awaiting: "unexpected" });
+  });
+
+  it("a failed judge call floors the judge's own name", () => {
+    const log = runningLog();
+    const id = "M1.L1-question-0";
+    const j = startDispatch(log, {
+      name: `judge-${id}`,
+      role: "judge",
+      unit: "M1.L1",
+      lane: null,
+      judgeKind: "question",
+      rung: LUNA,
+    });
+    log.add("judge.failed", { id, unit: "M1.L1", why: "unreadable" });
+    expect(j).toBeTruthy();
+    expect(floorOf(log.state(), `judge-${id}`)).toEqual({ floor: LUNA, strict: false });
   });
 });

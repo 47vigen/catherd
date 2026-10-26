@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OutcomeRow, RouteRow } from "../../src/domain/route.ts";
 import type { RunEventInput } from "../../src/domain/run-events.ts";
-import { CHORE_WHY } from "../../src/domain/track-record.ts";
 import { laneRecords, outcomeStats } from "../../src/services/outcome-summary.ts";
 import { appendEvents } from "../../src/services/run-events-store.ts";
 import { appendOutcome, appendRoute, type Run } from "../../src/services/run-store.ts";
@@ -33,8 +32,6 @@ const route = (o: Partial<RouteRow> = {}): RouteRow => ({
 const outcome = (o: Partial<OutcomeRow> = {}): OutcomeRow => ({
   at: AT,
   lane: "M1.L1",
-  questionSet: null,
-  jevProbs: null,
   source: "lane",
   startRung: RUNG,
   finalRung: RUNG,
@@ -113,7 +110,6 @@ describe("laneRecords", () => {
         rung: RUNG,
         kind: "repo_code",
         difficulty: "build",
-        chore: false,
         landed: true,
         firstPass: false,
         rounds: 2,
@@ -130,14 +126,14 @@ describe("laneRecords", () => {
     expect(laneRecords(run)[0]).toMatchObject({ firstPass: true, rounds: 1, findings: 0 });
   });
 
-  it("gives nothing for a 1.x run, and marks a chore route", async () => {
+  it("gives nothing for a 1.x run", async () => {
     const { run } = freshRun();
-    appendRoute(run, route({ why: CHORE_WHY }));
+    appendRoute(run, route());
     appendOutcome(run, outcome());
     rmSync(join(run.dir, "events.jsonl"), { force: true });
     expect(laneRecords(run)).toEqual([]);
     await appendEvents(run, [planned, started("W1", "worker", "M1.L1")]);
-    expect(laneRecords(run)[0]?.chore).toBe(true);
+    expect(laneRecords(run)).toHaveLength(1);
   });
 
   it("gives nothing, and does not throw, for an unreadable events file", async () => {

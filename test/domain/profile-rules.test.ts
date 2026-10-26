@@ -2,19 +2,24 @@ import { describe, expect, it } from "bun:test";
 import {
   applyPatch,
   defaultProfileDoc,
-  patchAt,
   type ProfilePatch,
   ProfileDocSchema,
   resolveProfile,
 } from "../../src/domain/profile.ts";
-import { repairs, routingProfileOf, validateProfile } from "../../src/domain/profile-rules.ts";
+import { repairs, validateProfile } from "../../src/domain/profile-rules.ts";
 import { indexOf, shipped } from "./shipped.ts";
 
 const BACKENDS = ["codex", "claude-code", "opencode", "claude"];
 const catalog = (o: Parameters<typeof shipped>[0] = {}) => shipped(o);
-const check = (patch: ProfilePatch = {}, c = catalog()) =>
+const DECISION = { decision: { url: "https://decision.test/v1", model: "test-decider" } };
+/** The default profile with a decision model named (it has no default), then `patch`. */
+const check = (patch: ProfilePatch = {}, c = catalog(), named = true) =>
   validateProfile(
-    resolveProfile(applyPatch(defaultProfileDoc(), patch), "p", "claude-code"),
+    resolveProfile(
+      applyPatch(defaultProfileDoc(), { ...(named ? DECISION : {}), ...patch }),
+      "p",
+      "claude-code",
+    ),
     c,
     BACKENDS,
     undefined,
@@ -36,6 +41,14 @@ describe("validateProfile", () => {
 
   it("passes the default profile with no error and no warning", () => {
     expect(check()).toEqual({ errors: [], warnings: [] });
+  });
+
+  it("a profile without a decision model warns", () => {
+    const v = check({}, catalog(), false);
+    expect(v.errors).toEqual([]);
+    expect(v.warnings).toContainEqual(
+      expect.objectContaining({ path: "decision", message: "the decision model is not set" }),
+    );
   });
 
   it("refuses a disabled worker", () => {
@@ -407,96 +420,6 @@ it("rejects native Claude on Codex including reachable failover without converti
   expect(p.failover[rung]).toBe("claude:claude-opus-5-5#low");
 });
 
-describe("validateProfile: what a role can never start or reach (spec 1.5 plan 24)", () => {
-  const LUNA = "codex:gpt-6-luna#high";
-  const SOL = "codex:gpt-6-sol#medium";
-  const KIMI = "opencode:opencode-go/kimi-k3#max";
-  const explicit = (patch: ProfilePatch = {}) =>
-    validateProfile(
-      resolveProfile(applyPatch(defaultProfileDoc(), patch), "p", "claude-code"),
-      catalog(),
-      BACKENDS,
-      undefined,
-      "claude-code",
-      { reach: true },
-    );
-
-  it("warns about a quota none of whose rungs ever starts a lane", () => {
-    const v = check({
-      billing: { "opencode-go": "metered" },
-      roles: { worker: { rungs: [LUNA, SOL, "codex:gpt-6-sol#xhigh", KIMI], defaultRung: SOL } },
-    });
-    expect(v.warnings).toContainEqual({
-      path: "roles.worker.rungs",
-      message: `opencode-go never starts a worker lane: ${KIMI} runs only on a climb, since another rung starts every lane`,
-      fix: "check billing.opencode-go (a metered rung starts only where nothing paid from a plan clears the bar), or order roles.worker.rungs so its rungs come first among equals",
-    });
-  });
-
-  it("does not tell a lane-less role that a quota runs only on a climb (final review Important 4)", () => {
-    // a reviewer routes without a lane: no difficulty ever starts it, and it never climbs
-    const v = check({
-      roles: { reviewer: { rungs: ["codex:gpt-6-sol#xhigh", "claude-code:claude-sonnet-5-5#high"] } },
-    });
-    expect(messages(v.warnings).filter((m) => m.includes("never starts"))).toEqual([]);
-  });
-
-  it("names the billing key, not the quota, in the fix for an idle native Claude rung", () => {
-    const sonnet = "claude:claude-sonnet-5#medium";
-    const v = check({
-      billing: { claude: "metered" },
-      roles: { worker: { rungs: [LUNA, SOL, sonnet], defaultRung: SOL } },
-    });
-    const idle = v.warnings.filter((w) => w.message.includes("never starts"));
-    expect(idle.map((w) => w.fix)).toEqual([
-      "check billing.claude (a metered rung starts only where nothing paid from a plan clears the bar), or order roles.worker.rungs so its rungs come first among equals",
-    ]);
-  });
-
-  it("counts a quota that wins a tie on headroom as one that starts", () => {
-    // Luna xhigh on Go is the same pair as on Codex: they tie, and Go's turn at the least used quota starts it
-    const tie = ["codex:gpt-6-luna#xhigh", "opencode:opencode-go/gpt-6-luna#xhigh"];
-    const v = check({ roles: { worker: { rungs: [...tie, SOL], defaultRung: SOL } } });
-    expect(messages(v.warnings).some((m) => m.includes("never starts"))).toBe(false);
-  });
-
-  it("lists, on an explicit validate only, every difficulty no worker rung clears", () => {
-    // the shipped bars (20/45/60/65) put one default worker rung at each difficulty: nothing is unreached
-    expect(explicit().warnings).toEqual([]);
-    const noXhigh = {
-      roles: {
-        worker: {
-          rungs: ["codex:gpt-6-luna#high", "codex:gpt-6-sol#medium", "codex:gpt-6-sol#high"],
-          defaultRung: "codex:gpt-6-sol#medium",
-        },
-      },
-    };
-    expect(explicit(noXhigh).warnings).toEqual([
-      {
-        path: "roles.worker.rungs",
-        message:
-          "no worker rung clears hard: those lanes start at the default rung and climb only onto rungs at least as intelligent (route names the closest)",
-      },
-    ]);
-    // a save, doctor and the TUI validate without it: the profile stays clean there
-    expect(check(noXhigh).warnings).toEqual([]);
-    // Astra medium is above the hard bar
-    const astra = explicit({
-      roles: {
-        worker: {
-          rungs: [
-            "codex:gpt-6-luna#high",
-            "codex:gpt-6-sol#medium",
-            "codex:gpt-6-sol#high",
-            "codex:gpt-6-astra#medium",
-          ],
-        },
-      },
-    });
-    expect(messages(astra.warnings).some((m) => m.startsWith("no worker rung clears"))).toBe(false);
-  });
-});
-
 describe("validateProfile: effort ceilings and the coding floor (plan 33)", () => {
   const c = catalog({
     index: indexOf({
@@ -549,76 +472,5 @@ describe("validateProfile: effort ceilings and the coding floor (plan 33)", () =
     expect(
       v.warnings.filter((w) => w.path === "roles.writer.rungs" && w.message.includes("below medium")),
     ).toEqual([]);
-  });
-});
-
-describe("validateProfile: bars (plan 33)", () => {
-  // the pool is [30, 36, 42, 46]; shipped bars: copy 33.6, build 38.1, logic 40.8, hard 41.7
-  const c = catalog({
-    index: indexOf({
-      "gpt-6-luna#high": 30,
-      "gpt-6-sol#medium": 36,
-      "gpt-6-sol#high": 42,
-      "gpt-6-sol#xhigh": 46,
-    }),
-  });
-  const explicit = (patch: ProfilePatch) =>
-    validateProfile(
-      resolveProfile(applyPatch(defaultProfileDoc(), patch), "p", "claude-code"),
-      c,
-      BACKENDS,
-      undefined,
-      "claude-code",
-      { reach: true },
-    );
-
-  it("names the difficulties no worker rung clears on the worker's own bars", () => {
-    const rungs = ["codex:gpt-6-luna#high", "codex:gpt-6-sol#medium"];
-    const roles = { worker: { rungs, defaultRung: rungs[1] as string } };
-    // Sol medium (36) clears copy only: build, logic and hard stay unreached
-    expect(
-      explicit({ roles }).warnings.find((w) => w.message.startsWith("no worker rung clears"))?.message,
-    ).toContain("build, logic, hard");
-    // every bar at the 10th percentile (31.8) is cleared by Sol medium
-    const lowered = explicit({
-      roles: { worker: { ...roles.worker, bars: { copy: 10, build: 10, logic: 10, hard: 10 } } },
-    });
-    expect(lowered.warnings.find((w) => w.message.startsWith("no worker rung clears"))).toBeUndefined();
-  });
-
-  it("reports a stored inversion as an error with the fix, for the profile's bars and a role's", () => {
-    const inverted = explicit({ bars: { hard: 50 }, roles: { worker: { bars: { build: 90 } } } });
-    expect(
-      inverted.errors.filter((e) => e.path.endsWith("bars")).map((e) => [e.path, e.message, e.fix]),
-    ).toEqual([
-      [
-        "bars",
-        "the hard bar (50) is below the logic bar (60)",
-        "catherd profile set bars.hard 60, or lower bars.logic to 50 or less",
-      ],
-      [
-        "roles.worker.bars",
-        "the logic bar (60) is below the build bar (90)",
-        "catherd profile set roles.worker.bars.logic 90, or lower roles.worker.bars.build to 60 or less",
-      ],
-      [
-        "roles.worker.bars",
-        "the hard bar (50) is below the logic bar (60)",
-        "catherd profile set roles.worker.bars.hard 60, or lower roles.worker.bars.logic to 50 or less",
-      ],
-    ]);
-  });
-
-  it("a role's bars reach only that role", () => {
-    const prof = resolveProfile(
-      applyPatch(
-        applyPatch(defaultProfileDoc(), patchAt("bars.logic", "55")),
-        patchAt("roles.worker.bars.logic", "30"),
-      ),
-      "x",
-      "claude-code",
-    );
-    expect(routingProfileOf(prof, "worker").bars).toEqual({ logic: 30 });
-    expect(routingProfileOf(prof, "reviewer").bars).toEqual({ logic: 55 });
   });
 });

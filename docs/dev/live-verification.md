@@ -3,9 +3,8 @@
 Native Codex shipped in 1.4.0, and CI (`.github/workflows/ci.yml`) runs on every PR. Sections 1–11 and 14 keep the per-backend and release procedures of earlier releases. Use [section 14](#14-native-codex-packaging-and-completion-acceptance) for the actual packaged host flow, including the unchanged Claude integration. Record untested cases as unverified, never passed by inference.
 
 What CI cannot check, because it needs real accounts: the backends' real streams, the Codex sandbox, and
-the Jev key prompt on a real terminal (spec D7, §11.7, §11.8); since 1.1 also the push notices, the worker
-access probes and the release acceptance runs (spec 1.1 §15, sections 7 to 9); since 1.2 its acceptance (spec 1.2
-§11, section 10); since 1.3 the Cursor adapter (spec 1.3 §10, section 11; the Grok Build and Antigravity sections 12 and 13 were removed in 2.0). Run it on your own machine before a
+the decision model prompts and probe on a real terminal (spec D7, §11.7, §11.8); since 1.1 also the push notices, the worker
+access probes and the release acceptance runs (spec 1.1 §15, sections 7 to 9); since 1.3 the Cursor adapter (spec 1.3 §10, section 11; sections 10, 12 and 13 (the 1.2 bars check, Grok Build and Antigravity) were removed in 2.0). Run it on your own machine before a
 release, and again after a backend CLI's minor release. Every step says what to look for; write down
 anything that differs and file it with the step's name.
 
@@ -42,16 +41,17 @@ against the codex adapter's probe (doctor would then show no login on the `codex
 CATHERD_LIVE=1 bun test test/live/codex.live.test.ts
 CATHERD_LIVE=1 bun test test/live/claude-code.live.test.ts
 CATHERD_LIVE=1 bun test test/live/opencode.live.test.ts
-CATHERD_LIVE=1 TYPESAFE_API_KEY=<your TypeSafe key> bun test test/live/jev.live.test.ts
+CATHERD_DECISION_LIVE_URL=https://<your-gateway>/v1 CATHERD_DECISION_LIVE_MODEL=<model> CATHERD_DECISION_KEY=<key> \
+  bun test test/live/decision.live.test.ts
 ```
 
 Each file runs in its own temporary `CATHERD_HOME` and a scratch git repository; your config is not
-touched. Without `CATHERD_LIVE=1` every live test is skipped (the jev file also needs the key).
+touched. Without `CATHERD_LIVE=1` every live test is skipped, and the decision file is skipped without its three variables.
 
 Look for: every test passing. In particular: Codex answers and resumes the same thread, and its image tool
 returns an image; claude-code reports tokens and a cost, resumes its session, and a read-only role does not
 create `out.txt`; opencode runs a brief that starts with `---`, refuses a variant the model lacks, keeps
-its read-only agent from writing, and cancels a running session; Jev routes the sample lane to Track A and refuses a fake key.
+its read-only agent from writing, and cancels a running session.
 
 ## 3. Fixture capture
 
@@ -146,31 +146,33 @@ is writable and `example.com` answers (your keys were merged, not replaced); the
 your `allowedDomains`. Record the four exit codes. If your `allowWrite` dir or `example.com` fails, `--settings`
 replaces those keys: note it for the research note (`docs/research/2026-09-28-worker-access.md` §4).
 
-## 5. The Jev key prompt on a real terminal
+## 5. The decision model prompts and probe on a real terminal
 
 In a new terminal window (a real TTY, not an editor's output pane), with a throwaway home so your own
 setup is untouched:
 
 ```sh
 export CATHERD_HOME="$(mktemp -d)" CATHERD_CLAUDE_AGENTS_DIR="$(mktemp -d)"
-unset TYPESAFE_API_KEY
+unset CATHERD_DECISION_KEY
 bun src/cli.ts init
 ```
 
 Look for, one at a time:
 
-1. The prompt `TypeSafe API key for Jev (optional; Enter skips): `.
+1. The prompts for the decision model's url (`https://<your-gateway>/v1`), its model and its key.
 2. Typing shows one `*` per character and never the character itself; Backspace removes one `*`.
 3. Pasting the key (from your password manager) shows stars only.
-4. Enter prints `✓ Jev: the key answers; saved with mode 600`, then the profile, the model listing, the
+4. Enter prints that the decision model answers the probe and that the key is saved with mode 600, then the profile, the model listing, the
    readiness report and the plugin steps; the command exits 0 (`echo $?`).
 5. `stat -f %Lp "$CATHERD_HOME/config/credentials.json"` (macOS) or
    `stat -c %a "$CATHERD_HOME/config/credentials.json"` (Linux) prints `600`.
-6. `bun src/cli.ts init` again prints `✓ Jev: using the saved key` and asks nothing about the key.
+6. `bun src/cli.ts init` again says it is using the saved key and asks nothing about the key.
 7. `rm "$CATHERD_HOME/config/credentials.json"; bun src/cli.ts init`, then Ctrl-C at the key prompt: the
    command exits 130 (`echo $?`), and what you type next echoes normally (the terminal is not left in raw
    mode).
-8. `printf '\n' | bun src/cli.ts init` skips the key (`- Jev: no key; …`) and finishes without waiting.
+8. `bun src/cli.ts init --no-input` leaves the decision model unset, says so, and finishes without waiting. `catherd doctor` then fails on it, and `run_start` refuses with `E_DECISION_UNSET`.
+9. With a url that does not answer, `catherd doctor` fails and `run_start` refuses with `E_DECISION_PROBE`; once it answers, a run starts and records a decision before every dispatch and judge.
+10. Output clamps, in a run's role processes: a `claude-code` role has `BASH_MAX_OUTPUT_LENGTH` in its environment and a `codex` role has `tool_output_token_limit` in its config. An `opencode` role has a scratch `TMPDIR`; `opencode` and `cursor` have no output clamp, so a very large command output reaches those roles whole.
 
 Clean up with `rm -rf "$CATHERD_HOME" "$CATHERD_CLAUDE_AGENTS_DIR"; unset CATHERD_HOME CATHERD_CLAUDE_AGENTS_DIR`.
 
@@ -201,15 +203,14 @@ runs show <run id> --json` holds the records; write down what you saw.
    ```
 
    Serial intervals (each start after the previous end) are the 0.x defect coming back: record it.
+
 2. **An opencode worker.** `profile set roles.worker.rungs '["opencode:opencode-go/gpt-6-luna#high"]'` (with
    Zen credit instead of OpenCode Go, `opencode:opencode/gpt-6-luna#high`), then a one-lane run. Look for:
    `route` returning that rung with `backend: "opencode"`, a record with `backend` `opencode`, the lane's
    owned file changed, and a `STATUS:` line in the reply. Put the worker rungs back with
    `profile set roles.worker.rungs null`.
-3. **A forced climb.** In a one-lane run, once the worker returns, tell the orchestrator: "climb that lane
-   with reason `unchanged` and dispatch it again." Look for: `climb` returning the next rung of the lane's
-   ladder, a second record for the lane on that rung, dispatched on a fresh thread (no `thread` passed), and the climb
-   in `runs_summary({ run })` as `climbsFrom: 1` on the first rung.
+3. **A fix round never runs below the failed rung.** In a one-lane run whose first review fails, the fix dispatch's
+   decision in `decisions.jsonl` has a floor equal to the failed rung, and the lane dispatches on that rung or above.
 4. **Quota failover.** Put a fake `codex` first on the PATH that prints a usage limit for `exec` and
    forwards everything else to your real one, and start Claude Code from that shell, so the catherd
    server inherits the PATH:
@@ -236,6 +237,7 @@ runs show <run id> --json` holds the records; write down what you saw.
    Run a one-lane task. Look for: a record with status `limit` on the Codex rung, and a second record on the
    stand-in rung whose `failoverFrom` names the Codex rung; the lane finishes on the stand-in. Afterwards
    `rm -rf /tmp/fake-codex` and start Claude Code again from a normal shell.
+
 5. **A budget stop.** `profile set budget.tokens 1000`, then a run with two milestones. Look for: the first
    dispatch running (the budget is a soft cap), the next `dispatch` refused with `E_RUN_BUDGET` and its
    `fix`, the orchestrator pausing (`set_next` with "paused: …"), and `status(run)` showing the budget
@@ -355,7 +357,7 @@ Look for, one at a time:
    line, before the last worker's record.
 3. Every lane was routed with valid headers:
    `jq -r 'select(.source == "route" and .lane != null) | .lane' "$run/routes.jsonl" | sort -u | wc -l` (the
-   routed lanes; the header row, climb and outcome rows and a role's rows outside a lane do not count) is at
+   routed lanes; the header row and outcome rows and a role's rows outside a lane do not count) is at
    least 4, and
    `grep -hE '^(Kind|Difficulty):' "$run"/lanes/*.md | sort | uniq -c` shows only the catalog's values.
 4. A reviewer and a verifier ran before each `land`:
@@ -396,27 +398,6 @@ jq -r 'select(.role == "verifier") | "\(.name) \(.status) \((.secs // 0) / 60 | 
 Write down: the total minutes, the verifier's minutes and how many gate items it carried over (`carried over
 from <commit>` in its verdict), how many worker replies were `partial` or `blocked`, how many test commands the
 main thread ran itself (MR A: 156), and whether any notice was missing or doubled.
-
-## 10. The 1.2 acceptance (the release PR waits for it)
-
-Spec 1.2 §11. Install the release candidate from `changeset-release/main` and the plugin from the same checkout
-exactly as in section 9 (its "The CLI" and "The plugin" blocks), then run this one. Keep your real
-config: the commands below save and restore what they change.
-
-**1. A `terminal` lane and a `ui` lane are held to the same intelligence bar, and say what it was.**
-
-In a scratch repository, start a run and route two lanes through the MCP tools from a Claude Code session:
-
-```sh
-scratch="$(mktemp -d)/bars" && mkdir -p "$scratch" && cd "$scratch" && git init -q && git commit -q --allow-empty -m init
-claude -p --output-format json \
-  "/catherd:catherd Start a run titled bars. Write lanes/M1.L1.md with 'Kind: terminal' and 'Difficulty: copy', and lanes/M1.L2.md with 'Kind: ui' and 'Difficulty: build' (each: Owns: a.txt, Fast check: true), then call route once with both in lanes, print each answer's rung and why, and print the provenance.bar and provenance.intelligence of both lanes' rows in the run's routes.jsonl as JSON. Do not dispatch." \
-  | jq -r .result
-```
-
-Look for: each lane's `bar` naming its difficulty, its percentile (copy 25, build 50) and `min`, the rung's
-`intelligence` against it, and `clears: true`; the two lanes on the rungs the default profile's worker ladder gives
-those bars (Sol medium for both on the 2026-10-13 index).
 
 ## 11. Cursor (1.3, plan 15)
 
@@ -609,20 +590,20 @@ Verify the exact omitted Codex model ID `gpt-6.1-sol` against native catalog dis
 
 Run the following cases through the installed shared skills in a scratch git repository. Use deterministic tool/lifecycle barriers to establish busy state, not a fixed correctness sleep. Save run/dispatch/event IDs, owner journal, actual stored records, receipt/message IDs and timestamps, observed native user-message processing/assistant continuation, and the separate `result` collection marker. Redact secrets from outward evidence.
 
-| Case | Required observation |
-| --- | --- |
-| Codex CLI, idle | Codex-only initialize/setup succeeds with no Claude config/agent writes. Omitted architect/verifier route exactly to `codex:gpt-6.1-sol#high` / `codex:gpt-6.1-sol#low` and execute through `dispatch`/`result`. A real detached role finishes while the original thread is idle; completion input wakes that same thread; `result` reads and collects its actual record. |
-| Codex CLI, busy | With a tool barrier proving an active turn, a detached role finishes; receipt proves enqueue only. After releasing the turn, native processing delivers completion as ordered next input to the same thread. No urgent next-tool-round claim. |
-| Codex Desktop, idle and busy | Repeat both cases in the original Desktop conversation with the installed plugin/core. Observe actual user-message processing and assistant continuation, not just a receipt, transcript text echo, separate CLI rollout or owner recollection. Record idle and busy evidence separately. |
-| Explicit profiles | Existing materialized fields remain unchanged. Preview `profile reset-host-defaults <profile> --host codex --preview --json`, review the diff/effective defaults and save only with `--expect <reviewed file>`; only architect/verifier `rungs` and `defaultRung` disappear. Explicit model/effort, access, enabled state, network, routing, budget, billing, isolation and failover are preserved. |
-| Claude choices from Codex | Explicit `claude-code:` uses its exact model/effort through `dispatch` and checks that dependency only when selected/reachable. Explicit native `claude:` clearly rejects without modifying the profile, offering the exact headless equivalent or deliberate host-default reset; never silently converts. |
-| Independent landing gate | Route every role; reviewer and verifier remain independent. A process verifier on any backend counts only through its actual record and a reply opening `VERDICT: PASS`. Missing reviewer/verifier cannot land. Native Claude Agent accounting occurs only on a Claude Code host with route backend `claude`. |
-| Cross-host continuation | Explicit `peek(run)` adopts the run in the new host/session; origin and journal remain. `status`, debug inspection, `result` and profile reads do not adopt. Old-owner receipts do not suppress new-owner events, including owner change during send. |
-| Coalescing and duplicates | Each coalesced event retains its run/dispatch/event identity; stalled and finished kinds are distinct. Concurrent servers serialize attempts. Repeated completion input reads existing records idempotently and never redispatches or lands twice. |
-| Startup, restart, unloaded/interrupted | Durable unread results survive. Accepted or ambiguous events are never blindly resent. Queue input can remain without generation; diagnostics distinguish acceptance, observed processing and collection honestly. |
-| Unknown/conflicting host | No owner claim, arbitrary vendor choice or send. Diagnostics remain actionable and durable records remain readable without adopting ownership. Explicit terminal host selection supports setup without fabricating a conversation. |
-| Unavailable queue or rejected target | Capability/refusal diagnostics remain actionable and `peek`/`result` recovers durable work. Existing-server invocation requires queue remote support; never starts a competing server or model polling fallback. |
-| Legacy Claude Code | Existing native defaults, conditional Agent/accounting, peer inbox priorities, live registry after `/clear`, recovery and `result` collection remain intact. Repeat a real milestone with its reviewer/verifier gate. |
+| Case                                   | Required observation                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex CLI, idle                        | Codex-only initialize/setup succeeds with no Claude config/agent writes. Omitted architect/verifier route exactly to `codex:gpt-6.1-sol#high` / `codex:gpt-6.1-sol#low` and execute through `dispatch`/`result`. A real detached role finishes while the original thread is idle; completion input wakes that same thread; `result` reads and collects its actual record.                           |
+| Codex CLI, busy                        | With a tool barrier proving an active turn, a detached role finishes; receipt proves enqueue only. After releasing the turn, native processing delivers completion as ordered next input to the same thread. No urgent next-tool-round claim.                                                                                                                                                       |
+| Codex Desktop, idle and busy           | Repeat both cases in the original Desktop conversation with the installed plugin/core. Observe actual user-message processing and assistant continuation, not just a receipt, transcript text echo, separate CLI rollout or owner recollection. Record idle and busy evidence separately.                                                                                                           |
+| Explicit profiles                      | Existing materialized fields remain unchanged. Preview `profile reset-host-defaults <profile> --host codex --preview --json`, review the diff/effective defaults and save only with `--expect <reviewed file>`; only architect/verifier `rungs` and `defaultRung` disappear. Explicit model/effort, access, enabled state, network, routing, budget, billing, isolation and failover are preserved. |
+| Claude choices from Codex              | Explicit `claude-code:` uses its exact model/effort through `dispatch` and checks that dependency only when selected/reachable. Explicit native `claude:` clearly rejects without modifying the profile, offering the exact headless equivalent or deliberate host-default reset; never silently converts.                                                                                          |
+| Independent landing gate               | Route every role; reviewer and verifier remain independent. A process verifier on any backend counts only through its actual record and a reply opening `VERDICT: PASS`. Missing reviewer/verifier cannot land. Native Claude Agent accounting occurs only on a Claude Code host with route backend `claude`.                                                                                       |
+| Cross-host continuation                | Explicit `peek(run)` adopts the run in the new host/session; origin and journal remain. `status`, debug inspection, `result` and profile reads do not adopt. Old-owner receipts do not suppress new-owner events, including owner change during send.                                                                                                                                               |
+| Coalescing and duplicates              | Each coalesced event retains its run/dispatch/event identity; stalled and finished kinds are distinct. Concurrent servers serialize attempts. Repeated completion input reads existing records idempotently and never redispatches or lands twice.                                                                                                                                                  |
+| Startup, restart, unloaded/interrupted | Durable unread results survive. Accepted or ambiguous events are never blindly resent. Queue input can remain without generation; diagnostics distinguish acceptance, observed processing and collection honestly.                                                                                                                                                                                  |
+| Unknown/conflicting host               | No owner claim, arbitrary vendor choice or send. Diagnostics remain actionable and durable records remain readable without adopting ownership. Explicit terminal host selection supports setup without fabricating a conversation.                                                                                                                                                                  |
+| Unavailable queue or rejected target   | Capability/refusal diagnostics remain actionable and `peek`/`result` recovers durable work. Existing-server invocation requires queue remote support; never starts a competing server or model polling fallback.                                                                                                                                                                                    |
+| Legacy Claude Code                     | Existing native defaults, conditional Agent/accounting, peer inbox priorities, live registry after `/clear`, recovery and `result` collection remain intact. Repeat a real milestone with its reviewer/verifier gate.                                                                                                                                                                               |
 
 Ordinary doctor sends no live marker. Only explicitly run `catherd doctor --test-push` from the validated owner session for a labeled smoke input. A terminal `--host codex` selects setup without creating a thread identity. Record CLI queue support and server capability separately; `server: unverified` is uncertainty, not fabricated failure or success. Codex transport invokes `codex queue --remote unix:// --thread <validated original thread UUID> --message <completion text>` with an argument array and the preserved native configuration.
 
@@ -674,7 +655,7 @@ Codex and headless Claude Code (`claude-code:` rungs).
    first prints the lane file; the second fails with `E_ROLE_SCOPE`. Do it with `harness.opencode.isolated` true
    (a standalone server, the only opencode role catherd can bind by env, plan 21 ruling 22), and add a writer and a
    verifier: the writer runs `catherd run-file write <run> notes.md` (stdin) and a verifier `catherd gate pass
-   <run> …`. Look for: both succeed on their own run, `echo $TMPDIR` in the role prints `<run>/scratch/<name>`,
+<run> …`. Look for: both succeed on their own run, `echo $TMPDIR` in the role prints `<run>/scratch/<name>`,
    and the same commands from a non-isolated opencode role behave as from your terminal (its brief names no
    `$TMPDIR`).
 6. **Scratch.** After any dispatch, `ls <run>/scratch/<name>/` holds what the role wrote to `$TMPDIR` and `/tmp`
@@ -700,7 +681,7 @@ plugin, one scratch repo and a run owned by a Codex TUI thread. Record each resu
 4. **One MCP server per session.** Open one Codex TUI and count `catherd mcp` processes and `reconcile` log rows: one
    server leads (`reconcile`), any other logs `boot … skipped`.
 5. **The push smoke.** From inside the thread, call `test_push`; from a shell, `catherd doctor --test-push --thread
-   <uuid>` with the uuid the last catherd message named. Both report `enqueue accepted`, and the labeled smoke
+<uuid>` with the uuid the last catherd message named. Both report `enqueue accepted`, and the labeled smoke
    arrives in that thread.
 6. **Resume hygiene (exit 143).** Brief a worker to start `sleep 600 &` and reply; then resume its thread for a fix
    round (`thread: "latest"`). The resumed role ends `ok`, not exit 143, and `dispatch` returns the hint
@@ -714,12 +695,12 @@ plugin, one scratch repo and a run owned by a Codex TUI thread. Record each resu
 
 What the simulator cannot show. Record each observation, with the versions, in the acceptance report.
 
-| Step | Required observation |
-| --- | --- |
-| Testcontainers per dispatch | Two lanes of one milestone whose fast checks start testcontainers on one Docker daemon run side by side. Each worker's env has its own `TESTCONTAINERS_SESSION_ID` (its dispatch id), and neither fails with "reaper container name already in use". If the testcontainers library in use ignores that variable, record which one, and which variable it reads instead. |
-| opencode provider outage | On an opencode rung whose provider answers 503 (or with the network to it blocked), the stream shows `step_start` events with nothing between, or the session message carries `retry.attempt`. Within 3 retries or 3 minutes the attempt ends `provider-unavailable`, its record is a `limit` with `error.code: provider-unavailable`, and failover starts the rung's stand-in on another backend. Record whether opencode emits a `step_start` per retry on the version in use. |
-| doctor --docker | On a machine whose `~/.docker/config.json` has a `proxies` block, plain `catherd doctor` warns `docker-proxies`; `catherd doctor --docker` reports `compose network` blocked after two tries 5 s apart, and ready once the block is removed. With less than 10 GB free in Docker's data root on Linux, `docker-disk` warns; on macOS (Docker in a VM) the row is absent. |
-| Long gate behind catherd lock | A verifier whose root gate runs longer than its `wallMin` behind `catherd lock`, printing as it goes, is not stopped at `wallMin`; with the gate silent for `wallMin`, it is. `roles.verifier.timeouts.wallMin` raises the wall for that role alone. |
+| Step                          | Required observation                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Testcontainers per dispatch   | Two lanes of one milestone whose fast checks start testcontainers on one Docker daemon run side by side. Each worker's env has its own `TESTCONTAINERS_SESSION_ID` (its dispatch id), and neither fails with "reaper container name already in use". If the testcontainers library in use ignores that variable, record which one, and which variable it reads instead.                                                                                                          |
+| opencode provider outage      | On an opencode rung whose provider answers 503 (or with the network to it blocked), the stream shows `step_start` events with nothing between, or the session message carries `retry.attempt`. Within 3 retries or 3 minutes the attempt ends `provider-unavailable`, its record is a `limit` with `error.code: provider-unavailable`, and failover starts the rung's stand-in on another backend. Record whether opencode emits a `step_start` per retry on the version in use. |
+| doctor --docker               | On a machine whose `~/.docker/config.json` has a `proxies` block, plain `catherd doctor` warns `docker-proxies`; `catherd doctor --docker` reports `compose network` blocked after two tries 5 s apart, and ready once the block is removed. With less than 10 GB free in Docker's data root on Linux, `docker-disk` warns; on macOS (Docker in a VM) the row is absent.                                                                                                         |
+| Long gate behind catherd lock | A verifier whose root gate runs longer than its `wallMin` behind `catherd lock`, printing as it goes, is not stopped at `wallMin`; with the gate silent for `wallMin`, it is. `roles.verifier.timeouts.wallMin` raises the wall for that role alone.                                                                                                                                                                                                                             |
 
 ## 18. Install checks from the minors sweep (1.5, plan 26)
 
@@ -734,7 +715,7 @@ Two behaviours only a real install shows. On a machine with a published catherd:
 2. **A blackholed registry.** In the release candidate checkout (§9), with `bun remove -g catherd-cli` first:
    `BUN_CONFIG_REGISTRY=http://10.255.255.1 bun src/cli.ts init --no-input`. `init` says `installing catherd…`,
    then within about two minutes `could not install catherd globally: add -g catherd-cli@<version> timed out after
-   120 s` with the retry command, and goes on. Reinstall the candidate afterwards as §9 does.
+120 s` with the retry command, and goes on. Reinstall the candidate afterwards as §9 does.
 
 ## 19. The Slopalytics catalog (2.0, plan 29)
 
@@ -744,7 +725,7 @@ On a machine with the release candidate, with your real config (these only read,
    `catherd doctor --json | jq '.checks[] | select(.id == "catalog")'` reads `ok fresh` with `<n> pairs`.
 2. **Only indexed pairs are offered.** `catherd catalog list --role worker` lists each model with `#<effort>` lines
    that carry an `intelligence` figure; a model Slopalytics does not list is absent. `catherd profile set
-   roles.worker.rungs codex:gpt-6-sol#turbo` is refused with `has no Slopalytics intelligence index` and the fix
+roles.worker.rungs codex:gpt-6-sol#turbo` is refused with `has no Slopalytics intelligence index` and the fix
    `pick an indexed pair: catherd catalog list --role worker`.
 3. **A run pins its index.** Start a run in a scratch repository: the run's folder (`catherd runs show <id>` names it)
    holds a `slopalytics.json`, and `catherd catalog sync --force` afterwards leaves that file's `fetchedAt` as it was.
@@ -774,7 +755,5 @@ On a machine with the release candidate, with your real config:
 
 1. **Every failover is a row.** In a run with a forced limit, `jq 'select(.source == "failover")' <run>/routes.jsonl`
    shows one row per failover, with the quotas in `held`; a failover with no stand-in has `"rung": null`.
-2. **A bar moves per role.** `catherd profile set roles.worker.bars.copy 10`, then a copy lane, starts the worker on
-   its lowest rung at medium or above.
-3. **A cap holds.** `catherd profile validate` on the default profile prints no warning; after `catherd profile set
-   roles.worker.rungs codex:gpt-6.1-sol#max` it says the rung is above `maxEffort xhigh` and that routing skips it.
+2. **A cap holds.** `catherd profile validate` on the default profile prints no warning; after `catherd profile set
+roles.worker.rungs codex:gpt-6.1-sol#max` it says the rung is above `maxEffort xhigh` and that routing skips it.

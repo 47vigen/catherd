@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { awaitsCollect, dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
-import { ask, climb, land, route } from "../../src/services/lane-service.ts";
+import { land } from "../../src/services/lane-service.ts";
 import {
   addKnowledge,
   readKnowledge,
@@ -23,13 +23,11 @@ import {
   knowledgeFile,
   listRuns,
   readAgentRuns,
-  readRoleRoutes,
-  readRoutes,
   runPaths,
 } from "../../src/services/run-store.ts";
 import { readNotes } from "../../src/services/state.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
-import { fakeDeps, fakeDispatch, freshRun, LADDER, makeRecord, passGate, writeLane } from "./helpers.ts";
+import { fakeDeps, fakeDispatch, freshRun, makeRecord, passGate, route, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -78,32 +76,7 @@ describe("startRun", () => {
   });
 });
 
-describe("route and climb", () => {
-  it("routes a lane file and records it, and records a role's route apart from the lanes", async () => {
-    const { run } = freshRun();
-    writeLane(run, "M1.L1", ["src/a.ts"]);
-    const deps = fakeDeps();
-    const r = await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
-    expect(r).toMatchObject({
-      lane: "M1.L1",
-      rung: LADDER[0],
-      ladder: LADDER,
-      backend: "codex",
-      agent: null,
-    });
-    expect(readRoutes(run)).toMatchObject([
-      { lane: "M1.L1", rung: LADDER[0], source: "route", decidedBy: "default" },
-    ]);
-    const a = await route(deps, { run: run.id, role: "architect" });
-    expect(a).toMatchObject({
-      lane: null,
-      backend: "claude",
-      agent: "catherd-architect-claude-opus-5-5-high",
-    });
-    expect(readRoutes(run)).toHaveLength(1);
-    expect(readRoleRoutes(run)).toMatchObject([{ lane: null, role: "architect", source: "route" }]);
-  });
-
+describe("a role's writes into the run", () => {
   it("refuses a role's write under plan-input/ and to plan-approved.md", () => {
     const { run } = freshRun();
     for (const path of ["plan-input/p.md", "plan-approved.md"])
@@ -117,50 +90,6 @@ describe("route and climb", () => {
     const { run } = freshRun();
     for (const path of ["Plan-Input/p.md", "PLAN-APPROVED.md"])
       expect(() => writeRunFile({ run: run.id, path, content: "x" })).toThrow("roles never write it");
-  });
-
-  it("refuses a lane file outside lanes/ or missing", async () => {
-    const { run } = freshRun();
-    writeRunFile({ run: run.id, path: "plan.md", content: "x" });
-    expect(await codeOf(route(fakeDeps(), { run: run.id, laneFile: "plan.md", role: "worker" }))).toBe(
-      "E_LANE_INVALID",
-    );
-    expect(await codeOf(route(fakeDeps(), { run: run.id, laneFile: "lanes/M9.md", role: "worker" }))).toBe(
-      "E_LANE_INVALID",
-    );
-  });
-
-  it("climbs one rung per call with the reason, then reports the top", async () => {
-    const { run } = freshRun();
-    writeLane(run, "M1.L1", ["src/a.ts"]);
-    const deps = fakeDeps();
-    expect(await codeOf(climb(deps, { run: run.id, lane: "M1.L1", reason: "refused" }))).toBe(
-      "E_LANE_INVALID",
-    );
-    await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
-    const up = await climb(deps, {
-      run: run.id,
-      lane: "M1.L1",
-      reason: "check-failed-twice",
-      evidence: "roles/x/stderr",
-    });
-    expect(up).toEqual({
-      lane: "M1.L1",
-      rung: LADDER[1] as string,
-      top: false,
-      backend: "codex",
-      agent: null,
-    });
-    expect(readRoutes(run).at(-1)).toMatchObject({
-      source: "climb",
-      from: LADDER[0],
-      reason: "check-failed-twice: roles/x/stderr",
-    });
-    expect(nextLine(runPaths(run.dir).state)).toBe(`Next: dispatch M1.L1 at ${LADDER[1]} on a fresh thread`);
-    await climb(deps, { run: run.id, lane: "M1.L1", reason: "blocker" });
-    await climb(deps, { run: run.id, lane: "M1.L1", reason: "blocker" });
-    const top = await climb(deps, { run: run.id, lane: "M1.L1", reason: "blocker" });
-    expect(top).toMatchObject({ rung: LADDER[3], top: true });
   });
 });
 
@@ -228,7 +157,7 @@ function breakGitStatus(): void {
 }
 
 describe("a failed state.md refresh", () => {
-  it("never fails climb or land: the route and the ledger row are kept, and a hint says so", async () => {
+  it("never fails land: the ledger row is kept, and a hint says so", async () => {
     const { repo, run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"]);
     let now = Date.parse(run.meta.createdAt) + 3 * 60_000;
@@ -242,17 +171,6 @@ describe("a failed state.md refresh", () => {
     const state = readFileSync(runPaths(run.dir).state, "utf8");
     breakGitStatus();
     const hint = `state.md not refreshed: git status failed in ${repo}`;
-    expect(await climb(deps, { run: run.id, lane: "M1.L1", reason: "blocker" })).toEqual({
-      lane: "M1.L1",
-      rung: LADDER[1] as string,
-      top: false,
-      backend: "codex",
-      agent: null,
-      hints: [hint],
-    });
-    expect(readRoutes(run).at(-1)).toMatchObject({ source: "climb", rung: LADDER[1] });
-    // climb's Next note was kept in state.json although state.md was not refreshed
-    expect(readNotes(run).next).toBe(`dispatch M1.L1 at ${LADDER[1]} on a fresh thread`);
     const land1 = { run: run.id, milestone: "M1", what: "x", commit: c1, evidence: "ok", next: "M2" };
     expect(await land(deps, land1)).toEqual({
       ledger: `M1 | x | ${c1} | 3 | ok`,
@@ -286,50 +204,6 @@ describe("a failed state.md refresh at run start", () => {
     expect(writeRunFile({ run: run.id, path: "plan.md", content: "x" }).bytes).toBe(1);
     expect(await setNext({ run: run.id, next: "paused: lunch" })).toEqual({ state: null, hints: [hint] });
     expect(readNotes(run).next).toBe("paused: lunch");
-  });
-});
-
-describe("ask", () => {
-  it("needs the question's state keys, and reads the lane file it names", async () => {
-    const { run } = freshRun();
-    writeLane(run, "M1.L1", ["src/a.ts"]);
-    const deps = fakeDeps();
-    expect(await codeOf(ask(deps, { run: run.id, question: "finding", state: { finding: "x" } }))).toBe(
-      "E_INPUT_INVALID",
-    );
-    expect(
-      await ask(deps, {
-        run: run.id,
-        question: "finding",
-        state: { lane_file: "lanes/M1.L1.md", finding: "BUG a" },
-      }),
-    ).toMatchObject({ value: "code" });
-    expect(
-      await ask(deps, { run: run.id, question: "same-defect", state: { before: "a", after: "b" } }),
-    ).toMatchObject({ value: "no" });
-  });
-
-  it("passes the repo profile's jev.use to the routing port", async () => {
-    const { run } = freshRun();
-    writeLane(run, "M1.L1", ["src/a.ts"]);
-    const deps = fakeDeps();
-    deps.view.jev = { use: "off" };
-    const uses: string[] = [];
-    deps.routing.finding = async (_d, _l, _f, use) => {
-      uses.push(use);
-      return { value: "code", probability: null, confidence: null, source: "default" };
-    };
-    deps.routing.sameDefect = async (_d, _b, _a, use) => {
-      uses.push(use);
-      return { value: "no", probability: null, confidence: null, source: "default" };
-    };
-    await ask(deps, {
-      run: run.id,
-      question: "finding",
-      state: { lane_file: "lanes/M1.L1.md", finding: "x" },
-    });
-    await ask(deps, { run: run.id, question: "same-defect", state: { before: "a", after: "b" } });
-    expect(uses).toEqual(["off", "off"]);
   });
 });
 

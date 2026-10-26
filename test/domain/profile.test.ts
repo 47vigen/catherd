@@ -8,6 +8,8 @@ import {
   DEFAULT_MAX_EFFORT,
   defaultProfileDoc,
   diffProfiles,
+  LEGACY_DECISION,
+  migrateProfileDoc,
   patchAt,
   patchBetween,
   ProfileDocSchema,
@@ -17,6 +19,7 @@ import {
   unknownValues,
 } from "../../src/domain/profile.ts";
 import { ROLES } from "../../src/domain/roles.ts";
+import legacy from "../fixtures/profiles/legacy-1.5.json";
 
 describe("the default profile (spec §7.2)", () => {
   const p = resolveProfile(defaultProfileDoc(), "default", "claude-code");
@@ -61,8 +64,6 @@ describe("the default profile (spec §7.2)", () => {
     expect(Object.keys(defaultProfileDoc())).toEqual([
       "schema",
       "name",
-      "objective",
-      "jev",
       "billing",
       "roles",
       "harness",
@@ -89,9 +90,7 @@ describe("resolveProfile", () => {
   it("fills a bare document from the built-in roles and the spec defaults", () => {
     const p = resolveProfile({ schema: 1 }, "bare", "claude-code");
     expect(p.roles).toEqual(BUILTIN_ROLES);
-    expect([p.objective, p.jev.use, p.timeouts, p.preflight, p.lock, p.failover]).toEqual([
-      "cost",
-      "auto",
+    expect([p.timeouts, p.preflight, p.lock, p.failover]).toEqual([
       { idleMin: 15, wallMin: 90 },
       { confirm: false },
       { heavy: "cpus/2" },
@@ -139,8 +138,6 @@ describe("resolveProfile", () => {
 describe("values a newer catherd wrote (spec §3.4)", () => {
   const newer = ProfileDocSchema.parse({
     schema: 1,
-    objective: "quality",
-    jev: { use: "findings-only" },
     billing: { codex: "chatgpt-pro", cursor: "cursor-ultra" },
     roles: { worker: { access: "network-off" } },
     notify: ["finish", "every-lane"],
@@ -148,8 +145,6 @@ describe("values a newer catherd wrote (spec §3.4)", () => {
 
   it("reads each one the cautious way instead of refusing the profile", () => {
     const p = resolveProfile(newer, "x", "claude-code");
-    expect(p.objective).toBe("cost");
-    expect(p.jev.use).toBe("off");
     expect(p.billing).toMatchObject({ codex: "chatgpt-plan", cursor: "metered" });
     expect(p.roles.worker.access).toBe("read-only");
     expect(p.notify).toEqual(["finish"]);
@@ -157,8 +152,6 @@ describe("values a newer catherd wrote (spec §3.4)", () => {
 
   it("names each one with what it is read as, and keeps it through a patch", () => {
     expect(unknownValues(newer)).toEqual([
-      { path: "objective", value: "quality", readAs: "cost" },
-      { path: "jev.use", value: "findings-only", readAs: "off" },
       { path: "billing.codex", value: "chatgpt-pro", readAs: "chatgpt-plan" },
       { path: "billing.cursor", value: "cursor-ultra", readAs: "metered" },
       { path: "roles.worker.access", value: "network-off", readAs: "read-only" },
@@ -167,7 +160,6 @@ describe("values a newer catherd wrote (spec §3.4)", () => {
     expect(unknownValues(defaultProfileDoc())).toEqual([]);
     const after = applyPatch(newer, { budget: { usd: 5 } });
     expect(after).toMatchObject({
-      objective: "quality",
       billing: { codex: "chatgpt-pro" },
       notify: ["finish", "every-lane"],
     });
@@ -214,8 +206,6 @@ describe("ProfilePatchSchema", () => {
 
   it("takes every field spec §4.8 names", () => {
     const patch = {
-      objective: "speed",
-      jev: { use: "off" },
       billing: { codex: "metered" },
       roles: {
         reviewer: { enabled: true, access: "full", rungs: ["codex:gpt-6-sol#high"], defaultRung: null },
@@ -348,10 +338,10 @@ describe("patchBetween", () => {
 
   it("applies over a newer copy without undoing what changed there", () => {
     const base = defaultProfileDoc();
-    const mine = applyPatch(base, { objective: "speed" });
+    const mine = applyPatch(base, { land: { autoMerge: true } });
     const theirs = applyPatch(base, { budget: { minutes: 30 } });
     const merged = applyPatch(theirs, patchBetween(base, mine));
-    expect([merged.objective, merged.budget]).toEqual(["speed", { minutes: 30 }]);
+    expect([merged.land, merged.budget]).toEqual([{ autoMerge: true }, { minutes: 30 }]);
   });
 
   it("refuses a change no patch may make", () => {
@@ -444,41 +434,6 @@ describe("a stored maxEffort entry that is no effort word", () => {
   });
 });
 
-describe("bars", () => {
-  it("keeps a profile's and a role's bars, and removes them with null", () => {
-    const doc = applyPatch(
-      applyPatch(defaultProfileDoc(), patchAt("bars.logic", "55")),
-      patchAt("roles.worker.bars.hard", "65"),
-    );
-    const p = resolveProfile(doc, "x", "claude-code");
-    expect(p.bars).toEqual({ logic: 55 });
-    expect(p.roles.worker.bars).toEqual({ hard: 65 });
-    expect(
-      resolveProfile(applyPatch(doc, patchAt("roles.worker.bars", "null")), "x", "claude-code").roles.worker
-        .bars,
-    ).toBeUndefined();
-    expect(() => patchAt("bars.hard", "150")).toThrow("cannot set bars.hard");
-    expect(() => patchAt("bars.extreme", "50")).toThrow("cannot set");
-  });
-
-  it("drops a stored bar it cannot read, and warns", () => {
-    const doc = ProfileDocSchema.parse({
-      schema: 1,
-      bars: { hard: 150, logic: 55 },
-      roles: { worker: { bars: "high" } },
-    });
-    const p = resolveProfile(doc, "x", "claude-code");
-    expect(p.bars).toEqual({ logic: 55 });
-    expect(p.roles.worker.bars).toBeUndefined();
-    expect(unknownValues(doc)).toEqual(
-      expect.arrayContaining([
-        { path: "bars.hard", value: "150", readAs: "the shipped percentile" },
-        { path: "roles.worker.bars", value: '"high"', readAs: "the profile's bar" },
-      ]),
-    );
-  });
-});
-
 describe("limits.memory", () => {
   it("sets, validates and removes the memory limits", () => {
     const doc = applyPatch(defaultProfileDoc(), patchAt("limits.memory.reserveMb", "4096"));
@@ -505,5 +460,53 @@ describe("limits.memory", () => {
     });
     const odd = ProfileDocSchema.parse({ schema: 1, limits: "x" });
     expect(resolveProfile(odd, "x", "claude-code").limits.memory).toEqual({});
+  });
+});
+
+describe("the decision model in the profile (plan 44 D25)", () => {
+  const old = ProfileDocSchema.parse(legacy);
+
+  it("a 1.5 profile migrates to the decision model", () => {
+    const { doc, notes } = migrateProfileDoc(old, true);
+    expect(doc.jev).toBeUndefined();
+    expect(doc.bars).toBeUndefined();
+    expect(doc.objective).toBeUndefined();
+    expect(doc.roles?.worker?.bars).toBeUndefined();
+    expect(doc.decision).toEqual(LEGACY_DECISION);
+    for (const field of ["jev", "bars", "roles.worker.bars", "objective"])
+      expect(notes.some((n) => n.includes(field))).toBe(true);
+    expect(old.jev).toBeDefined();
+    expect(migrateProfileDoc(doc, true)).toEqual({ doc, notes: [] });
+  });
+
+  it("no key, no TypeSafe url", () => {
+    expect(migrateProfileDoc(old, false).doc.decision).toBeUndefined();
+    const own = { url: "https://decision.test/v1", model: "test-decider" };
+    expect(migrateProfileDoc({ ...old, decision: own }, true).doc.decision).toEqual(own);
+  });
+
+  it("a stored 1.5 profile still resolves", () => {
+    const p = resolveProfile(old, "old", "claude-code");
+    for (const field of ["jev", "bars", "objective"]) expect(p).not.toHaveProperty(field);
+    expect(p.roles.worker).not.toHaveProperty("bars");
+    expect(p.decision.url).toBeNull();
+    expect(unknownValues(old)).toEqual([]);
+  });
+
+  it("the decision block resolves with its default confidence", () => {
+    const doc = { schema: 1 as const, decision: { url: "https://decision.test/v1", model: "test-decider" } };
+    expect(resolveProfile(doc, "p", "claude-code").decision).toEqual({ ...doc.decision, minConfidence: 0.8 });
+    expect(resolveProfile({ schema: 1 }, "p", "claude-code").decision).toEqual({
+      url: null,
+      model: null,
+      minConfidence: 0.8,
+    });
+  });
+
+  it("a patch sets the decision model, http(s) urls only", () => {
+    const set = patchAt("decision.url", "https://decision.test/v1");
+    expect(applyPatch({ schema: 1 }, set).decision?.url).toBe("https://decision.test/v1");
+    expect(() => patchAt("decision.url", "ftp://x")).toThrow();
+    expect(() => patchAt("decision.minConfidence", "0.2")).toThrow();
   });
 });

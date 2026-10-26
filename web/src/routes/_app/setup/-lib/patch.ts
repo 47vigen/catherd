@@ -9,13 +9,11 @@ type Billing = Settings["billing"][string];
 
 /** What each Setup section edits; `patchFor` turns it into the profile patch the server previews and saves. */
 export interface SectionValues {
-  objective: { objective: "cost" | "speed" };
   budget: { minutes: number | null; tokens: number | null; usd: number | null };
   timeouts: { idleMin: number; wallMin: number };
   /** `previous` is what the profile holds now: a pair missing from `pairs` is deleted. */
   failover: { pairs: Record<string, string>; previous: Record<string, string> };
   effort: { efforts: Record<string, Effort>; previous: Record<string, string> };
-  bars: Record<string, number>;
   limits: {
     heavy: number | "cpus/2";
     reserveMb: number | null;
@@ -25,7 +23,8 @@ export interface SectionValues {
   preflight: { confirm: boolean };
   land: { autoMerge: boolean };
   notifications: { notify: Settings["notify"] };
-  jev: { use: "auto" | "off" };
+  /** A cleared url or model is `null`, which removes it. */
+  decision: { url: string | null; model: string | null; minConfidence: number };
   billing: Record<string, Billing>;
   isolation: Record<string, boolean>;
   /** Only the fields given are sent; both timeouts cleared removes the role's own timeouts. */
@@ -76,8 +75,6 @@ export function patchFor<S extends keyof SectionValues>(
 function fullPatch<S extends keyof SectionValues>(section: S, values: SectionValues[S]): ProfilePatch {
   const v = values as SectionValues[keyof SectionValues];
   switch (section) {
-    case "objective":
-      return { objective: (v as SectionValues["objective"]).objective };
     case "budget":
       return { budget: { ...(v as SectionValues["budget"]) } };
     case "timeouts":
@@ -90,8 +87,6 @@ function fullPatch<S extends keyof SectionValues>(section: S, values: SectionVal
       const { efforts, previous } = v as SectionValues["effort"];
       return { maxEffort: { ...removed(efforts, previous), ...efforts } };
     }
-    case "bars":
-      return { bars: { ...(v as SectionValues["bars"]) } };
     case "limits": {
       const { heavy, ...memory } = v as SectionValues["limits"];
       return { lock: { heavy }, limits: { memory } };
@@ -104,8 +99,8 @@ function fullPatch<S extends keyof SectionValues>(section: S, values: SectionVal
       return { land: { autoMerge: (v as SectionValues["land"]).autoMerge } };
     case "notifications":
       return { notify: [...(v as SectionValues["notifications"]).notify] };
-    case "jev":
-      return { jev: { use: (v as SectionValues["jev"]).use } };
+    case "decision":
+      return { decision: { ...(v as SectionValues["decision"]) } };
     case "billing":
       return { billing: { ...(v as SectionValues["billing"]) } };
     case "isolation":

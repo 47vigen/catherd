@@ -7,8 +7,7 @@
 ```
 
 Autopilot builds from your own Claude Code or native Codex session. Your profile routes the architect, verifier and workers to their backends; Codex, opencode, Cursor
-or headless Claude Code processes write the code, and [Jev](https://typesafe.ai) picks the model and effort for each piece
-of work, climbing a ladder only when a cheaper rung falls short.
+or headless Claude Code processes write the code, and a decision model you point it at picks the model and effort for each dispatch.
 
 - **Your harness, as you set it up.** Every role runs in its vendor's own CLI with your config,
   hooks, skills and `AGENTS.md`. Isolation is an opt-in toggle per profile and harness, for when
@@ -37,7 +36,8 @@ of work, climbing a ladder only when a cheaper rung falls short.
   - Claude Code's `claude` CLI 2.1.282 or newer, for headless `claude-code:` rungs
   - Cursor's CLI, `cursor-agent` 2026.09.28 or newer: `curl https://cursor.com/install -fsS | bash`, then
     `cursor-agent login` (below)
-- Optional: a TypeSafe API key for Jev, in `TYPESAFE_API_KEY` or saved by `catherd init`
+- A decision model: an OpenAI-compatible endpoint and a model name, and a key in `CATHERD_DECISION_KEY` or saved by
+  `catherd init` (below). A run refuses to start without one
 - Optional: [gitleaks](https://github.com/gitleaks/gitleaks) (`brew install gitleaks`): catherd's milestone check
   scans the commits of a milestone with it for a leaked secret; without it the scan is skipped and the record says so
 
@@ -82,10 +82,10 @@ works too (a terminal with no host evidence cannot pick the architect/verifier d
 installs the global command at its own version (`--no-global` skips it) and says `installing catherd…` before
 it does, though the first `bunx` resolve itself prints nothing for up to half a minute: bunx fetches the
 package before catherd's first line, so `bun add -g catherd-cli` first is the quicker start. `init` asks for the
-optional Jev key, fetches the Slopalytics index, writes the default
+decision model's url, model and key, fetches the Slopalytics index, writes the default
 profile and links its Claude agents, lists your backends' models, and ends with a readiness report (`--no-input`
 asks nothing and keeps what exists; `--profile <name>` sets up and activates that profile instead of `default`;
-piped, it reads one answer per line once stdin closes: the Jev key, the profile,
+piped, it reads one answer per line once stdin closes: the decision model's url, model and key, the profile,
 whether to replace it, each on its own line even when a question is skipped). Then add the plugin to
 Claude Code:
 
@@ -118,7 +118,7 @@ In either supported host, use the installed shared skills through that host's sk
 - `/catherd <task>` runs a task on autopilot; `/catherd` alone resumes the latest run. While it runs, keep
   talking: a report arrives through the host's transport and on your phone, and "how is it going?" gets a `status`.
 - `/catherd-setup` tunes your profile in conversation: which models and efforts each role may
-  use, cost or speed, isolation, budget and failover.
+  use, the decision model, isolation, budget and failover.
 
 A session sees six tools:
 
@@ -196,49 +196,38 @@ names the error. A model and effort the index does not list is not offered: it i
 `catherd catalog list`, and a profile that names one fails `profile validate`. `CATHERD_NO_SYNC=1` stops the automatic
 refreshes.
 
-A lane's difficulty picks a bar: a percentile of the intelligence of the shipped models' indexed pairs (copy the
-20th, build the 45th, logic the 60th, hard the 65th), and the lane starts on the cheapest rung that clears it
-(the fastest under `objective speed`). Every kind of lane is held to the same bar. A ladder holds only rungs at
-least as intelligent as its start, and rungs of equal intelligence on two quotas start on the one the run has used
-least. A failover stand-in must be indexed, on another quota and at least as intelligent as the rung it replaces.
-Routing gives the rung, its ladder and a one-line why (a lane's declared `Kind:`/`Difficulty:` wins over Jev, and
-the why says when Jev disagreed, when no rung clears the bar, or when a tie decided); the run's `routes.jsonl`
-keeps every role's decision with, for the rung it picks, its intelligence, the bar it was held to and catherd's own
-runs on it ("12 lanes, 2 climbed, 1 partial"), which it shows but never routes on, with one exception: the learned
-start below. A run starts only when every enabled role has an indexed rung, and it keeps the index it started on: a
-later refresh never changes what it dispatches on.
+### The decision model
 
-A lane on the critical path of the remaining plan starts no lower than the role's default rung, unless it is a copy
-lane, which keeps the cheapest rung that clears copy's bar. catherd finds the critical path from the plan the run
-approved: each lane and each milestone's review, verify and land counts as one step, and a lane with no slack lies
-on the longest chain through the plan. A lane with slack starts on the cheapest rung that clears the bar of the next
-easier difficulty (hard to logic, logic to build, build to copy), and its why says `slack N: held to <bar>'s bar`.
-A lane the plan does not list, such as one the architect added later, or a run with no event log, routes on its bar
-alone.
+A decision model is called before every dispatch and judge. It reads the exact brief of that role and chooses one of
+N levels, where N is the number of rungs the role has. In a fix round the failed rung is the floor, and twice on
+one rung moves the floor up. It is not optional: a run refuses to start without `decision.url` and `decision.model`
+(`E_DECISION_UNSET`), or when the probe fails (`E_DECISION_PROBE`); `catherd doctor` checks both.
 
-A lane its lane file marks `Chore: yes` starts on the cheapest capable rung, and Jev is not asked about it. The
-architect sets that line for mechanically simple work (stubs, fixtures, renames, boilerplate, docs, version bumps),
-or when the owner's plan marks the lane `chore`. A chore lane keeps its own kind and difficulty in the record.
+```sh
+catherd profile set decision.url https://<your-gateway>/v1
+catherd profile set decision.model <model>
+export CATHERD_DECISION_KEY=<key>   # or let `catherd init` save it
+```
 
-A cheaper rung with at least as good a record on this machine is preferred over the start the bar gives. Both rungs
-need 5 or more finished lanes of the lane's difficulty, the cheaper one's first-pass rate must be at least the
-start's, and its rounds per lane no more than the start's. A first pass is a lane that landed on its start rung in
-one dispatch, with no retry, fix round or capability climb. Chore lanes are left out of the record. The why names
-both records, and `catherd catalog outcomes` shows them.
+`decision.minConfidence` (default 0.8) is the least probability the pick may have. If the model gives no answer, the
+call is retried three times, a minute apart, and then the unit parks for the coordinator. Every decision is a
+`decision.made` event in the run's log with the levels, the pick, its probability and why, and the panel shows it on the role's
+Decision tab.
 
-A fix round whose notes are all mechanical runs once on the profile's cheapest capable rung, on a fresh thread. A
-note counts as mechanical when it is a nit, or a bug about lint, formatting, the type check, naming, a comment or an
-unused symbol, or a fast check that failed on lint, formatting or the type check. If that try fails, its fast check
-fails, or one of its findings survives the next review, the lane goes back to its own rung once, and the cheap try
-does not count toward a climb.
+A brief has four parts: the role contract, the run facts, the unit context (capped at about 20 KB) and this round.
+Findings in it are capped at 2 KB each, and a resumed fix round sends this round only. The verifier prints
+`RAN: <cmd> — exit <n> — <log>` for each command it runs; a check that is missing or marked NOT RUN is a FAIL.
+Every stop and failed check gets a failure class, `product` or `harness`, and a harness failure gets one repair
+dispatch outside the round count. Test files are hashed when a lane starts, and a lane that edits a test file it
+does not own is refused.
 
-Jev's yes/no answers shape the difficulty it gives: a yes to an unexplained cause, a cross-service invariant or
-shared state lifts a lane to at least logic, and a yes to purely mechanical work holds it at build. A profile can
-move a bar's percentile (`catherd profile set bars.logic 55`), and so can one role (`catherd profile set
-roles.worker.bars.hard 65`), one difficulty at a time. `catherd profile set maxEffort.codex:gpt-6.1-sol xhigh` caps a
-model's effort for every route, climb and failover; the default profile ships Opus 5.5 and Sonnet 5.5 at high and
-GPT-6.1 Sol at xhigh (`null` removes one). A coding worker never runs below medium effort, whatever the objective or
-the budget. Every failover is a `failover` row in the run's `routes.jsonl`.
+Tool output is clamped per harness: `claude-code` roles get `BASH_MAX_OUTPUT_LENGTH`, `codex` roles get
+`tool_output_token_limit`, and `opencode` roles get a scratch `TMPDIR`. `opencode` and `cursor` have no output clamp.
+Roles run with `HONCHO_ENABLED=false`.
+
+`catherd profile set maxEffort.codex:gpt-6.1-sol xhigh` caps a model's effort for every route and failover; the
+default profile ships Opus 5.5 and Sonnet 5.5 at high and GPT-6.1 Sol at xhigh (`null` removes one). A coding worker
+never runs below medium effort, whatever the budget. Every failover is a `failover` row in the run's `routes.jsonl`.
 
 Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (both follow
 `XDG_*`).
@@ -287,7 +276,7 @@ switch stay.
 
 | Variable                    | What it does                                                                                                                  |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `TYPESAFE_API_KEY`          | The Jev key, instead of the one `catherd init` saves                                                                          |
+| `CATHERD_DECISION_KEY`      | The decision model's key, instead of the one `catherd init` saves                                                             |
 | `CATHERD_NO_SYNC`           | `1`: no automatic fetch of the Slopalytics index (at MCP server start, in `init` and at run start); `catalog sync` still runs |
 | `CURSOR_API_KEY`            | Cursor's API key: logs `cursor-agent` in, and is what an isolated Cursor role runs on                                         |
 | `CATHERD_HOME`              | Puts config and data under `$CATHERD_HOME/config` and `$CATHERD_HOME/data` instead of XDG                                     |
@@ -311,7 +300,7 @@ socket from another origin.
 - **Dashboard** (the first page): every run on the machine, from every repo. A stat sheet gives the runs, the
   ones that finished alone, the median time, the interventions, the cost and the tokens, for the last 7 or 30 days.
   Below it are the runs that are live now, the questions that wait for you, the cost and tokens per day by backend,
-  the tokens by model, the time by role, the recoveries (failovers and climbs) and the recent runs. Each tile has a
+  the tokens by model, the time by role, the recoveries (failovers) and the recent runs. Each tile has a
   one-line note that tells you what it shows.
 - **Runs**: every run, with its status, models, time, tokens and cost. Open a run to see it as a graph. The graph
   starts at the plan and goes through every step of every milestone: route, preflight, each lane, its checks, the
@@ -368,7 +357,7 @@ by 1.0 keeps its failover map; `catherd profile validate` says what to change. T
 
 1.0 is a clean break: run `bunx catherd-cli init` once. It moves your 0.x `config.json`, `projects.json` and
 profiles into a `0.x-backup-<time>/` folder next to them (it never reads or deletes them), writes the 1.0
-default profile, replaces the 0.x Claude agent links with 1.0 ones and keeps your saved Jev key; 0.x run
+default profile, replaces the 0.x Claude agent links with 1.0 ones and keeps your saved key; 0.x run
 folders stay where they are, unread. Then update the plugin
 (`claude plugin marketplace update catherd && claude plugin update catherd@catherd`) and start a new Claude
 Code session. The details are in [MIGRATION.md](MIGRATION.md).

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Finding } from "../../src/domain/run-events.ts";
 import { appendCheckRecord } from "../../src/services/milestone-check.ts";
@@ -13,7 +13,7 @@ import {
   startedFields,
 } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { freshRun } from "./helpers.ts";
+import { freshRun, makeRecord } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -57,6 +57,22 @@ describe("the run report (plan 34)", () => {
     expect(report().startsWith(headline)).toBe(true);
     log.add("run.ended", { outcome: "cancelled", reportPath: "report.md" });
     expect(report().startsWith(headline)).toBe(true);
+  });
+
+  it("the report has a scorecard", () => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    const id = startDispatch(log, { name: "worker-M1.L1", role: "worker", unit: "M1.L1" });
+    endDispatch(log, id, { name: "worker-M1.L1", unit: "M1.L1" });
+    appendFileSync(
+      join(run.dir, "runs.jsonl"),
+      `${JSON.stringify(makeRecord({ dispatchId: id, runId: run.id }))}\n`,
+    );
+    log.add("run.ended", { outcome: "done", reportPath: "report.md" });
+    const text = readFileSync(writeRunReport(run, log.state(), log.events), "utf8");
+    expect(text).toContain("## Scorecard");
+    expect(text).toMatch(/^\| worker \| 1 \|/m);
   });
 
   it("lists every milestone when cancellation happens before any landed", () => {

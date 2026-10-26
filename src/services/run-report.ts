@@ -5,6 +5,7 @@ import { type Finding, issueLine, type RunEvent } from "../domain/run-events.ts"
 import { findingKey, type RunState } from "../domain/run-state.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import { readChecks } from "./milestone-check.ts";
+import { roleScorecard, scorecardLines } from "./run-scorecard.ts";
 import { readRecords, type Run } from "./run-store.ts";
 
 const read = (file: string): string => {
@@ -169,6 +170,8 @@ export function writeRunReport(
     );
   }
   if (landed.length === 0) lines.push("No milestone landed.", "");
+  const card = roleScorecard(run, events, readRecords(run).records);
+  if (card.length) lines.push(...scorecardLines(card));
   lines.push("## Known issues", "");
   const issues = landed.flatMap((e) => e.knownIssues.map((k) => `- ${e.milestone}: ${k}`));
   lines.push(

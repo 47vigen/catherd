@@ -6,15 +6,16 @@ import { quotaOf } from "./failover.ts";
 import { tryParseRung } from "./ids.ts";
 import type { NotifyMoment } from "./profile.ts";
 import type { Role } from "./roles.ts";
-import type { ClimbReason } from "./route.ts";
 import { ACTION_TYPES, type ParkReason, type ReportKind, RUN_UNIT, type RunEvent } from "./run-events.ts";
 import {
   activeMilestones,
+  floorOf,
   siblingMayChange,
   SOURCE_PLAN_NOTE,
   integrateName,
   isFinished,
   type LaneState,
+  laneNameOf,
   lanesOf,
   limitedRung,
   liveDispatches,
@@ -31,29 +32,54 @@ export type BriefKind = "dossier" | "architect" | "lane" | "fix" | "review" | "r
 
 export type RemindAction = { type: "remind"; unit: string; n: number };
 
+/** What a decision recorded for the dispatch it precedes: the brief file the dispatch sends, and its hash (D18). */
+export interface Decided {
+  n: number;
+  briefFile: string;
+  briefHash: string;
+}
+
+/** `rung` and `decision` are null until `decision.made`: the machine issues the `decide` first, then this with both set. */
+export type DispatchAction = {
+  type: "dispatch";
+  unit: string;
+  name: string;
+  role: Role;
+  lane: string | null;
+  rung: string | null;
+  thread: string | null;
+  failoverFrom: string | null;
+  brief: BriefKind;
+  notes: string[];
+  decision: Decided | null;
+};
+export type JudgeAction = { type: "judge"; input: JudgeInput; rung: string | null; decision: Decided | null };
+/**
+ * plan 44 D13: the decision owed before a dispatch or a judge call. `floor` and `strict` come from the name's failures,
+ * `exclude` holds the rungs admission refused, `failoverFrom` makes a limit's stand-in the decision, `pick` is the
+ * coordinator's answer to a parked decision.
+ */
+export type DecideAction = {
+  type: "decide";
+  n: number;
+  next: DispatchAction | JudgeAction;
+  floor: string | null;
+  strict: boolean;
+  exclude: string[];
+  failoverFrom: string | null;
+  pick: string | null;
+};
+
 export type Action =
   | RemindAction
-  | {
-      type: "dispatch";
-      unit: string;
-      name: string;
-      role: Role;
-      lane: string | null;
-      rung: string | null;
-      thread: string | null;
-      failoverFrom: string | null;
-      /** a mechanical fix: the cheapest capable rung runs it first, on a fresh thread */
-      cheap?: true;
-      brief: BriefKind;
-      notes: string[];
-    }
+  | DispatchAction
+  | DecideAction
   | { type: "watch"; dispatchId: string }
   | { type: "readPlan" }
   | { type: "route"; milestone: string; confirmed: boolean }
   | { type: "fastCheck"; lane: string }
   | { type: "commit"; milestone: string; round: number }
-  | { type: "climb"; lane: string; reason: ClimbReason }
-  | { type: "judge"; input: JudgeInput }
+  | JudgeAction
   | { type: "classify"; dispatchId: string }
   | { type: "park"; unit: string; question: string; reason: ParkReason }
   | { type: "machineCheck"; milestone: string; commit: string }
@@ -92,8 +118,9 @@ export function actionKey(a: Action): string {
     case "mergeLanded":
       return `${a.type}:${a.milestone}`;
     case "fastCheck":
-    case "climb":
       return `${a.type}:${a.lane}`;
+    case "decide":
+      return `decide:${decidedName(a.next)}:${a.n}`;
     case "commit":
       return `commit:${a.milestone}:${a.round}`;
     case "judge":
@@ -136,8 +163,9 @@ export function unitOf(a: Action, s?: RunState): string {
     case "commit":
       return a.milestone;
     case "fastCheck":
-    case "climb":
       return a.lane;
+    case "decide":
+      return unitOf(a.next, s);
     case "judge":
       return a.input.unit;
     case "readPlan":
@@ -173,8 +201,10 @@ export function confirms(e: RunEvent): string[] {
     case "commit.made":
     case "commit.failed":
       return [`commit:${e.milestone}:${e.round}`];
-    case "lane.climbed":
-      return [`climb:${e.lane}`];
+    case "decision.made":
+    case "decision.failed":
+    case "decision.exhausted":
+      return [`decide:${e.name}:${e.n}`];
     case "judge.decided":
     case "judge.failed":
       return (["triage", "question", "unexpected", "rules"] as const).map((k) => `judge:${e.unit}:${k}`);
@@ -222,30 +252,80 @@ const hasLive = (s: RunState, name: string): boolean => liveDispatches(s).some((
 const judgeOpen = (s: RunState, unit: string): boolean =>
   Object.values(s.judges).some((j) => j.unit === unit);
 
-/** The brief and the dispatch of a lane-less role: its rung is routed by the effect, a limit gives a stand-in. */
+/** The name a decision is recorded under: the dispatch's, or the judge's. */
+export const decidedName = (a: DispatchAction | JudgeAction): string =>
+  a.type === "dispatch" ? a.name : judgeName(a.input.id);
+
+/**
+ * The session `thread` ran on, when it is known: a session of another rung cannot be resumed, so a decision on a
+ * different rung sends the full brief on a fresh thread (the decision file is that brief).
+ */
+const threadRung = (s: RunState, thread: string): string | undefined =>
+  Object.values(s.dispatches)
+    .filter((d) => d.thread === thread)
+    .at(-1)?.rung;
+
+/**
+ * plan 44: the action with its decision when `decision.made` recorded one (a restart between the two asks nothing
+ * again), else the `decide` that precedes it; none while the name waits (a failed call's retry, a refusal).
+ */
+export function decided(s: RunState, a: DispatchAction | JudgeAction): Action[] {
+  const name = decidedName(a);
+  const d = s.decisions[name];
+  if (d) {
+    const decision = { n: d.n, briefFile: d.briefFile, briefHash: d.briefHash };
+    if (a.type === "judge") return [{ ...a, rung: d.rung, decision }];
+    const ran = a.thread === null ? undefined : threadRung(s, a.thread);
+    return [{ ...a, rung: d.rung, decision, thread: ran !== undefined && ran !== d.rung ? null : a.thread }];
+  }
+  if (waiting(s, name)) return [];
+  const { floor, strict } = floorOf(s, name);
+  return [
+    {
+      type: "decide",
+      n: (s.decided[name] ?? 0) + 1,
+      next: a,
+      floor,
+      strict,
+      exclude: s.refusedRungs[name] ?? [],
+      failoverFrom: a.type === "dispatch" ? a.failoverFrom : null,
+      pick: s.picks[name] ?? null,
+    },
+  ];
+}
+
+/** The brief and the dispatch of a lane-less role: a decision picks its rung first, a limit gives a stand-in. */
 function roleDispatch(
   s: RunState,
   o: { unit: string; name: string; role: Role; brief: BriefKind; notes?: string[]; thread?: string | null },
 ): Action[] {
   if (hasLive(s, o.name) || waiting(s, o.name)) return [];
   const limited = limitedRung(s, o.name);
-  return [
-    {
-      type: "dispatch",
-      unit: o.unit,
-      name: o.name,
-      role: o.role,
-      lane: null,
-      rung: null,
-      thread: limited ? null : (o.thread ?? null),
-      failoverFrom: limited && held(s, limited) ? limited : null,
-      brief: o.brief,
-      notes: o.notes ?? [],
-    },
-  ];
+  return decided(s, {
+    type: "dispatch",
+    unit: o.unit,
+    name: o.name,
+    role: o.role,
+    lane: null,
+    rung: null,
+    thread: limited ? null : (o.thread ?? null),
+    failoverFrom: limited && held(s, limited) ? limited : null,
+    brief: o.brief,
+    notes: o.notes ?? [],
+    decision: null,
+  });
 }
 
-const laneName = (l: LaneState): string => `${l.role}-${l.id}`;
+const laneName = laneNameOf;
+
+/** A judge call's input with an id that holds until its dispatch starts, so the decision made for it finds it again. */
+const judgeCall = (s: RunState, kind: JudgeKind, unit: string): JudgeInput =>
+  judgeInputFor(s, judgeId(s, kind, unit), kind, unit);
+function judgeId(s: RunState, kind: JudgeKind, unit: string): string {
+  if (kind === "rules") return "rules";
+  const n = Object.values(s.dispatches).filter((d) => d.role === "judge" && d.unit === unit).length;
+  return `${unit}-${kind}-${n}`;
+}
 
 /** The input of one judge call, rebuilt from the state: the daemon asks the same question again from it. */
 export function judgeInputFor(s: RunState, id: string, kind: JudgeKind, unit: string): JudgeInput {
@@ -336,7 +416,9 @@ function laneActions(s: RunState, m: MilestoneState): Action[] {
   for (const l of lanes) {
     if (s.stuck[l.id] || s.questions[l.id]) continue;
     if (l.classify) {
-      out.push({ type: "classify", dispatchId: l.classify.dispatchId });
+      // a classification the decision model could not make waits for its next try (D16)
+      if (!waiting(s, `classify:${l.classify.dispatchId}`))
+        out.push({ type: "classify", dispatchId: l.classify.dispatchId });
       continue;
     }
     if (l.status === "checking" && !hasLive(s, laneName(l))) {
@@ -357,31 +439,28 @@ function laneActions(s: RunState, m: MilestoneState): Action[] {
         return other !== undefined && overlaps(l.owns, other.owns).length > 0;
       });
       if (clash) continue;
-      if (l.climbReason) {
-        out.push({ type: "climb", lane: l.id, reason: l.climbReason });
-        continue;
-      }
-      // a limit fails over while its quota is held; a provider_error that repeated does so with no hold
+      // a limit fails over while its quota is held; a provider_error that repeated does so with no hold. A decided
+      // rung whose quota is held since is the dispatch effect's to refuse and decide again (D18)
       const failoverFrom = l.failoverNow
         ? (l.failoverFrom ?? l.rung)
-        : held(s, l.rung)
-          ? l.rung
-          : l.failoverFrom && held(s, l.failoverFrom)
-            ? l.failoverFrom
-            : null;
-      out.push({
-        type: "dispatch",
-        unit: l.id,
-        name,
-        role: l.role,
-        lane: l.id,
-        rung: l.rung,
-        thread: failoverFrom || l.cheapFirst ? null : l.thread,
-        failoverFrom,
-        ...(l.cheapFirst ? { cheap: true as const } : {}),
-        brief: l.notes.length ? "fix" : "lane",
-        notes: l.notes,
-      });
+        : l.failoverFrom && held(s, l.failoverFrom)
+          ? l.failoverFrom
+          : null;
+      out.push(
+        ...decided(s, {
+          type: "dispatch",
+          unit: l.id,
+          name,
+          role: l.role,
+          lane: l.id,
+          rung: null,
+          thread: failoverFrom ? null : l.thread,
+          failoverFrom,
+          brief: l.notes.length ? "fix" : "lane",
+          notes: l.notes,
+          decision: null,
+        }),
+      );
     }
   }
   return out;
@@ -392,7 +471,7 @@ function laneActions(s: RunState, m: MilestoneState): Action[] {
  * ran out of rungs: the judge decides. The other stop reasons never reach it; the state maps them to a transition.
  */
 export function onLaneStopped(s: RunState, lane: LaneState, kind: "question" | "unexpected"): Action[] {
-  return [{ type: "judge", input: judgeInputFor(s, String(s.seq), kind, lane.id) }];
+  return decided(s, { type: "judge", input: judgeCall(s, kind, lane.id), rung: null, decision: null });
 }
 
 /** A limit: the unit went back to pending with its rung to fail over from (reduce did it); the dispatch takes the stand-in. */
@@ -413,14 +492,18 @@ export function onVerifier(_s: RunState, _m: MilestoneState, _e: RunEvent): Acti
 function judgeRetries(s: RunState): Action[] {
   return Object.entries(s.judges)
     .filter(([id]) => !hasLive(s, judgeName(id)))
-    .map(([id, j]) => ({ type: "judge", input: judgeInputFor(s, id, j.kind, j.unit) }));
+    .flatMap(([id, j]) =>
+      decided(s, { type: "judge", input: judgeInputFor(s, id, j.kind, j.unit), rung: null, decision: null }),
+    );
 }
 
 function fixActions(s: RunState, m: MilestoneState): Action[] {
   const out: Action[] = [];
   if (s.stuck[m.id]) return out;
   if (m.open.length > 0 && !judgeOpen(s, m.id))
-    out.push({ type: "judge", input: judgeInputFor(s, String(s.seq), "triage", m.id) });
+    out.push(
+      ...decided(s, { type: "judge", input: judgeCall(s, "triage", m.id), rung: null, decision: null }),
+    );
   if (m.delta.length > 0 && !s.planDirty) {
     const r = m.counts.length;
     if (!Object.values(s.dispatches).some((d) => !d.ended && d.name.startsWith(`architect-${m.id}-`)))
@@ -595,7 +678,12 @@ function rulesReviewActions(s: RunState): Action[] {
   if (review)
     return [{ type: "finish", outcome: "done", ...(review.failed ? {} : { proposals: review.changes }) }];
   if (Object.values(s.dispatches).some((d) => d.name === judgeName("rules"))) return judgeRetries(s);
-  return [{ type: "judge", input: judgeInputFor(s, "rules", "rules", RUN_UNIT) }];
+  return decided(s, {
+    type: "judge",
+    input: judgeInputFor(s, "rules", "rules", RUN_UNIT),
+    rung: null,
+    decision: null,
+  });
 }
 
 function advance(s: RunState): Action[] {
@@ -707,6 +795,7 @@ function owedActions(s: RunState): Action[] {
 
 /** What a pause holds back: every new step, a worktree claim and a routing included; a live role's check and commit still run. */
 const PAUSED_STEPS = new Set<Action["type"]>([
+  "decide",
   "dispatch",
   "judge",
   "machineCheck",

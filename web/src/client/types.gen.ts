@@ -131,10 +131,25 @@ export type RunNode = {
     endedAt: string | null;
     question: {
         unit: string;
-        reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push';
+        reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision';
         question: string;
     } | null;
+    decision: NodeDecision | null;
     attempts: Array<Attempt>;
+};
+
+export type NodeDecision = {
+    n: number;
+    rung: string;
+    level: number;
+    levels: number;
+    levelRungs: Array<Array<string>>;
+    p: number | null;
+    source: 'model' | 'floor' | 'failover' | 'coordinator';
+    why: string;
+    probabilities: {
+        [key: string]: number;
+    };
 };
 
 export type Attempt = {
@@ -367,7 +382,7 @@ export type QuestionView = {
     runTitle: string;
     unit: string;
     question: string;
-    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push';
+    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision';
     at: string;
     command: string;
     context: QuestionContext;
@@ -385,9 +400,10 @@ export type AnsweredList = {
 };
 
 export type ProfilePatch = {
-    objective?: 'cost' | 'speed';
-    jev?: {
-        use: 'auto' | 'off';
+    decision?: {
+        url?: string | null;
+        model?: string | null;
+        minConfidence?: number;
     };
     billing?: {
         [key: string]: 'chatgpt-plan' | 'claude-plan' | 'subscription' | 'metered' | null;
@@ -403,9 +419,6 @@ export type ProfilePatch = {
                 idleMin?: number | null;
                 wallMin?: number | null;
             } | null;
-            bars?: {
-                [key: string]: number | null;
-            } | null;
         };
     };
     harness?: {
@@ -419,9 +432,6 @@ export type ProfilePatch = {
     maxEffort?: {
         [key: string]: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | null;
     };
-    bars?: {
-        [key: string]: number | null;
-    } | null;
     budget?: {
         minutes?: number | null;
         tokens?: number | null;
@@ -470,7 +480,6 @@ export type ProfilePreview = {
 };
 
 export type Settings = {
-    objective: 'cost' | 'speed';
     budget: {
         minutes?: number;
         tokens?: number;
@@ -486,9 +495,6 @@ export type Settings = {
     maxEffort: {
         [key: string]: string;
     };
-    bars: {
-        [key: string]: number;
-    };
     heavy: number | 'cpus/2';
     memory: {
         reserveMb: number;
@@ -497,8 +503,12 @@ export type Settings = {
     };
     preflightConfirm: boolean;
     landAutoMerge: boolean;
+    decision: {
+        url: string | null;
+        model: string | null;
+        minConfidence: number;
+    };
     notify: Array<'milestone' | 'finish' | 'blocked'>;
-    jev: 'auto' | 'off';
     billing: {
         [key: string]: 'chatgpt-plan' | 'claude-plan' | 'subscription' | 'metered';
     };
@@ -554,7 +564,7 @@ export type ParkedView = {
     runTitle: string;
     unit: string;
     question: string;
-    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push';
+    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision';
     at: string;
     command: string;
 };

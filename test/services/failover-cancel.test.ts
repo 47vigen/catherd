@@ -235,7 +235,7 @@ describe("failover (spec §3.4: it runs as soon as a limit is settled)", () => {
     for (const p of paths) expect(existsSync(p)).toBe(true);
     expect(readFileSync(paths[1] as string, "utf8")).toBe(briefFor(run, "Fix: BUG src/a.ts:3 — off by one"));
     // spec 1.1 §6: the stand-in's own brief carries the reply contract too
-    expect(brief).toEndWith(`<reply_contract>\n${replyContract("worker")}\n</reply_contract>\n`);
+    expect(brief).toContain(`\n\n${replyContract("worker")}\n</role-contract>`);
   });
 
   it("puts the stand-in through the budget again, and pauses when it is refused", async () => {

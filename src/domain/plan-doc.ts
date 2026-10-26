@@ -1,5 +1,7 @@
 /** Plan files as a preamble and tasks (plan 32): what a lane's `Tasks:` line points at, and what an approval reads. */
 
+import type { Role } from "./roles.ts";
+
 export interface PlanTask {
   doc: string;
   id: string;
@@ -20,6 +22,33 @@ export const TASK_HEADING = /^#{2,4}[ \t]+Task[ \t]+(\d+(?:\.\d+)*[a-z]?)\b[ \t]
 export const TASK_REF = /^(?:([^\s#,]+)#)?(\d+(?:\.\d+)*[a-z]?)$/;
 /** An A-line the milestone's Check covers: it ends `(Check)`, a trailing `.` allowed. */
 export const CHECK_COVERED = /\(Check\)\s*\.?\s*$/i;
+
+export const A_LINE_OWNERS = ["worker", "reviewer", "verifier", "run"] as const;
+export type ALineOwner = (typeof A_LINE_OWNERS)[number];
+
+/** The owner tag of an A-line, `A3 [verifier] — …` → `verifier`; an untagged or unknown tag is null (it reads as `run`). */
+export function aLineOwner(line: string): ALineOwner | null {
+  const tag = /^\s*(?:[-*]\s+)?A\d+\s+\[([^\]]*)\]/.exec(line)?.[1];
+  return (A_LINE_OWNERS as readonly string[]).includes(tag ?? "") ? (tag as ALineOwner) : null;
+}
+
+const OWNER_ROLES: Record<ALineOwner, readonly Role[]> = {
+  worker: ["worker", "writer", "artist", "researcher"],
+  reviewer: ["reviewer", "ui-reviewer"],
+  verifier: ["verifier"],
+  run: [],
+};
+
+/** Whether `role` reads an A-line of `owner`: its own group's, the `run` ones and untagged ones; the architect and the judge read all. */
+export function readsALine(role: Role, owner: ALineOwner | null): boolean {
+  return (
+    owner === null ||
+    owner === "run" ||
+    role === "architect" ||
+    role === "judge" ||
+    OWNER_ROLES[owner].includes(role)
+  );
+}
 
 const SIGNATURE = [
   /^[ \t]*(?:[-*][ \t]*)?\**(?:Interfaces|Produces|Signatures?)\**[ \t]*:/im,

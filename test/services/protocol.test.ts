@@ -4,14 +4,23 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { newDispatchId } from "../../src/domain/ids.ts";
 import { gateCheck, gatePass } from "../../src/services/gate-service.ts";
-import { climb, land, route } from "../../src/services/lane-service.ts";
+import { land } from "../../src/services/lane-service.ts";
 import { PROTOCOL_CHECKLIST, protocolNext, unfinishedAfter } from "../../src/services/protocol.ts";
 import { park } from "../../src/services/questions.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import { startRun } from "../../src/services/run-service.ts";
 import { appendAgentRun, appendRecord, findRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
-import { fakeDeps, fakeDispatch, freshRun, makeRecord, passGate, writeLane } from "./helpers.ts";
+import {
+  climb,
+  fakeDeps,
+  fakeDispatch,
+  freshRun,
+  makeRecord,
+  passGate,
+  route,
+  writeLane,
+} from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -613,6 +622,8 @@ describe("After: on a daemon run (plan 40 D22)", () => {
       foreign: ["src/other.ts"],
       replyPath: "roles/worker-M1.L1/D1/reply.md",
     });
+    // every lane stop waits for its class before the reducer acts on it (plan 44 D9)
+    await appendEvent(run, { type: "stop.classified", dispatchId: "D1", reason: "check_broken" });
     expect(unfinishedAfter(run, "M1.L4")).toEqual([]);
   });
 });

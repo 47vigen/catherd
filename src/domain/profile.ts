@@ -1,12 +1,10 @@
 import type { OrchestrationHost } from "./host.ts";
 import { z } from "zod";
 import type { Budget } from "./budget.ts";
-import type { Bars } from "./bars.ts";
 import { BILLING_KEYS, type BillingKey } from "./catalog.ts";
 import { BILLING_MODES, type BillingMode, DEFAULT_BILLING } from "./cost.ts";
 import { CatherdError } from "./errors.ts";
 import { ADAPTER_IDS, EFFORT_ORDER, type EffortWord, effortRank, parseRung, tryParseRung } from "./ids.ts";
-import { DIFFICULTIES } from "./lane.ts";
 import { ACCESS, type Access } from "./record.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
 import { isPlain, slug } from "./util.ts";
@@ -48,22 +46,27 @@ const RoleDocSchema = z.looseObject({
   defaultRung: z.string().optional(),
   network: z.boolean().optional(),
   timeouts: z.looseObject({ idleMin: positive.optional(), wallMin: positive.optional() }).optional(),
-  // plan 33: unknown, so a hand edit never makes the file unreadable; resolveProfile reads what it can
-  bars: z.unknown().optional(),
 });
 
+// A 1.5 file's `objective`, `jev`, `bars` and `roles.*.bars` are not in the schema: the loose object keeps them
+// until `migrateProfileDoc` drops them, and nothing resolves them.
 export const ProfileDocSchema = z.looseObject({
   schema: z.literal(PROFILE_SCHEMA),
   name: z.string().optional(),
-  objective: z.string().optional(),
-  jev: z.looseObject({ use: z.string().optional() }).optional(),
+  // plan 44 D25: no default url or model, the repo is public; unset is a validation warning
+  decision: z
+    .looseObject({
+      url: z.string().optional(),
+      model: z.string().optional(),
+      minConfidence: z.number().optional(),
+    })
+    .optional(),
   billing: z.record(z.string(), z.string()).optional(),
   roles: z.record(z.string(), RoleDocSchema).optional(),
   harness: z.record(z.string(), z.looseObject({ isolated: z.boolean().optional() })).optional(),
   failover: z.record(z.string(), z.string()).optional(),
-  // unknown values, like `bars`: an entry that is no effort word never makes the file unreadable
+  // unknown values: an entry that is no effort word never makes the file unreadable
   maxEffort: z.record(z.string(), z.unknown()).optional(),
-  bars: z.unknown().optional(),
   budget: z
     .looseObject({ minutes: positive.optional(), tokens: positive.optional(), usd: positive.optional() })
     .optional(),
@@ -88,32 +91,27 @@ const storedMemory = (doc: ProfileDoc): Record<string, unknown> => {
   return isPlain(memory) ? memory : {};
 };
 
-const OBJECTIVES = ["cost", "speed"] as const;
-const JEV_USES = ["auto", "off"] as const;
+export const DEFAULT_MIN_CONFIDENCE = 0.8;
+/** What to run when a profile names no decision model (D25): the fix of every refusal and warning about it. */
+export const DECISION_UNSET_FIX =
+  "catherd profile set decision.url https://<your-gateway>/v1, then catherd profile set decision.model <model>";
+/** TypeSafe's public endpoint, named only as the value a migrated 1.5 profile that used Jev gets (D24, D25). */
+export const LEGACY_DECISION = { url: "https://api.typesafe.ai/v1", model: "jev-1.13.0" } as const;
+
 const known = <T extends string>(values: readonly T[], v: string | undefined): v is T =>
   v !== undefined && (values as readonly string[]).includes(v);
 
 /**
  * How a stored value this catherd does not know (a newer one wrote it) is read, always the cautious way:
- * access as read-only, billing as the key's default mode, Jev as off, so nothing is sent or written that
- * the value may not allow; an unknown notify moment is skipped.
+ * access as read-only, billing as the key's default mode, so nothing is sent or written that the value may
+ * not allow; an unknown notify moment is skipped.
  */
 const STORED_FALLBACK = {
-  objective: "cost",
-  jevUse: "off",
   access: "read-only",
   billing: (key: string): BillingMode => DEFAULT_BILLING[key as BillingKey] ?? "metered",
 } as const;
 
-const barOk = (k: string, v: unknown): boolean =>
-  (DIFFICULTIES as readonly string[]).includes(k) && typeof v === "number" && v >= 0 && v <= 100;
-
 const isEffort = (v: unknown): v is EffortWord => typeof v === "string" && effortRank(v) >= 0;
-
-/** The entries of a stored `bars` this catherd can read; anything else is not a bar. */
-function readBars(v: unknown): Bars {
-  return isPlain(v) ? (Object.fromEntries(Object.entries(v).filter((e) => barOk(e[0], e[1]))) as Bars) : {};
-}
 
 /** A stored value this catherd does not know, with what it is read as. */
 export interface UnknownValue {
@@ -128,8 +126,6 @@ export function unknownValues(doc: ProfileDoc): UnknownValue[] {
   const check = (path: string, values: readonly string[], v: string | undefined, readAs: string) => {
     if (v !== undefined && !values.includes(v)) out.push({ path, value: v, readAs });
   };
-  check("objective", OBJECTIVES, doc.objective, STORED_FALLBACK.objective);
-  check("jev.use", JEV_USES, doc.jev?.use, STORED_FALLBACK.jevUse);
   for (const [k, v] of Object.entries(doc.billing ?? {}))
     check(`billing.${k}`, BILLING_MODES, v, STORED_FALLBACK.billing(k));
   for (const [k, v] of Object.entries(doc.maxEffort ?? {}))
@@ -137,14 +133,6 @@ export function unknownValues(doc: ProfileDoc): UnknownValue[] {
       const value = typeof v === "string" ? v : JSON.stringify(v);
       out.push({ path: `maxEffort.${k}`, value, readAs: "no ceiling" });
     }
-  const checkBars = (path: string, v: unknown, readAs: string) => {
-    if (v === undefined) return;
-    if (!isPlain(v)) return void out.push({ path, value: JSON.stringify(v), readAs });
-    for (const [k, x] of Object.entries(v))
-      if (!barOk(k, x)) out.push({ path: `${path}.${k}`, value: String(x), readAs });
-  };
-  checkBars("bars", doc.bars, "the shipped percentile");
-  for (const role of ROLES) checkBars(`roles.${role}.bars`, doc.roles?.[role]?.bars, "the profile's bar");
   for (const role of ROLES)
     check(`roles.${role}.access`, ACCESS, doc.roles?.[role]?.access, STORED_FALLBACK.access);
   for (const n of doc.notify ?? []) check("notify", NOTIFY, n, "skipped");
@@ -165,8 +153,6 @@ export type RoleConfig = {
   network?: false;
   /** plan 23: this role's own idle and wall timeouts, over the profile's `timeouts` (a long gate, a slow model) */
   timeouts?: { idleMin?: number; wallMin?: number };
-  /** plan 33: this role's own bar percentiles, over the profile's `bars` (decision 11) */
-  bars?: Bars;
 };
 
 /** The idle and wall timeouts a role runs under: its own `timeouts`, else the profile's. */
@@ -181,16 +167,14 @@ export const roleTimeouts = (
 /** A profile with every default filled in: what the run engine, the CLI and the agent files read. */
 export interface Profile {
   name: string;
-  objective: "cost" | "speed";
-  jev: { use: "auto" | "off" };
+  /** plan 44: the model that decides each dispatch's rung; url and model have no default */
+  decision: { url: string | null; model: string | null; minConfidence: number };
   billing: Record<string, BillingMode>;
   roles: Record<Role, RoleConfig>;
   harness: Record<string, { isolated: boolean }>;
   failover: Record<string, string>;
   /** plan 33: `<backend>:<model>` → the highest effort routing starts it at; a model not named has no ceiling */
   maxEffort: Record<string, EffortWord>;
-  /** plan 33: bar percentiles per difficulty, over the shipped ones (`percentilesOf`) */
-  bars: Bars;
   budget: Budget;
   timeouts: { idleMin: number; wallMin: number };
   preflight: { confirm: boolean };
@@ -262,8 +246,6 @@ export function defaultProfileDoc(name = "default"): ProfileDoc {
   return {
     schema: PROFILE_SCHEMA,
     name,
-    objective: "cost",
-    jev: { use: "auto" },
     billing: Object.fromEntries(WRITTEN_BILLING.map((k) => [k, DEFAULT_BILLING[k]])),
     roles: hostDefaultsDoc({ schema: PROFILE_SCHEMA, roles: structuredClone(BUILTIN_ROLES) }).roles,
     harness: {
@@ -294,6 +276,9 @@ export function hostDefaultsDoc(doc: ProfileDoc): ProfileDoc {
   }
   return next;
 }
+
+const confidenceOf = (v: number | undefined): number =>
+  v !== undefined && v >= 0.5 && v <= 1 ? v : DEFAULT_MIN_CONFIDENCE;
 
 /** Resolve omitted role execution choices from the explicit orchestration host. */
 export function resolveProfile(doc: ProfileDoc, name: string, host: OrchestrationHost): Profile {
@@ -338,7 +323,6 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
             },
           }
         : {}),
-      ...(Object.keys(readBars(d?.bars)).length > 0 ? { bars: readBars(d?.bars) } : {}),
     };
   }
   const harness: Profile["harness"] = {};
@@ -352,11 +336,13 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
   const billing: Record<string, BillingMode> = { ...DEFAULT_BILLING };
   for (const [k, v] of Object.entries(doc.billing ?? {}))
     billing[k] = known(BILLING_MODES, v) ? v : STORED_FALLBACK.billing(k);
-  const use = doc.jev?.use;
   return {
     name,
-    objective: known(OBJECTIVES, doc.objective) ? doc.objective : STORED_FALLBACK.objective,
-    jev: { use: use === undefined ? "auto" : known(JEV_USES, use) ? use : STORED_FALLBACK.jevUse },
+    decision: {
+      url: doc.decision?.url ?? null,
+      model: doc.decision?.model ?? null,
+      minConfidence: confidenceOf(doc.decision?.minConfidence),
+    },
     billing,
     roles,
     harness,
@@ -364,7 +350,6 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
     maxEffort: Object.fromEntries(
       Object.entries(doc.maxEffort ?? {}).filter((e): e is [string, EffortWord] => isEffort(e[1])),
     ),
-    bars: readBars(doc.bars),
     budget,
     timeouts: { idleMin: doc.timeouts?.idleMin ?? 15, wallMin: doc.timeouts?.wallMin ?? 90 },
     preflight: { confirm: doc.preflight?.confirm ?? false },
@@ -391,10 +376,6 @@ export function agentName(profile: string, role: Role, rung: string): string {
 // Patches: what profile_set and `catherd profile set` accept. Strict at every level, so a misspelt key is
 // refused with E_INPUT_INVALID instead of dropped (plan-2 review m9). `null` removes a map entry or a nullable
 // field (a role's `network` among them: absent means granted).
-const BarsPatchSchema = z
-  .partialRecord(z.enum(DIFFICULTIES), z.number().min(0).max(100).nullable())
-  .nullable();
-
 const RolePatchSchema = z
   .strictObject({
     enabled: z.boolean(),
@@ -406,13 +387,21 @@ const RolePatchSchema = z
       .strictObject({ idleMin: positive.nullable(), wallMin: positive.nullable() })
       .partial()
       .nullable(),
-    bars: BarsPatchSchema,
   })
   .partial();
 
 export const ProfilePatchSchema = z.strictObject({
-  objective: z.enum(["cost", "speed"]).optional(),
-  jev: z.strictObject({ use: z.enum(["auto", "off"]) }).optional(),
+  decision: z
+    .strictObject({
+      url: z
+        .string()
+        .regex(/^https?:\/\/\S+$/, "an http(s) url")
+        .nullable(),
+      model: z.string().min(1).nullable(),
+      minConfidence: z.number().min(0.5).max(1),
+    })
+    .partial()
+    .optional(),
   billing: z.partialRecord(z.enum(BILLING_KEYS), z.enum(BILLING_MODES).nullable()).optional(),
   roles: z.partialRecord(z.enum(ROLES), RolePatchSchema).optional(),
   harness: z.partialRecord(z.enum(HARNESS_KEYS), z.strictObject({ isolated: z.boolean() })).optional(),
@@ -423,7 +412,6 @@ export const ProfilePatchSchema = z.strictObject({
       z.enum(EFFORT_ORDER).nullable(),
     )
     .optional(),
-  bars: BarsPatchSchema.optional(),
   budget: z
     .strictObject({ minutes: positive.nullable(), tokens: positive.nullable(), usd: positive.nullable() })
     .partial()
@@ -447,6 +435,30 @@ export const ProfilePatchSchema = z.strictObject({
     .optional(),
 });
 export type ProfilePatch = z.infer<typeof ProfilePatchSchema>;
+
+/**
+ * Plan 44 D25: a 1.5 document in the 2.0 shape. `jev`, `bars`, `roles.*.bars` and `objective` go (the decision
+ * model replaces them); `LEGACY_DECISION` is named only when the doc used Jev, the user had a TypeSafe key
+ * (`hadKey`) and no `decision` block is there. Pure: `doc` is not touched, and an unchanged doc has no notes.
+ */
+export function migrateProfileDoc(doc: ProfileDoc, hadKey: boolean): { doc: ProfileDoc; notes: string[] } {
+  const out = structuredClone(doc);
+  const notes: string[] = [];
+  const drop = (path: string, owner: Record<string, unknown> | undefined, key: string) => {
+    if (owner === undefined || !(key in owner)) return;
+    delete owner[key];
+    notes.push(`dropped ${path}: the decision model replaces it`);
+  };
+  if (out.jev !== undefined && hadKey && out.decision === undefined) {
+    out.decision = { ...LEGACY_DECISION };
+    notes.push(`set decision to ${LEGACY_DECISION.url} (${LEGACY_DECISION.model}), the model your key used`);
+  }
+  drop("jev", out, "jev");
+  drop("bars", out, "bars");
+  drop("objective", out, "objective");
+  for (const [role, r] of Object.entries(out.roles ?? {})) drop(`roles.${role}.bars`, r, "bars");
+  return { doc: out, notes };
+}
 
 /** RFC 7396 merge: objects merge key by key, `null` deletes, anything else (arrays too) replaces. */
 function mergePatch(target: unknown, patch: unknown): unknown {

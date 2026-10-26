@@ -14,6 +14,7 @@ import {
   defaultProfileDoc,
   hostDefaultsDoc,
   diffProfiles,
+  migrateProfileDoc,
   type Profile,
   type ProfileDoc,
   type ProfilePatch,
@@ -28,10 +29,12 @@ import {
 } from "../domain/profile-rules.ts";
 import { ROLES } from "../domain/roles.ts";
 import { withFileLockSync } from "../infra/filelock.ts";
+import { log } from "../infra/log.ts";
 import { configDir } from "../infra/paths.ts";
 import { ensurePrivateDir, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import { apply, plan, pruneProfileAgents, type Synced } from "./agent-links.ts";
 import { loadCatalog } from "./catalog-service.ts";
+import { savedCredential } from "./credentials.ts";
 import type { ProfilePort, ProfileSaved, ProfileView } from "./ports.ts";
 import {
   activeName,
@@ -62,6 +65,41 @@ export const withProfilesLock = <T>(fn: () => T): T => {
 const locked = withProfilesLock;
 
 const writeDoc = (name: string, doc: ProfileDoc) => writeJsonAtomic(profileFile(name), { ...doc, name });
+
+/**
+ * Plan 44 D25: the stored 1.5 document in the 2.0 shape; a TypeSafe key (saved or moved) keeps its endpoint. Only
+ * saved credentials count: `CATHERD_DECISION_KEY` is a gateway key and must never name the TypeSafe url.
+ */
+const hadKey = (): boolean =>
+  savedCredential("typesafeApiKey").key !== null || savedCredential("decisionKey").key !== null;
+const migrated = (doc: ProfileDoc): ProfileDoc => migrateProfileDoc(doc, hadKey()).doc;
+
+/**
+ * Plan 44 D25: every stored profile in the 2.0 shape, under the profiles lock, writing only a changed one (no
+ * relink: agents do not depend on the dropped fields). A profile this catherd cannot read is left to the
+ * command that names it. Called at `catherd init`, `catherd doctor` and `run_start`.
+ */
+export function migrateProfiles(): { profile: string; notes: string[] }[] {
+  return locked(() => {
+    const done: { profile: string; notes: string[] }[] = [];
+    for (const profile of listProfiles()) {
+      if (!existsSync(profileFile(profile))) continue;
+      let doc: ProfileDoc;
+      try {
+        doc = readProfileDoc(profile);
+      } catch (e) {
+        if (e instanceof CatherdError) continue;
+        throw e;
+      }
+      const m = migrateProfileDoc(doc, hadKey());
+      if (m.notes.length === 0) continue;
+      writeDoc(profile, m.doc);
+      for (const note of m.notes) log("info", "profile.migrated", { profile, note });
+      done.push({ profile, notes: m.notes });
+    }
+    return done;
+  });
+}
 
 /** Writes `doc` as profile `name` and relinks; when the relink refuses, puts the profile back as it was. */
 /** `repairing`: a saved repair with errors still open, whose remaining native roles are among those errors. */
@@ -142,8 +180,10 @@ export function patchProfile(
 ): Saved {
   return locked(() => {
     const n = assertProfileName(name ?? activeName());
-    const before = profileExists(n) ? readProfileDoc(n) : defaultProfileDoc(n);
-    if (opts.expect !== undefined && !isDeepStrictEqual(before, opts.expect))
+    const stored = profileExists(n) ? readProfileDoc(n) : defaultProfileDoc(n);
+    const before = migrated(stored);
+    // `expect` is the stored document as a preview read it, not its migrated form
+    if (opts.expect !== undefined && !isDeepStrictEqual(stored, opts.expect))
       return unsaved({
         errors: [
           {
@@ -176,12 +216,13 @@ export function previewProfile(
 ): Saved & { expect: ProfileDoc; wouldSave: boolean; added: Issue[] } {
   return locked(() => {
     const n = assertProfileName(name ?? activeName());
-    const before = profileExists(n) ? readProfileDoc(n) : defaultProfileDoc(n);
+    const stored = profileExists(n) ? readProfileDoc(n) : defaultProfileDoc(n);
+    const before = migrated(stored);
     const after = applyPatch(before, patch);
     const v = validate(after, n, host);
     const was = profileExists(n) ? validate(before, n, host) : null;
     const diff = diffProfiles(resolveProfile(before, n, host), resolveProfile(after, n, host));
-    return { ...unsaved(v), diff, expect: before, wouldSave: repairs(was, v), added: addedErrors(was, v) };
+    return { ...unsaved(v), diff, expect: stored, wouldSave: repairs(was, v), added: addedErrors(was, v) };
   });
 }
 
@@ -332,14 +373,12 @@ function viewOf(p: Profile): ProfileView {
   for (const role of ROLES) roles[role] = { ...p.roles[role], rungs: [...p.roles[role].rungs] };
   return {
     name: p.name,
-    objective: p.objective,
     roles,
     billing: p.billing,
-    jev: p.jev,
+    decision: p.decision,
     isolated: Object.fromEntries(Object.entries(p.harness).map(([k, h]) => [k, h.isolated])),
     failover: p.failover,
     maxEffort: p.maxEffort,
-    bars: p.bars,
     budget: p.budget,
     timeouts: p.timeouts,
     preflight: p.preflight,
@@ -379,7 +418,6 @@ export function profileService(host: () => HostContext): ProfilePort {
         name === undefined ? activeName(repo) : requireProfile(name),
         repo,
         host().host,
-        { reach: true },
       );
       return { valid: v.errors.length === 0, ...v };
     },

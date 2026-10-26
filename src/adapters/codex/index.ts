@@ -96,6 +96,9 @@ function plan(r: RunRequest): SpawnPlan {
     // "default" leaves the effort to Codex's own config (spec §5.1)
     ...(r.rung.effort === "default" ? [] : ["-c", `model_reasoning_effort=${r.rung.effort}`]),
     "--json",
+    // plan 44 D12: a long tool output is cut at 8000 tokens, fresh and resumed alike
+    "-c",
+    "tool_output_token_limit=8000",
     "-o",
     r.replyPath,
     ...codexGrants(r.access, r.network, r.isolated, r.scratch ? [r.scratch] : []),

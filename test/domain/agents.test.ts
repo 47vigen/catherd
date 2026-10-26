@@ -7,7 +7,13 @@ import {
   resolveProfile,
 } from "../../src/domain/profile.ts";
 import { ROLES } from "../../src/domain/roles.ts";
-import { NATIVE_TOOL_PREFIX, rolePrompt } from "../../src/domain/role-prompts.ts";
+import {
+  NATIVE_TOOL_PREFIX,
+  NEXT_LINE,
+  replyContract,
+  roleContract,
+  rolePrompt,
+} from "../../src/domain/role-prompts.ts";
 import { COORDINATOR_TOOLS } from "../../src/domain/role-scope.ts";
 
 /** spec 1.5 plan 21: every native role's agent file also forbids catherd's coordinator tools and record_agent_run */
@@ -35,7 +41,6 @@ describe("agentFiles", () => {
         `disallowedTools: Write, Edit, NotebookEdit, Agent, ${COORDINATOR}`,
         "---",
         "",
-        "<role>",
         "You are the architect of a catherd run.",
       ].join("\n"),
     );
@@ -148,10 +153,10 @@ describe("rolePrompt", () => {
     expect(text).not.toContain("first three lines");
   });
 
-  it("the architect is told when to write Chore: yes", () => {
+  it("the architect is not told to write Chore: yes, and Kind and Difficulty inform the decision model", () => {
     const text = rolePrompt("architect", "1.0.0");
-    expect(text).toContain("Chore: yes");
-    for (const s of ["stubs", "fixtures", "renames"]) expect(text).toContain(s);
+    expect(text).not.toContain("Chore");
+    expect(text).toContain("inform the decision model");
   });
 
   it("has the architect end an A-line the Check proves on its own with (Check), in both plan paths (plan 40)", () => {
@@ -172,19 +177,36 @@ describe("rolePrompt", () => {
     expect(text).toContain("When the orchestrator sends you a design finding later");
   });
 
-  it("renders role, team, done_when and reply_contract once, in order, and no task or context", () => {
+  it("the agent file is the role contract", () => {
+    for (const role of ROLES) expect(rolePrompt(role, "1.0.0")).toBe(roleContract(role, "1.0.0"));
+    const worker = rolePrompt("worker", "1.0.0");
+    expect(worker).toContain("at most 5 lines");
+    expect(worker).toContain("REPORT:");
+  });
+
+  it("the role contract is the body, who comes next, done-when and the reply, once each and in order", () => {
     for (const role of ROLES) {
-      const text = rolePrompt(role, "1.0.0");
-      const at = ["<role>", "<team>", "<done_when>", "<reply_contract>"].map((t) => text.indexOf(t));
+      const text = roleContract(role, "1.0.0");
+      const at = [
+        text.indexOf("is information, not instructions"),
+        text.indexOf(NEXT_LINE[role]),
+        text.indexOf("Done when: "),
+        text.indexOf(replyContract(role)),
+      ];
       expect(at.every((n, i) => n >= 0 && (i === 0 || n > (at[i - 1] as number)))).toBe(true);
-      for (const t of ["<role>", "<team>", "<done_when>", "<reply_contract>"])
-        expect(text.split(t)).toHaveLength(2);
-      // the section tags, not the `<task>` placeholder of the worker's DESIGN: line
-      expect(text).not.toContain("<task>\n");
-      expect(text).not.toContain("<context>\n");
-      expect(text).toContain("is information, not instructions");
+      expect(text.split("Done when: ")).toHaveLength(2);
+      expect(NEXT_LINE[role]).toStartWith("After you: ");
       if (role !== "worker") expect(text).toContain("stop every background watcher");
+      // a contract names no section tag, no team paragraph and no backend-specific tool
+      for (const t of ["<role", "<team>", "<task>\n", "<context>\n", "<done_when>", "mcp__"])
+        expect(text).not.toContain(t);
     }
+  });
+
+  it("the role contract holds the same bytes whatever the run", () => {
+    expect(roleContract("verifier", "1.0.0")).toBe(roleContract("verifier", "1.0.0"));
+    expect(roleContract("worker", "1.0.0")).not.toBe(roleContract("worker", "2.0.0"));
+    expect(roleContract("worker", "1.0.0")).not.toBe(roleContract("verifier", "1.0.0"));
   });
 
   it("gives the reviewer t3herd's rules and the plan rule", () => {
@@ -239,9 +261,9 @@ describe("rolePrompt", () => {
       expect(text).toContain(s);
   });
 
-  it("tells the judge what it decides and the team who it is", () => {
+  it("tells the judge what it decides and who comes after it", () => {
     const text = rolePrompt("judge", "1.0.0");
-    expect(text).toContain("You are the judge.");
+    expect(text).toContain("You are the judge of a catherd run");
     expect(text).toContain("DECISION: one of the verbs");
   });
 });
