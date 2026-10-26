@@ -107,6 +107,12 @@ export function validateProfile(
       message: `"${u.value}" is not a value this catherd knows (a newer one wrote it?); it is read as ${u.readAs}`,
       fix: "upgrade catherd (bun add -g catherd-cli@latest), or set a value this version knows",
     });
+  if (!p.decision.url || !p.decision.model)
+    warnings.push({
+      path: "decision",
+      message: "the decision model is not set",
+      fix: "catherd profile set decision.url https://<your-gateway>/v1, then catherd profile set decision.model <model>",
+    });
   if (!p.roles.worker.enabled)
     errors.push({
       path: "roles.worker.enabled",

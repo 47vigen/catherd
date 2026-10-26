@@ -12,9 +12,15 @@ import { indexOf, shipped } from "./shipped.ts";
 
 const BACKENDS = ["codex", "claude-code", "opencode", "claude"];
 const catalog = (o: Parameters<typeof shipped>[0] = {}) => shipped(o);
-const check = (patch: ProfilePatch = {}, c = catalog()) =>
+const DECISION = { decision: { url: "https://decision.test/v1", model: "test-decider" } };
+/** The default profile with a decision model named (it has no default), then `patch`. */
+const check = (patch: ProfilePatch = {}, c = catalog(), named = true) =>
   validateProfile(
-    resolveProfile(applyPatch(defaultProfileDoc(), patch), "p", "claude-code"),
+    resolveProfile(
+      applyPatch(defaultProfileDoc(), { ...(named ? DECISION : {}), ...patch }),
+      "p",
+      "claude-code",
+    ),
     c,
     BACKENDS,
     undefined,
@@ -36,6 +42,14 @@ describe("validateProfile", () => {
 
   it("passes the default profile with no error and no warning", () => {
     expect(check()).toEqual({ errors: [], warnings: [] });
+  });
+
+  it("a profile without a decision model warns", () => {
+    const v = check({}, catalog(), false);
+    expect(v.errors).toEqual([]);
+    expect(v.warnings).toContainEqual(
+      expect.objectContaining({ path: "decision", message: "the decision model is not set" }),
+    );
   });
 
   it("refuses a disabled worker", () => {
@@ -413,7 +427,7 @@ describe("validateProfile: what a role can never start or reach (spec 1.5 plan 2
   const KIMI = "opencode:opencode-go/kimi-k3#max";
   const explicit = (patch: ProfilePatch = {}) =>
     validateProfile(
-      resolveProfile(applyPatch(defaultProfileDoc(), patch), "p", "claude-code"),
+      resolveProfile(applyPatch(defaultProfileDoc(), { ...DECISION, ...patch }), "p", "claude-code"),
       catalog(),
       BACKENDS,
       undefined,
@@ -564,7 +578,7 @@ describe("validateProfile: bars (plan 33)", () => {
   });
   const explicit = (patch: ProfilePatch) =>
     validateProfile(
-      resolveProfile(applyPatch(defaultProfileDoc(), patch), "p", "claude-code"),
+      resolveProfile(applyPatch(defaultProfileDoc(), { ...DECISION, ...patch }), "p", "claude-code"),
       c,
       BACKENDS,
       undefined,

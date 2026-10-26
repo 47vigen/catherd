@@ -57,6 +57,14 @@ export const ProfileDocSchema = z.looseObject({
   name: z.string().optional(),
   objective: z.string().optional(),
   jev: z.looseObject({ use: z.string().optional() }).optional(),
+  // plan 44 D25: no default url or model, the repo is public; unset is a validation warning
+  decision: z
+    .looseObject({
+      url: z.string().optional(),
+      model: z.string().optional(),
+      minConfidence: z.number().optional(),
+    })
+    .optional(),
   billing: z.record(z.string(), z.string()).optional(),
   roles: z.record(z.string(), RoleDocSchema).optional(),
   harness: z.record(z.string(), z.looseObject({ isolated: z.boolean().optional() })).optional(),
@@ -87,6 +95,10 @@ const storedMemory = (doc: ProfileDoc): Record<string, unknown> => {
   const memory = isPlain(doc.limits) ? doc.limits.memory : undefined;
   return isPlain(memory) ? memory : {};
 };
+
+export const DEFAULT_MIN_CONFIDENCE = 0.8;
+/** TypeSafe's public endpoint, named only as the value a migrated 1.5 profile that used Jev gets (D24, D25). */
+export const LEGACY_DECISION = { url: "https://api.typesafe.ai/v1", model: "jev-1.13.0" } as const;
 
 const OBJECTIVES = ["cost", "speed"] as const;
 const JEV_USES = ["auto", "off"] as const;
@@ -183,6 +195,8 @@ export interface Profile {
   name: string;
   objective: "cost" | "speed";
   jev: { use: "auto" | "off" };
+  /** plan 44: the model that decides each dispatch's rung; url and model have no default */
+  decision: { url: string | null; model: string | null; minConfidence: number };
   billing: Record<string, BillingMode>;
   roles: Record<Role, RoleConfig>;
   harness: Record<string, { isolated: boolean }>;
@@ -262,8 +276,6 @@ export function defaultProfileDoc(name = "default"): ProfileDoc {
   return {
     schema: PROFILE_SCHEMA,
     name,
-    objective: "cost",
-    jev: { use: "auto" },
     billing: Object.fromEntries(WRITTEN_BILLING.map((k) => [k, DEFAULT_BILLING[k]])),
     roles: hostDefaultsDoc({ schema: PROFILE_SCHEMA, roles: structuredClone(BUILTIN_ROLES) }).roles,
     harness: {
@@ -294,6 +306,9 @@ export function hostDefaultsDoc(doc: ProfileDoc): ProfileDoc {
   }
   return next;
 }
+
+const confidenceOf = (v: number | undefined): number =>
+  v !== undefined && v >= 0.5 && v <= 1 ? v : DEFAULT_MIN_CONFIDENCE;
 
 /** Resolve omitted role execution choices from the explicit orchestration host. */
 export function resolveProfile(doc: ProfileDoc, name: string, host: OrchestrationHost): Profile {
@@ -357,6 +372,11 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
     name,
     objective: known(OBJECTIVES, doc.objective) ? doc.objective : STORED_FALLBACK.objective,
     jev: { use: use === undefined ? "auto" : known(JEV_USES, use) ? use : STORED_FALLBACK.jevUse },
+    decision: {
+      url: doc.decision?.url ?? null,
+      model: doc.decision?.model ?? null,
+      minConfidence: confidenceOf(doc.decision?.minConfidence),
+    },
     billing,
     roles,
     harness,
@@ -413,6 +433,17 @@ const RolePatchSchema = z
 export const ProfilePatchSchema = z.strictObject({
   objective: z.enum(["cost", "speed"]).optional(),
   jev: z.strictObject({ use: z.enum(["auto", "off"]) }).optional(),
+  decision: z
+    .strictObject({
+      url: z
+        .string()
+        .regex(/^https?:\/\/\S+$/, "an http(s) url")
+        .nullable(),
+      model: z.string().min(1).nullable(),
+      minConfidence: z.number().min(0.5).max(1),
+    })
+    .partial()
+    .optional(),
   billing: z.partialRecord(z.enum(BILLING_KEYS), z.enum(BILLING_MODES).nullable()).optional(),
   roles: z.partialRecord(z.enum(ROLES), RolePatchSchema).optional(),
   harness: z.partialRecord(z.enum(HARNESS_KEYS), z.strictObject({ isolated: z.boolean() })).optional(),
@@ -447,6 +478,30 @@ export const ProfilePatchSchema = z.strictObject({
     .optional(),
 });
 export type ProfilePatch = z.infer<typeof ProfilePatchSchema>;
+
+/**
+ * Plan 44 D25: a 1.5 document in the 2.0 shape. `jev`, `bars`, `roles.*.bars` and `objective` go (the decision
+ * model replaces them); `LEGACY_DECISION` is named only when the doc used Jev, the user had a TypeSafe key
+ * (`hadKey`) and no `decision` block is there. Pure: `doc` is not touched, and an unchanged doc has no notes.
+ */
+export function migrateProfileDoc(doc: ProfileDoc, hadKey: boolean): { doc: ProfileDoc; notes: string[] } {
+  const out = structuredClone(doc);
+  const notes: string[] = [];
+  const drop = (path: string, owner: Record<string, unknown> | undefined, key: string) => {
+    if (owner === undefined || !(key in owner)) return;
+    delete owner[key];
+    notes.push(`dropped ${path}: the decision model replaces it`);
+  };
+  if (out.jev !== undefined && hadKey && out.decision === undefined) {
+    out.decision = { ...LEGACY_DECISION };
+    notes.push(`set decision to ${LEGACY_DECISION.url} (${LEGACY_DECISION.model}), the model your key used`);
+  }
+  drop("jev", out, "jev");
+  drop("bars", out, "bars");
+  drop("objective", out, "objective");
+  for (const [role, r] of Object.entries(out.roles ?? {})) drop(`roles.${role}.bars`, r, "bars");
+  return { doc: out, notes };
+}
 
 /** RFC 7396 merge: objects merge key by key, `null` deletes, anything else (arrays too) replaces. */
 function mergePatch(target: unknown, patch: unknown): unknown {

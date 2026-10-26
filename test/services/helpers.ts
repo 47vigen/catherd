@@ -70,6 +70,7 @@ export function testView(over: Partial<ProfileView> = {}): ProfileView {
     objective: "cost",
     billing: {},
     jev: { use: "auto" },
+    decision: { url: "https://decision.test/v1", model: "test-decider", minConfidence: 0.8 },
     roles: {
       worker: role("workspace-write", LADDER),
       writer: role("workspace-write", ["codex:gpt-6-luna#high"]),

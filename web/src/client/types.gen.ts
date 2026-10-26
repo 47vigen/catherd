@@ -389,6 +389,11 @@ export type ProfilePatch = {
     jev?: {
         use: 'auto' | 'off';
     };
+    decision?: {
+        url?: string | null;
+        model?: string | null;
+        minConfidence?: number;
+    };
     billing?: {
         [key: string]: 'chatgpt-plan' | 'claude-plan' | 'subscription' | 'metered' | null;
     };

@@ -41,6 +41,8 @@ export interface ProfileView {
   /** per billing key (spec §7.1); a missing key bills as DEFAULT_BILLING */
   billing: Partial<Record<string, BillingMode>>;
   jev: { use: "auto" | "off" };
+  /** plan 44: the decision model; url and model have no default */
+  decision: { url: string | null; model: string | null; minConfidence: number };
   /** per backend id: run its harness isolated (spec §7.1 `harness`) */
   isolated: Partial<Record<string, boolean>>;
   /** rung → its stand-in on a usage limit (spec §4.5) */

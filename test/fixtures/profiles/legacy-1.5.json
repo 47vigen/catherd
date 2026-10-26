@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "name": "old",
+  "objective": "speed",
+  "jev": { "use": "auto" },
+  "bars": { "logic": 70 },
+  "roles": { "worker": { "bars": { "hard": 80 } } }
+}

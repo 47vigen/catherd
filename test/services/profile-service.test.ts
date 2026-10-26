@@ -23,6 +23,7 @@ import {
   previewProfile,
   resetProfile,
   resetHostDefaults,
+  migrateProfiles,
   profileService,
   unbind,
 } from "../../src/services/profile-service.ts";
@@ -41,6 +42,7 @@ import {
   validateNamed,
 } from "../../src/services/profile-store.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
+import { saveCredential } from "../../src/services/credentials.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
@@ -57,7 +59,8 @@ describe("reading profiles", () => {
     expect(listProfiles()).toEqual(["default"]);
     expect(activeName()).toBe("default");
     expect(profileFor(null, "claude-code").roles.worker.defaultRung).toBe("codex:gpt-6-sol#medium");
-    expect(validateNamed(undefined, null, "claude-code")).toEqual({ errors: [], warnings: [] });
+    const v = validateNamed(undefined, null, "claude-code");
+    expect([v.errors, v.warnings.map((w) => w.path)]).toEqual([[], ["decision"]]);
   });
 
   it("refuses a 0.x profile with the init fix, and a newer schema with the upgrade fix", () => {
@@ -824,4 +827,34 @@ it("Codex deletion without owned artifacts creates no Claude files", () => {
   expect(deleteProfile("unused")).toEqual({ linked: [], pruned: [], newSessionNeededFor: [] });
   expect(existsSync(claudeAgentsDir())).toBe(false);
   expect(existsSync(agentsRoot())).toBe(false);
+});
+
+describe("1.5 profiles", () => {
+  const legacy = () => readFileSync(join(import.meta.dir, "../fixtures/profiles/legacy-1.5.json"), "utf8");
+  const seed = () => {
+    withHome();
+    mkdirSync(profilesDir(), { recursive: true });
+    writeFileSync(file("old"), legacy());
+  };
+
+  it("old profiles migrate once, under the lock", () => {
+    seed();
+    saveCredential("typesafeApiKey", "k");
+    expect(migrateProfiles().map((d) => d.profile)).toEqual(["old"]);
+    const doc = JSON.parse(readFileSync(file("old"), "utf8"));
+    expect(doc.decision).toEqual({ url: "https://api.typesafe.ai/v1", model: "jev-1.13.0" });
+    expect(doc.jev).toBeUndefined();
+    const before = lstatSync(file("old")).mtimeMs;
+    expect(migrateProfiles()).toEqual([]);
+    expect(lstatSync(file("old")).mtimeMs).toBe(before);
+  });
+
+  it("a patch over an old profile saves", () => {
+    seed();
+    expect(patchProfile("old", { notify: ["finish"] }, { host: "claude-code" }).saved).toBe(true);
+    const doc = JSON.parse(readFileSync(file("old"), "utf8"));
+    expect(doc.notify).toEqual(["finish"]);
+    expect(doc.bars).toBeUndefined();
+    expect(doc.roles.worker.bars).toBeUndefined();
+  });
 });

@@ -139,7 +139,12 @@ const states = (r: DoctorReport) => Object.fromEntries(r.checks.map((c) => [c.id
 function ready(): string {
   const home = machine();
   installPlugin(VERSION);
-  patchProfile("default", {}, { host: "claude-code" });
+  // the decision model has no default; a profile that names none is a doctor warning
+  patchProfile(
+    "default",
+    { decision: { url: "https://decision.test/v1", model: "test-decider" } },
+    { host: "claude-code" },
+  );
   return home;
 }
 

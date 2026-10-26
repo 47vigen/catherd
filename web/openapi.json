@@ -3562,6 +3562,39 @@
             ],
             "additionalProperties": false
           },
+          "decision": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^https?:\\/\\/\\S+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "model": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "minConfidence": {
+                "type": "number",
+                "minimum": 0.5,
+                "maximum": 1
+              }
+            },
+            "additionalProperties": false
+          },
           "billing": {
             "type": "object",
             "propertyNames": {

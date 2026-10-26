@@ -8,6 +8,8 @@ import {
   DEFAULT_MAX_EFFORT,
   defaultProfileDoc,
   diffProfiles,
+  LEGACY_DECISION,
+  migrateProfileDoc,
   patchAt,
   patchBetween,
   ProfileDocSchema,
@@ -17,6 +19,7 @@ import {
   unknownValues,
 } from "../../src/domain/profile.ts";
 import { ROLES } from "../../src/domain/roles.ts";
+import legacy from "../fixtures/profiles/legacy-1.5.json";
 
 describe("the default profile (spec §7.2)", () => {
   const p = resolveProfile(defaultProfileDoc(), "default", "claude-code");
@@ -61,8 +64,6 @@ describe("the default profile (spec §7.2)", () => {
     expect(Object.keys(defaultProfileDoc())).toEqual([
       "schema",
       "name",
-      "objective",
-      "jev",
       "billing",
       "roles",
       "harness",
@@ -505,5 +506,45 @@ describe("limits.memory", () => {
     });
     const odd = ProfileDocSchema.parse({ schema: 1, limits: "x" });
     expect(resolveProfile(odd, "x", "claude-code").limits.memory).toEqual({});
+  });
+});
+
+describe("the decision model in the profile (plan 44 D25)", () => {
+  const old = ProfileDocSchema.parse(legacy);
+
+  it("a 1.5 profile migrates to the decision model", () => {
+    const { doc, notes } = migrateProfileDoc(old, true);
+    expect(doc.jev).toBeUndefined();
+    expect(doc.bars).toBeUndefined();
+    expect(doc.objective).toBeUndefined();
+    expect(doc.roles?.worker?.bars).toBeUndefined();
+    expect(doc.decision).toEqual(LEGACY_DECISION);
+    for (const field of ["jev", "bars", "roles.worker.bars", "objective"])
+      expect(notes.some((n) => n.includes(field))).toBe(true);
+    expect(old.jev).toBeDefined();
+    expect(migrateProfileDoc(doc, true)).toEqual({ doc, notes: [] });
+  });
+
+  it("no key, no TypeSafe url", () => {
+    expect(migrateProfileDoc(old, false).doc.decision).toBeUndefined();
+    const own = { url: "https://decision.test/v1", model: "test-decider" };
+    expect(migrateProfileDoc({ ...old, decision: own }, true).doc.decision).toEqual(own);
+  });
+
+  it("the decision block resolves with its default confidence", () => {
+    const doc = { schema: 1 as const, decision: { url: "https://decision.test/v1", model: "test-decider" } };
+    expect(resolveProfile(doc, "p", "claude-code").decision).toEqual({ ...doc.decision, minConfidence: 0.8 });
+    expect(resolveProfile({ schema: 1 }, "p", "claude-code").decision).toEqual({
+      url: null,
+      model: null,
+      minConfidence: 0.8,
+    });
+  });
+
+  it("a patch sets the decision model, http(s) urls only", () => {
+    const set = patchAt("decision.url", "https://decision.test/v1");
+    expect(applyPatch({ schema: 1 }, set).decision?.url).toBe("https://decision.test/v1");
+    expect(() => patchAt("decision.url", "ftp://x")).toThrow();
+    expect(() => patchAt("decision.minConfidence", "0.2")).toThrow();
   });
 });

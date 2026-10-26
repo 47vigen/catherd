@@ -72,7 +72,13 @@ describe("the profile tools on the profile service", () => {
     const c = await mcpClient();
     const bad = await call(c, "profile", { action: "set", patch: { roles: { worker: { enabled: false } } } });
     expect([bad.data.saved, bad.data.errors[0].message]).toEqual([false, "the worker cannot be disabled"]);
-    await call(c, "profile", { action: "set", patch: { roles: { verifier: { access: "read-only" } } } });
+    await call(c, "profile", {
+      action: "set",
+      patch: {
+        decision: { url: "https://decision.test/v1", model: "test-decider" },
+        roles: { verifier: { access: "read-only" } },
+      },
+    });
     const v = await call(c, "profile", { action: "validate" });
     expect(v.data).toEqual({
       valid: true,
