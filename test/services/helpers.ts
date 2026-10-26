@@ -17,6 +17,7 @@ import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { dispatch, type DispatchInput, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { type Admit, admitPath, type Dispatch, roleDir, setLatest } from "../../src/services/dispatches.ts";
 import type { Deps, ProfilePort, ProfileView, RoutingPort } from "../../src/services/ports.ts";
+import { decisionQuestions } from "../../src/services/decision-service.ts";
 import { unitContext } from "../../src/services/plan-input.ts";
 import { milestoneOfName } from "../../src/services/verifier-brief.ts";
 import { result } from "../../src/services/run-service.ts";
@@ -138,6 +139,34 @@ export function fakeDeps(
       confidence: null,
       source: "default",
     }),
+    // the role's first rung at or above the floor, no call; a test that wants a pick replaces it
+    async decide(req) {
+      const rungs = view.roles[req.role]?.rungs ?? [];
+      const at = req.floor === null ? -1 : rungs.indexOf(req.floor);
+      const open = rungs.slice(Math.max(0, req.strict ? at + 1 : at)).filter((r) => !req.exclude.includes(r));
+      const rung = open[0];
+      if (rung === undefined)
+        return req.strict && req.floor !== null
+          ? { ok: false, exhausted: true, floor: req.floor }
+          : { ok: false, exhausted: false, error: "no rung", rungs: [] };
+      return {
+        ok: true,
+        rung,
+        level: 0,
+        levels: open.length,
+        levelRungs: open.map((r) => [r]),
+        source: "floor",
+        p: null,
+        probabilities: {},
+        why: "the fake decides the first rung above the floor",
+      };
+    },
+    verdict: async (_runDir, _profile, set) => ({
+      ok: true,
+      value: decisionQuestions().sets[set].rule.fallback,
+      p: 0,
+    }),
+    probe: async () => ({ ok: true, latencyMs: 1 }),
     checkStart: async () => ({ unusable: [], index: null }),
     catalog: () => ({ total: 0, models: [] }),
   };

@@ -6,6 +6,7 @@ import type { Bars } from "../domain/bars.ts";
 import type { Budget } from "../domain/budget.ts";
 import type { SessionEnv } from "../infra/claude-session.ts";
 import type { BillingMode } from "../domain/cost.ts";
+import type { DecisionState, VerdictSetName } from "../domain/decision.ts";
 import type { Verdict } from "../domain/jev.ts";
 import type { Difficulty, Kind } from "../domain/lane.ts";
 import type { Access } from "../domain/record.ts";
@@ -149,6 +150,37 @@ export interface RouteAnswer {
 
 export type { Verdict };
 
+/** Plan 44 task 14: what `decide` reads; `held` are quotas, `usage` is the run's dispatches per quota. */
+export interface DecideRequest {
+  runDir: string;
+  repo: string;
+  profile: ProfileView;
+  role: Role;
+  name: string;
+  unit: string;
+  floor: string | null;
+  strict: boolean;
+  exclude: string[];
+  held: string[];
+  usage: Record<string, number>;
+  state: DecisionState;
+}
+
+export type DecideAnswer =
+  | {
+      ok: true;
+      rung: string;
+      level: number;
+      levels: number;
+      levelRungs: string[][];
+      source: "model" | "floor";
+      p: number | null;
+      probabilities: Record<string, number>;
+      why: string;
+    }
+  | { ok: false; exhausted: true; floor: string }
+  | { ok: false; exhausted: false; error: string; rungs: string[] };
+
 export interface CatalogFilter {
   role?: Role;
   backend?: string;
@@ -186,6 +218,17 @@ export interface RoutingPort {
   ): Promise<Verdict<BlockedReason | "other">>;
   /** plan 44 D9: whose failure a check or a stop is; Jev off or an unsure answer is `product` */
   failureClass(runDir: string, text: string, use: "auto" | "off"): Promise<Verdict<"product" | "harness">>;
+  /** plan 44: the rung of this brief, from the levels above the floor; the old members go in M5 */
+  decide(req: DecideRequest): Promise<DecideAnswer>;
+  /** plan 44: one verdict set; an error or unparsable answer is `ok: false`, never the rule's fallback */
+  verdict(
+    runDir: string,
+    profile: ProfileView,
+    set: VerdictSetName,
+    state: Record<string, unknown>,
+  ): Promise<{ ok: true; value: string; p: number } | { ok: false; error: string }>;
+  /** plan 44 D27: one fixed request to the profile's decision model */
+  probe(profile: ProfileView): Promise<{ ok: true; latencyMs: number } | { ok: false; error: string }>;
   /**
    * A run's start check: refreshes the index if it is due, reads it once, and names the enabled roles of `view`
    * that no indexed pair can fill; `index` is what the run pins (null when there is none).

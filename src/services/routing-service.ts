@@ -2,7 +2,18 @@ import { basename } from "node:path";
 import { assertNativeHost } from "./backends.ts";
 import { percentilesOf } from "../domain/bars.ts";
 import { BUDGET_CHEAP_AT } from "../domain/budget.ts";
+import {
+  aboveFloor,
+  difficultyQuestions,
+  judgeVerdict as judgeDecisionVerdict,
+  levelsOf,
+  pickLevel,
+  sha256,
+  VERDICT_OPTIONS as DECISION_OPTIONS,
+  type VerdictSetName,
+} from "../domain/decision.ts";
 import { errorMessage } from "../domain/errors.ts";
+import { quotaOf } from "../domain/failover.ts";
 import {
   type JevAnswers,
   judgeRoute,
@@ -21,6 +32,7 @@ import type { Catalog } from "../domain/catalog.ts";
 import {
   candidates,
   cheapest,
+  decisionCandidates,
   defaultDifficulty,
   defaultLadder,
   type Pick,
@@ -30,11 +42,27 @@ import {
   noRungCause,
   select,
   startAt,
+  tieBreak,
 } from "../domain/select.ts";
 import { log } from "../infra/log.ts";
 import { catalogQuery, freshenDiscovery, loadCatalog, startIndex } from "./catalog-service.ts";
 import { type Asked, askJev, type JevOpts, jevQuestions, logJev } from "./jev-service.ts";
-import type { ProfileView, RouteAnswer, RouteRequest, RoutingPort, Verdict } from "./ports.ts";
+import {
+  type DecisionConfig,
+  askDecision,
+  decisionQuestions,
+  logDecision,
+  probeDecision,
+} from "./decision-service.ts";
+import type {
+  DecideAnswer,
+  DecideRequest,
+  ProfileView,
+  RouteAnswer,
+  RouteRequest,
+  RoutingPort,
+  Verdict,
+} from "./ports.ts";
 import { outcomeStats } from "./outcome-summary.ts";
 import { provenanceOf } from "./provenance.ts";
 import { type EvidenceTable, runEvidence } from "./run-evidence.ts";
@@ -406,6 +434,149 @@ async function verdict<T extends string>(
   return v;
 }
 
+const UNSET =
+  "the decision model is not set: catherd profile set decision.url https://<your-gateway>/v1 and decision.model <model>";
+
+/** The profile's decision model, or the text that says it is not set (D25). */
+function decisionConfig(v: ProfileView): DecisionConfig | string {
+  const { url, model, minConfidence } = v.decision;
+  return url && model ? { url, model, minConfidence } : UNSET;
+}
+
+/**
+ * Plan 44 task 14: the levels of the role's rungs above the floor, then the decision model's pick of one. The floor
+ * is applied to every candidate first, so a floor rung that is held or refused still holds the weaker rungs back.
+ */
+async function decideRung(req: DecideRequest, o: RoutingOpts): Promise<DecideAnswer> {
+  const p = routingProfile(req.profile, req.role, req.state.spentFraction, req.usage);
+  await freshenWithin(p.role.rungs, req.repo, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);
+  const cands = decisionCandidates(loadCatalog({ repo: req.repo, runDir: req.runDir }), p, req.role);
+  const open = new Set(
+    cands
+      .filter((x) => !req.exclude.includes(x.rung) && !req.held.includes(quotaOf(x.info.parsed)))
+      .map((x) => x.rung),
+  );
+  const levels = aboveFloor(levelsOf(cands), req.floor, req.strict)
+    .map((l) => ({ ...l, rungs: l.rungs.filter((r) => open.has(r)) }))
+    .filter((l) => l.rungs.length > 0)
+    .map((l, level) => ({ ...l, level }));
+  if (levels.length === 0)
+    return req.strict && req.floor !== null
+      ? { ok: false, exhausted: true, floor: req.floor }
+      : { ok: false, exhausted: false, error: "no rung", rungs: [] };
+  const all = levels.flatMap((l) => l.rungs);
+  const cfg = decisionConfig(req.profile);
+  if (typeof cfg === "string") return { ok: false, exhausted: false, error: cfg, rungs: all };
+  const n = levels.length;
+  const levelRungs = levels.map((l) => l.rungs);
+  // within a level only rungs of the first one's cost tier compete: headroom is free only inside a tier
+  const tier = (rung: string) => cands.find((x) => x.rung === rung)?.cost.tier;
+  const choose = (level: number) => {
+    const rungs = levelRungs[level] as string[];
+    return tieBreak(
+      rungs.filter((r) => tier(r) === tier(rungs[0] as string)),
+      req.usage,
+    );
+  };
+  const row = (asked: Awaited<ReturnType<typeof askDecision>> | null, extra: Record<string, unknown>) =>
+    logDecision(req.runDir, {
+      call: "decide",
+      key: asked?.meta.key ?? "",
+      stateHash: asked?.meta.stateHash ?? "",
+      model: asked?.meta.model ?? null,
+      requestId: asked?.meta.requestId ?? null,
+      usage: asked?.meta.usage ?? null,
+      latencyMs: asked?.meta.latencyMs ?? null,
+      attempts: asked?.meta.attempts ?? 0,
+      // no answers: the cache reads only rows that hold them, and askDecision logged those
+      answers: null,
+      name: req.name,
+      unit: req.unit,
+      role: req.role,
+      floor: req.floor,
+      levels: n,
+      briefHash: sha256(req.state.brief),
+      ...extra,
+    });
+  if (n === 1) {
+    const t = choose(0);
+    row(null, { level: 0, rung: t.rung, source: "floor", probabilities: {} });
+    return {
+      ok: true,
+      rung: t.rung,
+      level: 0,
+      levels: 1,
+      levelRungs,
+      source: "floor",
+      p: null,
+      probabilities: {},
+      why: ["one level", t.why].filter(Boolean).join("; "),
+    };
+  }
+  const f = decisionQuestions();
+  const state = {
+    ...req.state,
+    rungs: levels.flatMap((l) =>
+      l.rungs.map((rung) => ({ level: l.level, rung, intelligence: l.intelligence })),
+    ),
+  };
+  const asked = await askDecision(
+    req.runDir,
+    cfg,
+    "difficulty",
+    state,
+    difficultyQuestions(f, req.role, n),
+    o,
+  );
+  const answers = asked.answers;
+  const score = answers?.difficulty;
+  if (!answers || score?.type !== "score")
+    return { ok: false, exhausted: false, error: asked.why ?? "no usable answer", rungs: all };
+  const nouls = Object.fromEntries(
+    Object.entries(answers).flatMap(([id, a]) => (a.type === "noul" ? [[id, a.noul]] : [])),
+  );
+  const { floor, cap, noulMin } = f.sets.difficulty;
+  const pick = pickLevel(score.probabilities, n, cfg.minConfidence, nouls, { floor, cap, noulMin });
+  const t = choose(pick.level);
+  row(asked, {
+    level: pick.level,
+    rung: t.rung,
+    source: "model",
+    probabilities: score.probabilities,
+    rule: pick.rule,
+  });
+  return {
+    ok: true,
+    rung: t.rung,
+    level: pick.level,
+    levels: n,
+    levelRungs,
+    source: "model",
+    p: pick.p,
+    probabilities: score.probabilities,
+    why: [pick.rule, t.why].filter(Boolean).join("; "),
+  };
+}
+
+/** One verdict set asked of the profile's model: no answer is `ok: false`, an unsure one the rule's fallback. */
+async function decisionVerdict(
+  runDir: string,
+  profile: ProfileView,
+  set: VerdictSetName,
+  state: Record<string, unknown>,
+  o: RoutingOpts,
+): Promise<{ ok: true; value: string; p: number } | { ok: false; error: string }> {
+  const cfg = decisionConfig(profile);
+  if (typeof cfg === "string") return { ok: false, error: cfg };
+  const { rule, questions } = decisionQuestions().sets[set];
+  // a verdict set holds one question; failure-class names it failure_class, not after the set
+  const id = Object.keys(questions)[0] ?? set;
+  const asked = await askDecision(runDir, cfg, set, state, questions, o);
+  if (!asked.answers) return { ok: false, error: asked.why ?? "no usable answer" };
+  const v = judgeDecisionVerdict(rule, id, DECISION_OPTIONS[set] as readonly string[], asked.answers);
+  return { ok: true, value: v.value, p: v.probability ?? 0 };
+}
+
 /** The routing port over the 1.0 catalog and Jev (spec §5); `o` lets tests inject Jev's transport. */
 export function routingService(o: RoutingOpts = {}): RoutingPort {
   return {
@@ -448,6 +619,12 @@ export function routingService(o: RoutingOpts = {}): RoutingPort {
         use,
         o,
       ),
+    decide: (req) => decideRung(req, o),
+    verdict: (runDir, profile, set, state) => decisionVerdict(runDir, profile, set, state, o),
+    probe: async (profile) => {
+      const cfg = decisionConfig(profile);
+      return typeof cfg === "string" ? { ok: false, error: cfg } : probeDecision(cfg, o);
+    },
     checkStart: async (view, repo) => {
       const { catalog, index } = await startIndex(repo);
       const unusable = rolesWithoutRung(catalog, view);

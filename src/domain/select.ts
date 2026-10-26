@@ -142,6 +142,30 @@ export function candidates(c: Catalog, p: RoutingProfile, role: Role): Candidate
   return out.sort(p.objective === "speed" ? speed : cost);
 }
 
+/** Plan 44: the candidates in cost order whatever the objective; the decision model, not the order, picks. */
+export const decisionCandidates = (c: Catalog, p: RoutingProfile, role: Role): Candidate[] =>
+  candidates(c, { ...p, objective: "cost" }, role);
+
+/**
+ * Plan 44 D20: of `rungs` (one level, in cost order), the one on the quota with the fewest dispatches in the run;
+ * the order breaks an equal count. `why` is null when there was nothing to choose.
+ */
+export function tieBreak(
+  rungs: readonly string[],
+  usage: Partial<Record<string, number>>,
+): { rung: string; why: string | null } {
+  const quotas = rungs.map((x) => {
+    const r = tryParseRung(x);
+    return r ? quotaOf(r) : "";
+  });
+  const used = (i: number) => usage[quotas[i] as string] ?? 0;
+  const at = rungs.map((_, i) => i).sort((a, b) => used(a) - used(b))[0] ?? 0;
+  const rung = rungs[at] as string;
+  if (rungs.length < 2) return { rung, why: null };
+  const counts = [...new Set(quotas)].map((q) => `${q} ${usage[q] ?? 0}`).join(", ");
+  return { rung, why: `${rung} has the most headroom (dispatches in this run: ${counts})` };
+}
+
 export const clearsBar = (cand: Candidate, bar: number): boolean => cand.intelligence >= bar;
 
 function noRung(role: Role): CatherdError {
