@@ -415,7 +415,7 @@ describe("Lao digits (scorecard acceptance)", () => {
   - "pins each task to its commit, and only the Sanitell task to no source": `[commit, source]` per id equals `raqam-myanmar` and `injected-lao` → `["67951678b7cdb115b9f00eb63b3ea7f91a1c464d", "https://github.com/47vigen/raqam.git"]`, `catherd-findings` → `["2061e6e61c7252738869590cca37d78239dabd60", "https://github.com/47vigen/catherd.git"]`, `sanitell-payment-3` → `["0296d87585d6288998f7b845a501ebdf2a5c1cad", null]`.
   - "has every plan and accept file a task names".
   - "injects a limit and a stale test into the injected task only": `[limits > 0, inject !== null]` is `[true, true]` for `INJECTED_TASK`, `[false, false]` for the others.
-  - "names no private host in any fixture": no file under `scorecard/tasks` contains `sakhtar`, `dopiyazeh`, `omni.` or `git@`.
+  - "names no private host in any fixture": no file under `scorecard/tasks` or `docs/` names a private host.
 - [ ] **Step 2: Run** `bun test test/scorecard-fixtures.test.ts` — Expected: FAIL.
 - [ ] **Step 3: Write the fixture files, `scorecard/results/.gitkeep` (empty) and the `.oxfmtrc.json` pattern.**
 - [ ] **Step 4: Run** `bun test test/scorecard-fixtures.test.ts && bun run format:check` — Expected: PASS.
@@ -514,7 +514,7 @@ bun src/cli.ts scorecard prepare raqam-myanmar
 bun src/cli.ts scorecard record <printed dir> --label 1.5.0 [--chat <messages typed into the session>]
 bun src/cli.ts scorecard prepare catherd-findings
 bun src/cli.ts scorecard record <printed dir> --label 1.5.0
-bun src/cli.ts scorecard prepare sanitell-payment-3 --source /Users/vigen/agora/sakhtar/sanitell/platform
+bun src/cli.ts scorecard prepare sanitell-payment-3 --source <your clone>
 bun src/cli.ts scorecard record <printed dir> --label 1.5.0
 bun src/cli.ts scorecard prepare injected-lao   # its start line sets CATHERD_SCORECARD_LIMITS and the shim
 bun src/cli.ts scorecard record <printed dir> --label 1.5.0

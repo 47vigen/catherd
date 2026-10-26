@@ -3630,7 +3630,7 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "pattern": "^https?:\\/\\/\\S+$"
+                    "pattern": "^(https:\\/\\/\\S+|http:\\/\\/(127\\.0\\.0\\.1|localhost|\\[::1\\])(:\\d+)?(\\/\\S*)?)$"
                   },
                   {
                     "type": "null"

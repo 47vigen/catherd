@@ -5,6 +5,7 @@ import { INJECTED_TASK, SCORECARD_TASKS } from "../src/domain/scorecard.ts";
 import { loadTask } from "../src/services/scorecard.ts";
 
 const ROOT = join(import.meta.dir, "..", "scorecard");
+const REPO = join(import.meta.dir, "..");
 
 const files = (dir: string): string[] =>
   readdirSync(dir).flatMap((n) => {
@@ -50,11 +51,16 @@ describe("scorecard fixtures", () => {
     }
   });
 
-  it("names no private host in any fixture", () => {
-    for (const f of files(join(ROOT, "tasks"))) {
-      const text = readFileSync(f, "utf8");
-      for (const word of ["sakhtar", "dopiyazeh", "omni.", "git@"])
-        expect([f, text.includes(word)]).toEqual([f, false]);
-    }
+  it("names no private host in any fixture or doc", () => {
+    const fixtures = files(join(ROOT, "tasks"));
+    const docs = files(join(REPO, "docs"));
+    for (const [list, words] of [
+      [fixtures, ["sakhtar", "dopiyazeh", "codekesh", "omni.", "git@"]],
+      [docs, ["sakhtar", "dopiyazeh", "codekesh"]],
+    ] as const)
+      for (const f of list) {
+        const text = readFileSync(f, "utf8");
+        for (const word of words) expect([f, text.includes(word)]).toEqual([f, false]);
+      }
   });
 });

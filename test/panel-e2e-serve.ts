@@ -152,6 +152,7 @@ const panel = servePanel({
   deps,
   repo,
   token: "e2e-token",
+  reusableToken: true,
   open: false,
   port: Number(process.env.CATHERD_E2E_PORT ?? 4318),
   distDir: join(import.meta.dir, "../web/dist"),

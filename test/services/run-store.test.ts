@@ -148,6 +148,27 @@ describe("runFile", () => {
       expect(code(() => runFile(run, p, "write"))).toBe("E_IO_PATH");
   });
 
+  it("allows a role to write only plan.md, dossier.md and a lane file", () => {
+    const { run } = freshRun();
+    for (const p of ["plan.md", "Plan.md", "dossier.md", "lanes/M1.L1.md"])
+      expect(runFile(run, p, "write")).toBe(join(run.dir, p));
+    for (const p of [
+      "events.jsonl",
+      "EVENTS.jsonl",
+      "trees/M1/.git",
+      "trees/M1.ready",
+      "scratch/x",
+      "decisions/x",
+      "admission/x",
+      "daemon.log",
+      "lanes/M1.L1.md/../../events.jsonl",
+      "lanes/a/b.md",
+      "lanes/M1.L1.txt",
+    ])
+      expect(code(() => runFile(run, p, "write"))).toBe("E_IO_PATH");
+    expect(runFile(run, "events.jsonl", "read")).toBe(join(run.dir, "events.jsonl"));
+  });
+
   it("refuses a role write to the run's pin or supersede pointer (the pin's access is laid over the profile)", () => {
     const { run } = freshRun();
     for (const p of ["pin.json", "PIN.JSON", "superseded.json"])

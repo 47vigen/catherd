@@ -169,6 +169,46 @@ describe("the panel server", () => {
     );
   });
 
+  it("retires the token after its first sign-in", async () => {
+    await signIn();
+    const again = await fetch(`${base}/api/auth/login`, {
+      method: "POST",
+      body: JSON.stringify({ token: TOKEN }),
+    });
+    expect(again.status).toBe(401);
+  });
+
+  it("refuses a login body over 1 MiB", async () => {
+    const r = await fetch(`${base}/api/auth/login`, {
+      method: "POST",
+      body: JSON.stringify({ token: "x".repeat(2 * 1024 * 1024) }),
+    });
+    expect(r.status).toBe(413);
+  });
+
+  it("ends a session after 12 hours idle, and keeps one that is used", async () => {
+    let now = 1_000_000;
+    const dist = mkdtempSync(join(tmpdir(), "catherd-dist-"));
+    writeFileSync(join(dist, "index.html"), "<!doctype html>");
+    const p = servePanel({ deps, repo, token: TOKEN, port: 0, distDir: dist, open: false, now: () => now });
+    try {
+      const login = await fetch(`${p.url}/api/auth/login`, {
+        method: "POST",
+        body: JSON.stringify({ token: TOKEN }),
+      });
+      const cookie = (login.headers.get("set-cookie") as string).split(";")[0] as string;
+      const session = () => fetch(`${p.url}/api/auth/session`, { headers: { cookie } });
+      now += 11 * 3600_000;
+      expect((await session()).status).toBe(200);
+      now += 11 * 3600_000;
+      expect((await session()).status).toBe(200);
+      now += 13 * 3600_000;
+      expect((await session()).status).toBe(401);
+    } finally {
+      await p.stop();
+    }
+  });
+
   it("forgets a session on logout", async () => {
     const cookie = await signIn();
     expect((await call(cookie, "/api/auth/session")).status).toBe(200);
@@ -407,7 +447,6 @@ describe("the panel server", () => {
 
   it("closes a session's run sockets when it logs out, and they stream nothing more", async () => {
     const cookie = await signIn();
-    const other = await signIn();
     const id = await start("wallet split");
     const open = async (c: string) => {
       const ws = new WebSocket(`${base.replace("http", "ws")}/api/runs/${id}/live`, {
@@ -419,20 +458,18 @@ describe("the panel server", () => {
       await new Promise<void>((r) => (ws.onopen = () => r()));
       return { ws, seen };
     };
-    const mine = await open(cookie);
-    const theirs = await open(other);
+    const first = await open(cookie);
+    const second = await open(cookie);
     expect((await post(cookie, "/api/auth/logout", {})).status).toBe(204);
-    await waitFor(() => mine.seen.code !== 0);
-    expect(mine.seen.code).toBe(4401);
+    await waitFor(() => first.seen.code !== 0 && second.seen.code !== 0);
+    expect([first.seen.code, second.seen.code]).toEqual([4401, 4401]);
     await appendEvent(findRun(id), {
       type: "question.parked",
       unit: "M1.L4",
       question: "q",
       reason: "needs_user",
     });
-    await waitFor(() => theirs.seen.frames > 0);
-    expect([mine.seen.frames, theirs.seen.code]).toEqual([0, 0]);
-    theirs.ws.close();
+    expect([first.seen.frames, second.seen.frames]).toEqual([0, 0]);
   });
 
   it("listens on 127.0.0.1 only", () => {

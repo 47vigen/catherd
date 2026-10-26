@@ -10,7 +10,13 @@ import {
   rankStandIns,
 } from "./failover.ts";
 import { effortRank, tryParseRung } from "./ids.ts";
-import { DECISION_UNSET_FIX, type Profile, type ProfileDoc, unknownValues } from "./profile.ts";
+import {
+  DECISION_UNSET_FIX,
+  decisionUrlOk,
+  type Profile,
+  type ProfileDoc,
+  unknownValues,
+} from "./profile.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
 import { candidates, CODING_FLOOR, CODING_ROLES, type RoutingProfile } from "./select.ts";
 
@@ -97,6 +103,12 @@ export function validateProfile(
       path: "decision",
       message: "the decision model is not set",
       fix: DECISION_UNSET_FIX,
+    });
+  if (p.decision.url && !decisionUrlOk(p.decision.url))
+    warnings.push({
+      path: "decision.url",
+      message: "decision.url is plain http: the key would travel in the clear",
+      fix: "catherd profile set decision.url https://<your-gateway>/v1",
     });
   if (!p.roles.worker.enabled)
     errors.push({

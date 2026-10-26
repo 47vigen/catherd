@@ -135,6 +135,9 @@ export function unknownValues(doc: ProfileDoc): UnknownValue[] {
     }
   for (const role of ROLES)
     check(`roles.${role}.access`, ACCESS, doc.roles?.[role]?.access, STORED_FALLBACK.access);
+  const conf = doc.decision?.minConfidence;
+  if (conf !== undefined && confidenceOf(conf) !== conf)
+    out.push({ path: "decision.minConfidence", value: String(conf), readAs: String(DEFAULT_MIN_CONFIDENCE) });
   for (const n of doc.notify ?? []) check("notify", NOTIFY, n, "skipped");
   for (const [k, v] of Object.entries(storedMemory(doc)))
     if (!(MEMORY_KEYS as readonly string[]).includes(k) || !positiveInt(v))
@@ -277,6 +280,10 @@ export function hostDefaultsDoc(doc: ProfileDoc): ProfileDoc {
   return next;
 }
 
+/** The decision key travels as a bearer token: https, or plain http only to this machine. */
+const DECISION_URL = /^(https:\/\/\S+|http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(\/\S*)?)$/;
+export const decisionUrlOk = (url: string): boolean => DECISION_URL.test(url);
+
 const confidenceOf = (v: number | undefined): number =>
   v !== undefined && v >= 0.5 && v <= 1 ? v : DEFAULT_MIN_CONFIDENCE;
 
@@ -339,7 +346,7 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
   return {
     name,
     decision: {
-      url: doc.decision?.url ?? null,
+      url: doc.decision?.url?.replace(/\/+$/, "") ?? null,
       model: doc.decision?.model ?? null,
       minConfidence: confidenceOf(doc.decision?.minConfidence),
     },
@@ -395,7 +402,7 @@ export const ProfilePatchSchema = z.strictObject({
     .strictObject({
       url: z
         .string()
-        .regex(/^https?:\/\/\S+$/, "an http(s) url")
+        .regex(DECISION_URL, "an https url (http only on 127.0.0.1, localhost or [::1])")
         .nullable(),
       model: z.string().min(1).nullable(),
       minConfidence: z.number().min(0.5).max(1),
@@ -449,7 +456,8 @@ export function migrateProfileDoc(doc: ProfileDoc, hadKey: boolean): { doc: Prof
     delete owner[key];
     notes.push(`dropped ${path}: the decision model replaces it`);
   };
-  if (out.jev !== undefined && hadKey && out.decision === undefined) {
+  const jevOff = isPlain(out.jev) && out.jev.use === "off";
+  if (out.jev !== undefined && !jevOff && hadKey && out.decision === undefined) {
     out.decision = { ...LEGACY_DECISION };
     notes.push(`set decision to ${LEGACY_DECISION.url} (${LEGACY_DECISION.model}), the model your key used`);
   }
