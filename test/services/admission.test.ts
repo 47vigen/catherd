@@ -15,6 +15,7 @@ import { ownsAdd } from "../../src/services/lane-edit.ts";
 import { copyPlanInputs } from "../../src/services/plan-input.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import { addKnowledge } from "../../src/services/run-service.ts";
+import * as runStore from "../../src/services/run-store.ts";
 import { appendRecord, readRecords } from "../../src/services/run-store.ts";
 import { claimTree } from "../../src/services/milestone-tree.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
@@ -457,15 +458,19 @@ describe("admission", () => {
     const deps = fakeDeps();
     const endedAt = new Date().toISOString();
     const exited = { proc: "dead", exit: { code: 0, signal: null, reason: "exited", endedAt } } as const;
-    // a rung finalize cannot parse makes its finalize throw
-    await fakeDispatch(run, { name: "worker-M1.L9", lane: "M1.L9", owns: ["src/"], rung: "bogus" }, exited);
-    const started = Date.now();
-    expect(await refusal(admit(deps, run, input()))).toBe("E_ADMIT_OVERLAP");
-    // the failed finalize released its claim: the next one tries at once instead of waiting for a record
-    expect(await refusal(admit(deps, run, input({ name: "worker-M1.L9", lane: null })))).toBe(
-      "E_ADMIT_DUPLICATE",
-    );
-    expect(Date.now() - started).toBeLessThan(3_000);
+    await fakeDispatch(run, { name: "worker-M1.L9", lane: "M1.L9", owns: ["src/"] }, exited);
+    const failing = spyOn(runStore, "appendRecord").mockRejectedValue(new Error("disk full"));
+    try {
+      const started = Date.now();
+      expect(await refusal(admit(deps, run, input()))).toBe("E_ADMIT_OVERLAP");
+      // the failed finalize released its claim: the next one tries at once instead of waiting for a record
+      expect(await refusal(admit(deps, run, input({ name: "worker-M1.L9", lane: null })))).toBe(
+        "E_ADMIT_DUPLICATE",
+      );
+      expect(Date.now() - started).toBeLessThan(3_000);
+    } finally {
+      failing.mockRestore();
+    }
     expect(readRecords(run).records).toHaveLength(0);
   });
 

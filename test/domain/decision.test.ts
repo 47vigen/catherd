@@ -11,6 +11,7 @@ import {
   levelTexts,
   parseReply,
   pickLevel,
+  VERDICT_OPTIONS,
 } from "../../src/domain/decision.ts";
 import { ROLES } from "../../src/domain/roles.ts";
 
@@ -99,6 +100,10 @@ describe("level texts", () => {
     expect(familyOf("verifier")).toBe("review");
     expect(familyOf("judge")).toBe("plan");
     for (const r of ROLES) expect(["code", "review", "plan"]).toContain(familyOf(r));
+  });
+
+  it("the stop classifier offers exactly the stop reasons a role may give (no out_of_scope)", () => {
+    expect(Object.keys(file().sets.stop.questions.stop?.criteria ?? {})).toEqual([...VERDICT_OPTIONS.stop]);
   });
 
   it("the difficulty question has N criteria and the noul signals ride along", () => {

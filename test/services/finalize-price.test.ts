@@ -95,3 +95,12 @@ it("subtracts all earlier cache writes when finalizing resumed OpenCode sessions
     10, 10, 10, 10,
   ]);
 });
+
+it("a Cursor dispatch still in flight from before the upgrade finalizes as lost, and does not throw", async () => {
+  const { run } = freshRun();
+  const d = await fakeDispatch(run, { backend: "cursor", rung: "cursor:auto#default" }, { exit, events: "" });
+  const record = await finalizeDispatch(run, d);
+  expect(record.status).toBe("failed");
+  expect(record.error?.code).toBe("E_LOST");
+  expect(record.costUsd).toBeNull();
+});

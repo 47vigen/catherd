@@ -33,6 +33,21 @@ Left out of plan 45 on purpose:
 - **Isolation per writer.** Lanes of a milestone share one tree, so two writers can still meet on a file. The
   redesign owns isolation (owner).
 
+Found by the plan 45 final review, left as minors:
+
+- **`team_wait` returns at once for a `pending` sibling.** A sibling admitted but not started reads as not running,
+  so the wait ends before its code exists. Fix: treat `pending` like running.
+- **Sender matching by name suffix.** A message's sender is matched to a dispatch by the end of its name, with a
+  fallback to the `worker` and `owner` labels, so two dispatches with the same suffix can be confused. Fix: match the
+  full dispatch name from the role scope.
+- **`env -u CATHERD_ROLE` posts as the owner.** Any role that unsets its role variable can send a team message that
+  steers like the owner's. Local only, since every role runs on the owner's machine. Fix: tie the owner to the CLI's
+  parent session, not to a missing variable.
+- **An opencode steer with an empty 2xx body delivers twice.** The steer reads an empty answer as a failure, so the
+  message stays queued and reaches the next brief as well. Fix: take any 2xx as delivered.
+- **No tests for the `catherd team` CLI and the role server's team tools.** `test/services/team.test.ts` covers the
+  service only. Fix: one test per CLI form and per role-server tool.
+
 ### From plan 44 (the decision model and the briefs)
 
 Left out of plan 44 on purpose, or found while building it:
