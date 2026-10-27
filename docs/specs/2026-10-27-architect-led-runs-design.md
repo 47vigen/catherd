@@ -140,7 +140,7 @@ event and from there into the MR's audit section (O2: it reports what it changed
 | `thread_send` | `{to: taskId \| role \| "all", text, mode?: "auto" \| "queue" \| "steer" \| "restart", why}`. `auto` steers a running thread where the backend allows it (plan 45: opencode, Claude), else queues for its next turn; a send to a finished task resumes its thread as a new task and returns the new `taskId`. Built on plan 45's `team_send`. |
 | `thread_read` | `{from?, since?, limit?, maxChars?}`: the run's team channel, paged. Built on `team_read`. |
 | `thread_wait` | `{taskIds, timeoutSec ≤ 300}`: returns at the first to finish. For a short join inside one turn only; the default is to end the turn. |
-| `check` | `{ref, scope?: "fast" \| "full" \| <named command>, base?: boolean, why}` → `{checkId}`. The daemon runs it under the heavy lock (D5) and wakes the architect with the result. |
+| `check` | `{ref, scope?: "fast" \| "full" \| <named command>, base?: boolean, fresh?: boolean, why}` → `{checkId}`. The daemon runs it under the heavy lock (D5) and wakes the architect with the result. |
 | `merge` | `{taskId, why}`: merge that task's branch into the integration branch (D4). Conflicts go back as an event. |
 | `ledger` | `{tasks?: patch, progress?: text, why}`: edit `tasks.json` and append to `progress.md`. Plan and lane files are edited with `write_run_file`, as plan 45 allows. |
 | `land` | `{final?: boolean, why}`: push the feature branch and open or update its MR (D11). `final` also asks the owner for the merge. |
@@ -230,8 +230,9 @@ Options:
 - **Checkpoints, on git** (LayerFS's per-step checkpoints, at the granularity catherd can see). The daemon snapshots a
   writer's tree, committed or not, as `refs/catherd/<run>/<task>/<n>`: at the end of every dispatch, before any kill,
   timeout or stall stop, and every two minutes while it runs. The snapshot uses an alternate index so the writer's
-  index and files are never touched and untracked files are included (`GIT_INDEX_FILE=<tmp> git read-tree HEAD &&
-  git add -A && git commit-tree $(git write-tree) -p HEAD`, then `git update-ref`; `git stash create` cannot do this,
+  index and files are never touched and untracked files are included (`export GIT_INDEX_FILE=<tmp>` for the whole
+  sequence, so every step uses it: `git read-tree HEAD && git add -A && git commit-tree "$(git write-tree)" -p HEAD`,
+  then `git update-ref`; `git stash create` cannot do this,
   it takes no `-u`, measured). A retry of the same ledger task **continues from the last attempt's snapshot** by
   default ([retry]: M1.L5 finished in 1 min after a ruling, the work was nearly done); `delegate_task {from: "clean"}`
   or any earlier checkpoint restarts instead. A race (E1) forks from one point; a reviewer reads exactly one
@@ -239,8 +240,10 @@ Options:
 - **Conflicts are predicted, not discovered.** After each merge into the integration branch, the daemon runs
   `git merge-tree --write-tree integration <snapshot>` against every running writer's latest snapshot (no tree is
   touched). A writer whose work would now conflict gets the paths in its notice at once, instead of at its own merge.
-- **Check results are keyed by tree.** A fast or full check result is stored against `HEAD^{tree}`; a tree already
-  checked (a fast-forward, a revert, a race duplicate) reuses the result instead of rerunning ([rerun]).
+- **Passing check results are keyed by tree.** A passing fast or full check result is stored against `HEAD^{tree}`;
+  a tree already checked green (a fast-forward, a revert, a race duplicate) reuses it instead of rerunning ([rerun]).
+  A failing result is never reused, so the architect's deliberate rerun of a flaky check on unchanged code (D6) runs
+  again; `check {fresh: true}` also bypasses a cached pass.
 - **The writer cap stays memory-bound** (plan 35's milestone memory, applied to writers instead of milestones). The
   box is not assumed slow: contention was measured at 3–5% of wall ([box]).
 - **Read-only roles get no tree.** Reviewers, the verifier and the researcher read a ref (`git worktree` only when
