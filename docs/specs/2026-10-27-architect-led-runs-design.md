@@ -42,6 +42,7 @@ Every decision below names the measurement it answers, by the tag in brackets.
 | [judge] | Judge: 54 dispatches, ~35 min, never filtered a finding (61 routed, 0 dismissed). 9 rule reviews proposed 54 rules, 74% restrictions; the one accepted rule (GOCACHE in tree) made checks 30–88 min. |
 | [decision] | Decision-model confidence did not predict success (p ≥ 0.9 → 77% complete; coverage < 0.5 → 76%); the first pick finished 65%. Static: flash-class workers 95% ok at ~$0.01; sonnet#high the slowest and dearest worker; sonnet verifiers mostly judged from the tree without running anything. |
 | [dupes] | Two reviewers on P8 M3 reported the same 8 findings. |
+| [round-cost] | A fix round's bullets repeat every file the check output named: 46 bullets, 81 KB, one root cause. |
 | [box] | Box contention real in ~2 windows (two runs at once), ~3–5% of wall. Flaky dispatches: 2%. Briefs are 90–98% cached, so tokens are not the time sink. |
 | [chain] | The private-media chain (6 runs, ~10 h) came from a plan-input design merged before its consumer's acceptance, and from single-repo runs forcing a pin bump per fix. |
 
@@ -272,6 +273,19 @@ Options:
   already removes process audits from its contract.
 - **Findings go to the architect**, which decides what is fixed now, later, or listed under Known issues in the MR.
   The judge's triage step goes ([judge]: it never filtered a finding).
+- **Review converges** (Claude Code team, "How the Claude Code team does code review", 2026-10: one PR cycled 50+
+  times between an agent author and an agent reviewer; ~59% of what re-reviews flagged was code from the first
+  pass). A finding carries a severity (`important | nit | pre-existing`); a `pre-existing` one (not introduced by
+  this run's diff) never starts a fix round and goes under Known issues. A finding names the bug class, so one fix
+  round covers every instance, not one line ([round-cost]: 46 bullets for one root cause). A re-review sees only
+  the diff since the last review and never re-reports an earlier finding. After three review rounds on one task the
+  architect re-plans the approach instead of calling a fourth.
+- **Review depth follows the change, not the author.** The architect asks for a deeper review (a second,
+  cross-family reviewer) only for diffs touching money, auth, migrations or CI; a routine diff gets one reviewer or
+  none.
+- **The reviewer is measured.** Every confirmed bug a reviewer missed and a later check, verifier or owner caught
+  joins a reviewer eval set; each reviewer finding records how the architect handled it (fixed, rejected,
+  intentional, not worth it), so noise is visible per rung.
 - **No verifier role lock.** The machine-wide lock (`withRoleLock` in `heavy-lock.ts`) is deleted; the heavy lock
   still serializes the commands a verifier runs ([rolelock]).
 
