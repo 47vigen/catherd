@@ -18,8 +18,10 @@ import {
   roleTimeouts,
   unknownValues,
 } from "../../src/domain/profile.ts";
+import { validateProfile } from "../../src/domain/profile-rules.ts";
 import { ROLES } from "../../src/domain/roles.ts";
 import legacy from "../fixtures/profiles/legacy-1.5.json";
+import { shipped } from "./shipped.ts";
 
 describe("the default profile (spec §7.2)", () => {
   const p = resolveProfile(defaultProfileDoc(), "default", "claude-code");
@@ -569,5 +571,36 @@ describe("Cursor retired (plan 45)", () => {
       "dropped roles.reviewer.rungs: its only rung was Cursor's, so the role takes the default",
     );
     expect(migrateProfileDoc(doc, false).notes).toEqual([]);
+  });
+
+  it("a Cursor defaultRung goes with its rung, whether Cursor was the only rung or one of several", () => {
+    const old = applyPatch(defaultProfileDoc(), {
+      decision: { url: "https://decision.test/v1", model: "test-decider" },
+      roles: {
+        worker: {
+          rungs: [
+            "codex:gpt-6-luna#high",
+            "cursor:auto#default",
+            "codex:gpt-6-sol#medium",
+            "codex:gpt-6-sol#high",
+            "codex:gpt-6-sol#xhigh",
+          ],
+          defaultRung: "cursor:auto#default",
+        },
+        reviewer: { rungs: ["cursor:gpt-6#high"], defaultRung: "cursor:gpt-6#high" },
+      },
+    });
+    const { doc, notes } = migrateProfileDoc(old, false);
+    expect(doc.roles?.worker).not.toHaveProperty("defaultRung");
+    expect(doc.roles?.reviewer).not.toHaveProperty("defaultRung");
+    expect(notes).toContain("dropped roles.worker.defaultRung: Cursor is retired");
+    expect(notes).toContain("dropped roles.reviewer.defaultRung: Cursor is retired");
+    const p = resolveProfile(doc, "p", "claude-code");
+    expect(
+      validateProfile(p, shipped(), ["codex", "claude-code", "opencode", "claude"], doc, "claude-code"),
+    ).toEqual({
+      errors: [],
+      warnings: [],
+    });
   });
 });

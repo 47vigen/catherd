@@ -472,6 +472,10 @@ export function migrateProfileDoc(doc: ProfileDoc, hadKey: boolean): { doc: Prof
 function retireCursor(out: ProfileDoc, notes: string[]): void {
   const isCursor = (s: unknown) => typeof s === "string" && s.startsWith("cursor:");
   for (const [role, r] of Object.entries(out.roles ?? {})) {
+    if (r && isCursor(r.defaultRung)) {
+      delete r.defaultRung;
+      notes.push(`dropped roles.${role}.defaultRung: Cursor is retired`);
+    }
     if (!r?.rungs?.some(isCursor)) continue;
     const kept = r.rungs.filter((x) => !isCursor(x));
     if (kept.length === 0) {
