@@ -417,7 +417,7 @@ describe("preflight lint (plan 40)", () => {
     if (r.needsConfirmation) throw new Error("unexpected");
     expect(r.lint).toEqual([
       "M1: no Check: line: the verifier must run the whole gate by hand",
-      "M1: A1 asks for commit history (failed before): catherd commits tests and code together; it is judged from the tree",
+      "M1: A1 is about process (failed before), not the product: no gate judges it",
     ]);
   });
 });

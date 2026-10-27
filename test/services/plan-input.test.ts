@@ -204,6 +204,22 @@ it("uncoveredALines drops lines marked (Check)", () => {
   expect(uncoveredALines(run, "M1")).toEqual(["A1 — x"]);
 });
 
+it("uncoveredALines leaves process lines to no one", () => {
+  const { run } = freshRun();
+  run.meta.aLines = ["A1 — x", "A2 — commit subject reads feat: y", "A3 — red evidence for z"];
+  writeLane(run, "M1.L1", ["src/a.ts"]);
+  writeFileSync(join(run.dir, "plan.md"), `## M1 — core\n${run.meta.aLines.join("\n")}\n`);
+  expect(uncoveredALines(run, "M1")).toEqual(["A1 — x"]);
+});
+
+it("no role reads a process line among its A-lines", () => {
+  const { run } = freshRun();
+  run.meta.aLines = ["A1 — x", "A2 — commit subject reads feat: y", "A3 — red evidence for z"];
+  writeLane(run, "M1.L1", ["src/a.ts"]);
+  writeFileSync(join(run.dir, "plan.md"), `## M1 — core\n${run.meta.aLines.join("\n")}\n`);
+  expect(roleALines(run, "worker", "M1.L1")).toEqual(["A1 — x"]);
+});
+
 it("uncoveredALines gives each line without its list marker", () => {
   const { run } = freshRun();
   run.meta.aLines = ["A1 — x", "A2 — y", "A3 — the root gate is green (Check)."];

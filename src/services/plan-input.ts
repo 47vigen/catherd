@@ -7,6 +7,7 @@ import { parseLaneHeader } from "../domain/lane.ts";
 import {
   aLineOwner,
   CHECK_COVERED,
+  PROCESS_LINE,
   coverageProblems,
   depthProblems,
   milestoneSection,
@@ -161,10 +162,10 @@ export function deliveredALineTexts(run: Run, m: string): string[] {
 }
 
 /**
- * The A-lines milestone `m` delivers that its Check does not cover (plan 40 D2), as `deliveredALineTexts` gives them.
+ * The A-lines milestone `m` delivers that its Check does not cover (plan 40 D2) and that are not about process (plan 45), as `deliveredALineTexts` gives them.
  */
 export function uncoveredALines(run: Run, m: string): string[] {
-  return deliveredALineTexts(run, m).filter((text) => !CHECK_COVERED.test(text));
+  return deliveredALineTexts(run, m).filter((text) => !CHECK_COVERED.test(text) && !PROCESS_LINE.test(text));
 }
 
 /** The run's A<n> lines that no laned milestone's section of plan.md cites: nothing ties a landed commit to them. */
@@ -238,13 +239,13 @@ function sectionOf(text: string, ref: string): string | null {
 /** The milestone a unit (`M1.L2`, `M1`) belongs to; the run unit and any other name have none. */
 
 /**
- * The A-lines `role` reads for `unit`: its milestone's lines whose owner tag it reads (plan 44 D4); every line of
+ * The A-lines `role` reads for `unit`: its milestone's lines whose owner tag it reads (plan 44 D4), minus process lines (plan 45); every line of
  * the run for the run unit.
  */
 export function roleALines(run: Run, role: Role, unit: string): string[] {
   const m = unitMilestone(unit);
   if (m === null) return numberedALines(run.meta.aLines).flatMap((a) => (a.id ? [a.line] : []));
-  return deliveredALineTexts(run, m).filter((l) => readsALine(role, aLineOwner(l)));
+  return deliveredALineTexts(run, m).filter((l) => readsALine(role, aLineOwner(l)) && !PROCESS_LINE.test(l));
 }
 
 /**

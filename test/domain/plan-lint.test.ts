@@ -115,13 +115,13 @@ describe("lintPlan (plan 40, D11)", () => {
       lintPlan(plan("for p in a b; do x; done && y", ["A8 — tests failed before the code"]), "M1", []),
     ).toEqual([
       "M1: Check item `for p in a b; do x; done` is a shell loop: one 30-minute budget for every package; write one item per package",
-      "M1: A8 asks for commit history (failed before): catherd commits tests and code together; it is judged from the tree",
+      "M1: A8 is about process (failed before), not the product: no gate judges it",
     ]);
   });
 
   it("a list-marked history A-line is warned too", () => {
     expect(lintPlan(plan("true", ["- A3 [worker] — TDD all the way"]), "M1", [])).toEqual([
-      "M1: A3 asks for commit history (TDD): catherd commits tests and code together; it is judged from the tree",
+      "M1: A3 is about process (TDD), not the product: no gate judges it",
     ]);
   });
 
@@ -133,7 +133,22 @@ describe("lintPlan (plan 40, D11)", () => {
 
   it("reads the run's own A-lines beside the milestone's", () => {
     expect(lintPlan(plan("true"), "M1", ["A2 — TDD all the way"])).toEqual([
-      "M1: A2 asks for commit history (TDD): catherd commits tests and code together; it is judged from the tree",
+      "M1: A2 is about process (TDD), not the product: no gate judges it",
+    ]);
+  });
+
+  it("commit subjects, red evidence and file-scope lines are process; behaviour is not", () => {
+    const lines = [
+      "A1 — each commit subject reads exactly `feat(kit): add pin`",
+      "A2 — red evidence: the new tests fail before the implementation",
+      "A3 — this diff may not touch files outside packages/kit",
+      "A4 — the CLI does not modify files outside the target directory",
+      "A5 — `bun test` passes",
+    ];
+    expect(lintPlan(plan("true", lines), "M1", [])).toEqual([
+      "M1: A1 is about process (commit subject), not the product: no gate judges it",
+      "M1: A2 is about process (red evidence), not the product: no gate judges it",
+      "M1: A3 is about process (diff may not touch), not the product: no gate judges it",
     ]);
   });
 });
