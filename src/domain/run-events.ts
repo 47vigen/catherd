@@ -179,7 +179,7 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     siblings: strings.optional(),
     /** a verifier's ok reply whose first line is no verdict: its `fail` is catherd's reading, not the verifier's */
     noVerdict: z.literal(true).optional(),
-    /** plan 44 D11: test files the lane changed that it does not own; older lines have none */
+    /** plan 44 D11, read by no one since plan 45 (Owns is a hint): kept so older lines still parse */
     testEdits: strings.optional(),
   }),
   ev("check.ran", {

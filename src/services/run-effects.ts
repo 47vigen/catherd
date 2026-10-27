@@ -21,7 +21,6 @@ import { changedDecisions, formatCommand, milestoneCheck, reapprovalQuestion } f
 import { parseRanLines, parseRunLines, verifierShortfall } from "../domain/ran-lines.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { natural } from "../domain/util.ts";
-import { guardedEdits } from "../domain/test-guard.ts";
 import type { Role } from "../domain/roles.ts";
 import { type Finding, type MilestonePlan, RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
 import { type Action, type DecideAction, type Decided, decidedName, unitOf } from "../domain/run-machine.ts";
@@ -145,7 +144,7 @@ const PASS_LINE = /^VERDICT: PASS\b/;
 /**
  * The `dispatch.ended` event of a finished dispatch: the record's status, the reply's findings (a reviewer's
  * BLOCKER, BUG and NIT lines, a failing verifier's lines) and the verifier's verdict, the reason a blocked reply
- * names, the HEAD a verifier checked, and the sibling files a `check_broken` lane blames.
+ * names, the HEAD a verifier checked, and the sibling lanes a stopped or partial lane names.
  */
 export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventInput {
   const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
@@ -188,8 +187,8 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
   }
   const stopped = record.replyStatus === "blocked" || record.replyStatus === "refused";
   const reason = stopped ? (parseBlockedReason(record.replyWhy)?.reason ?? null) : null;
-  // a sibling-owned path is no violation: the shared tree cannot tell which worker changed it (D11)
-  const testEdits = record.lane ? guardedEdits(record.violations, laneOwnsOf(run, record.lane).own) : [];
+  // plan 45 (R5): a partial or blocked lane reply that names a sibling's file waits for it
+  const short = stopped || record.replyStatus === "partial";
   return {
     type: "dispatch.ended",
     dispatchId: record.dispatchId,
@@ -205,10 +204,9 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     verdict,
     findings,
     foreign: reason === "check_broken" && record.lane ? foreignOf(run, record.lane, reply) : [],
-    siblings: reason === "check_broken" && record.lane ? siblingsOf(run, record.lane, reply) : [],
+    siblings: short && record.lane ? siblingsOf(run, record.lane, reply) : [],
     replyPath: record.replyPath,
     ...(noVerdict ? { noVerdict: true as const } : {}),
-    ...(testEdits.length ? { testEdits } : {}),
   };
 }
 

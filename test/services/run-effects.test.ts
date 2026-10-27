@@ -816,7 +816,7 @@ describe("what a stop says (30b)", () => {
     expect(endedEvent(run, rel, "M1")).toMatchObject({ verdict: "pass" });
   });
 
-  it("a lane end names its foreign test edits", () => {
+  it("a lane end never names test edits: files outside the Owns are the reviewer's to read", () => {
     const { run } = freshRun();
     writeLane(run, "M1.L1", ["src/"]);
     const record = withReply(
@@ -829,9 +829,29 @@ describe("what a stop says (30b)", () => {
       },
       "Done.\nSTATUS: complete — ok",
     );
-    expect(endedEvent(run, record, "M1.L1")).toMatchObject({ testEdits: ["test/b.test.ts"] });
-    const clean = withReply(run, { role: "worker", name: "worker-M1.L1", lane: "M1.L1" }, "Done.");
-    expect(endedEvent(run, clean, "M1.L1")).not.toHaveProperty("testEdits");
+    expect(endedEvent(run, record, "M1.L1")).not.toHaveProperty("testEdits");
+  });
+
+  it("a partial lane end names the sibling lanes its reply names", () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    writeLane(run, "M1.L2", ["src/b.ts"]);
+    const record = withReply(
+      run,
+      {
+        role: "worker",
+        name: "worker-M1.L1",
+        lane: "M1.L1",
+        replyStatus: "partial",
+        replyWhy: "waits on src/b.ts",
+      },
+      "Half done; waits on src/b.ts\nSTATUS: partial — waits on src/b.ts",
+    );
+    expect(endedEvent(run, record, "M1.L1")).toMatchObject({
+      reason: null,
+      foreign: [],
+      siblings: ["M1.L2"],
+    });
   });
 
   it("a failed fast check carries its class", async () => {
