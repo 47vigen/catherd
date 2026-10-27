@@ -1,6 +1,7 @@
-# catherd 3.0: architect-led runs
+# catherd 2.0, continued: architect-led runs
 
-Date: 2026-10-27. Status: draft for the owner's approval. Binding where it differs from the 2.0 spec
+Date: 2026-10-27. Status: draft for the owner's approval. Part of 2.0: 2.0 has not reached `latest`
+(`latest` is 1.5.0; 2.0 ships only as `next` snapshots), so this design lands inside 2.0 before its release. Binding where it differs from the 2.0 spec
 (`2026-10-12-catherd-2.0-design.md`) and the decision-model spec (`2026-10-26-decision-model-design.md`); both stay
 binding elsewhere until the deletions below land.
 
@@ -14,7 +15,7 @@ mid-run, fixes `pickLevel`, dedupes fix-round bullets, and retires the Cursor ba
 
 The owner's diagnosis of 2.0: **"we turned runs into a pipeline, and in between we kill everything."** The work
 inside the nodes is good (output quality was good in all 14 measured runs); the time goes to the transitions between
-them. 3.0 removes the fixed pipeline. The architect drives the run as its brain. catherd keeps only what a model
+them. This design removes the fixed pipeline. The architect drives the run as its brain. catherd keeps only what a model
 should not do: run processes, hold worktrees and locks, write the event log, enforce caps and safety stops, and do
 the mechanics of merging and pushing.
 
@@ -319,7 +320,7 @@ Options:
 
 The evidence demands exactly one process check: the implementer did not edit the tests or the oracle it is graded
 by (Anthropic evals). The 2.0 form of that check, "any test file the lane does not own", produced the [walls] loop.
-3.0 narrows it:
+This design narrows it:
 
 - An **oracle** is a path the architect lists on a ledger task (`oracle`), typically the acceptance tests written
   before the implementation, or an existing test file the task must keep green.
@@ -373,7 +374,7 @@ Rejected: no rule at all (leaves the one gaming path the literature names); the 
 **12. The researcher and the writer are on call for the whole run, for the architect and for writers.** (O8)
 
 In 2.0 they appear at fixed points: the researcher writes a dossier before planning, the writer takes docs lanes.
-3.0 makes them callable at any moment: research a question, map code for a task, read docs or a vendor API, write or
+This design makes them callable at any moment: research a question, map code for a task, read docs or a vendor API, write or
 update docs, a report or the MR text.
 
 - **Who calls them.** The architect, with `delegate_task {role: "researcher" | "writer"}`. Writers (workers, the
@@ -440,9 +441,10 @@ Every cross-run question, including the 14-run baseline above, took ad-hoc scrip
   check share of wall, cost per rung, a rung's success rate per role, stall counts; the D17 metrics become views, and
   the scorecard stops parsing JSONL (`scorecard-metrics.ts`, `outcome-summary.ts` shrink to queries). The panel's
   Runs page can filter and compare runs. A later learned router (rejected for now) would train on `dispatches`.
-- **2.x runs.** Left on files while in flight; they finish on `catherd-cli@2` (D16). On first start, 3.0 imports
-  every finished 2.x run dir read-only (events, dispatches from the records, outcomes, checks) with `legacy = 1`, so
-  the 14-run baseline is queryable beside 3.0 runs. Import never writes to a run dir, and an unreadable dir is
+- **Earlier runs.** Runs written by an earlier 2.0 `next` build stay on files; one still in flight finishes on the
+  build that started it (D16). On first start, catherd imports every finished earlier run dir read-only (events,
+  dispatches from the records, outcomes, checks) with `legacy = 1`, so the 14-run baseline is queryable beside new
+  runs. Import never writes to a run dir, and an unreadable dir is
   reported and skipped.
 
 Rejected: keeping JSONL and adding an index (two stores to keep in step); an external database or a new dependency
@@ -524,7 +526,7 @@ wrong speaker, and uncurated content.
 
 ### Compatibility of 2.0 decisions
 
-**15. What 3.0 replaces in the 2.0 spec.** Decision 3 (judgment is a role) is replaced by D1; 7 (fix rounds by
+**15. What this design replaces in the 2.0 spec.** Decision 3 (judgment is a role) is replaced by D1; 7 (fix rounds by
 convergence) by the architect's own call within D10's caps; 8 (blocked reasons map to transitions) keeps the reason
 vocabulary, but reasons go to the architect, plus `impossible`; 11–12 routing on one scale shrinks to D7's ladders
 (Slopalytics stays the catalog: a ladder may only hold indexed pairs); 18 (gate evidence: auto-rerun, baseline every
@@ -563,26 +565,29 @@ events), `scorecard` (outcomes now in the D13 database), plan lint as warnings, 
 
 ## Migration
 
-**16. Version 3.0.0, on `next` first.** The session tools stay, but the profile schema loses the judge role, the
-decision block and bars, the run event schema changes, and role contracts change. That is a major version.
+**16. Still 2.0.0, on `next` until 2.0 is released.** The profile schema loses the judge role, the decision block
+and bars, the run event schema changes, and role contracts change. Those are breaking changes, but 2.0 is
+unreleased: `latest` is 1.5.0 and 2.0 has shipped only as `next` snapshots, so they land inside 2.0's major bump
+rather than starting a 3.0. The changesets are `minor`, as plan 45's is, while the version line stays `2.0.0-next.*`.
 
-- **Runs in flight.** A 3.0 daemon does not resume a run whose `events.jsonl` was written by 2.x: it imports it
-  read-only once it has finished (D13) for `status`, `result` and the panel, and tells the owner to finish it with `npx catherd-cli@2` (the 2.x line keeps bug
-  fixes, as 1.x did). 2.0 followed the same rule for 1.5 runs.
+- **Runs in flight.** A daemon on this design does not resume a run whose `events.jsonl` was written by an earlier
+  `next` build with the old event schema: it imports it read-only once it has finished (D13) for `status`, `result`
+  and the panel, and tells the owner to finish it with the build that started it (`npx catherd-cli@<that version>`).
+  1.5 runs keep 2.0's rule (finish them on `catherd-cli@1`).
 - **Profiles** stay files (D13). `ProfileService` migrates them on first read, schema-versioned as today: drop `judge` and its rungs, drop
   `decision` and `bars`; each role's rungs become its ladder in their current intelligence order; give the architect
   `workspace-write`; add `caps` with D10's defaults and the standing-role cap, and an empty `memory` block (memory off until
   configured, D14). `profile validate` names every dropped
   key, and the migration is written back as a file the owner can diff. Nothing is guessed: a role with no rung left still stops the run at start (2.0 decision 12).
-- **Lane files and plans** written for 2.x stay readable; ownership lines become hints, `Difficulty:` and `Kind:` are
+- **Lane files and plans** written before this design stay readable; ownership lines become hints, `Difficulty:` and `Kind:` are
   plain text for the architect.
 
 **17. Staged rollout, measured against the 14 runs.** (O7: remove parts one at a time and measure)
 
 | Stage | What runs | Measured against |
 |---|---|---|
-| 0 | Plan 45 (the bridge) on 2.x. | The 14 runs. Isolates what notices, outcome gates and plan freedom buy by themselves. |
-| 1 | The SQLite state (D13), with the read-only import of the finished 2.x runs. The architect loop (D1–D3), the daemon reducer (D4), stall and caps (D10), landing (D11), standing roles (D12) on 3.0.0-next, still on the shared milestone tree. Judge, decision model, acceptance milestone, landing parks, auto-rerun, role lock and admission tick deleted. | Stage 0 and the 14 runs. |
+| 0 | Plan 45 (the bridge), on today's 2.0 shape. | The 14 runs. Isolates what notices, outcome gates and plan freedom buy by themselves. |
+| 1 | The SQLite state (D13), with the read-only import of the finished earlier runs. The architect loop (D1–D3), the daemon reducer (D4), stall and caps (D10), landing (D11), standing roles (D12) on the 2.0.0 `next` line, still on the shared milestone tree. Judge, decision model, acceptance milestone, landing parks, auto-rerun, role lock and admission tick deleted. | Stage 0 and the 14 runs. |
 | 2 | Per-writer worktrees and merge (D5), streaming fast checks (D6), the oracle rule (D9). | Stage 1. If isolation does not reduce blocked minutes, it is reverted (O7). |
 | 3 | Memory (D14): the catherd workspace and key, the curated outbox, the role peers, the read tools, and the isolation check, which must pass before the first write. | Stage 2, on the same tasks. Memory is kept when a sample of 50 conclusions after two runs holds at least 60% repo facts with identifiers and no brief text, and the architect's runs on a repo it has seen are no worse on wall time and rounds; otherwise writes are turned off and the finding goes to `ideas.md`. |
 | 4 | The 2.0 scorecard's four fixed tasks plus replays of three of the 14 runs (one big: P8; one with the [walls] loop: P6; one landing-heavy). `latest` moves on the owner's word after it passes. | All of the above. |
@@ -603,7 +608,7 @@ After stage 4, the experiments below are switched on one at a time, each measure
 
 ## Experiments
 
-Five ideas from the owner, designed here. They are not part of 3.0's binding shape. Each is a profile flag
+Five ideas from the owner, designed here. They are not part of this design's binding shape. Each is a profile flag
 (`experiments.<id>: true`, default off), is switched on **alone**, on top of the finished stage 4 (or the stage its
 prerequisite lands in), runs on the same replayed tasks, and is kept only if it beats the 14-run baseline and the
 stage-4 numbers on its named metric without making output quality worse. Otherwise it is switched off, and the result
@@ -686,7 +691,7 @@ Measured first (2026-10-28): a fresh tree is ready in 7–15 s, so the pool can 
 - **Keep the 2.0 machine and tune its transitions.** The 14 runs show the waste is the transitions themselves; each
   tuning (plan 45 included) removes one wall and keeps the shape. Plan 45 is kept as the bridge, not the end.
 - **Peer-to-peer agents with no coordinator.** The owner wants free talk; the evidence (CooperBench, Cognition) finds
-  open peer negotiation harmful. 3.0 lets anyone talk on the team channel, with notices and questions as the default
+  open peer negotiation harmful. This design lets anyone talk on the team channel, with notices and questions as the default
   content, and keeps one brain that decides.
 - **A learned router in place of the decision model.** Possible later, trained on catherd's own outcomes (the D13 `dispatches` and `outcomes` tables); not
   before the ladders have been measured.
