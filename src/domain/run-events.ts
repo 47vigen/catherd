@@ -151,6 +151,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     thread: z.string().nullable(),
     /** a judge call's kind: the machine asks the same question again from it when the reply is unreadable */
     judgeKind: z.enum(JUDGE_KINDS).nullable().optional(),
+    /** the last team message number when its brief was rendered; older lines have none (their startedAt is used) */
+    teamSeen: z.number().int().min(0).optional(),
   }),
   ev("dispatch.refused", {
     name: z.string(),
@@ -179,7 +181,7 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     siblings: strings.optional(),
     /** a verifier's ok reply whose first line is no verdict: its `fail` is catherd's reading, not the verifier's */
     noVerdict: z.literal(true).optional(),
-    /** plan 44 D11: test files the lane changed that it does not own; older lines have none */
+    /** plan 44 D11, read by no one since plan 45 (Owns is a hint): kept so older lines still parse */
     testEdits: strings.optional(),
   }),
   ev("check.ran", {
@@ -233,6 +235,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     strict: z.boolean(),
     briefFile: z.string(),
     briefHash: z.string(),
+    /** the last team message number when the brief was rendered; older lines have none */
+    teamSeen: z.number().int().min(0).optional(),
     p: z.number().nullable(),
     probabilities: z.record(z.string(), z.number()),
     why: z.string(),

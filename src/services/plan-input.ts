@@ -7,7 +7,7 @@ import { parseLaneHeader } from "../domain/lane.ts";
 import {
   aLineOwner,
   CHECK_COVERED,
-  coverageProblems,
+  PROCESS_LINE,
   depthProblems,
   milestoneSection,
   type PlanDoc,
@@ -161,10 +161,10 @@ export function deliveredALineTexts(run: Run, m: string): string[] {
 }
 
 /**
- * The A-lines milestone `m` delivers that its Check does not cover (plan 40 D2), as `deliveredALineTexts` gives them.
+ * The A-lines milestone `m` delivers that its Check does not cover (plan 40 D2) and that are not about process (plan 45), as `deliveredALineTexts` gives them.
  */
 export function uncoveredALines(run: Run, m: string): string[] {
-  return deliveredALineTexts(run, m).filter((text) => !CHECK_COVERED.test(text));
+  return deliveredALineTexts(run, m).filter((text) => !CHECK_COVERED.test(text) && !PROCESS_LINE.test(text));
 }
 
 /** The run's A<n> lines that no laned milestone's section of plan.md cites: nothing ties a landed commit to them. */
@@ -191,16 +191,11 @@ function untaggedALines(plan: string): string[] {
 }
 
 /**
- * What the architect can fix: a lane that names no task or a missing one, an A-line no milestone owns, and with
- * no plan input plan.md's depth. A task of the owner's plan with neither a signature nor a test is the owner's,
- * and preflight refuses it.
+ * What the architect must fix before the plan is read: an untagged A-line, an A-line no milestone owns, and, with
+ * no plan input and before the owner approved it, plan.md's depth. A lane's tasks are its own business (plan 45).
  */
 export function planProblems(run: Run): string[] {
-  const docs = planDocs(run);
-  const lanes = laneIds(run).map((id) => ({ id, tasks: laneRefs(run, id) }));
-  const out = coverageProblems(docs, lanes)
-    .filter((p) => p.lane !== "")
-    .map((p) => p.note);
+  const out: string[] = [];
   for (const id of untaggedALines(read(runPaths(run.dir).plan) ?? ""))
     out.push(`${id} in plan.md has no owner tag: write it ${id} [worker|reviewer|verifier|run]`);
   const unowned = unownedALines(run);
@@ -208,7 +203,9 @@ export function planProblems(run: Run): string[] {
     out.push(
       `${unowned.join(", ")} ${unowned.length > 1 ? "are" : "is"} cited under no milestone: under the milestone that delivers each, write it in plan.md as an A<n> line`,
     );
-  if (replayRun(run).plan.length === 0) out.push(...depthProblems(docs[0] ?? parsePlanDoc("plan.md", "")));
+  const state = replayRun(run);
+  if (state.plan.length === 0 && state.phase === "planning")
+    out.push(...depthProblems(planDocs(run)[0] ?? parsePlanDoc("plan.md", "")));
   return out;
 }
 
@@ -238,13 +235,13 @@ function sectionOf(text: string, ref: string): string | null {
 /** The milestone a unit (`M1.L2`, `M1`) belongs to; the run unit and any other name have none. */
 
 /**
- * The A-lines `role` reads for `unit`: its milestone's lines whose owner tag it reads (plan 44 D4); every line of
+ * The A-lines `role` reads for `unit`: its milestone's lines whose owner tag it reads (plan 44 D4), minus process lines (plan 45); every line of
  * the run for the run unit.
  */
 export function roleALines(run: Run, role: Role, unit: string): string[] {
   const m = unitMilestone(unit);
   if (m === null) return numberedALines(run.meta.aLines).flatMap((a) => (a.id ? [a.line] : []));
-  return deliveredALineTexts(run, m).filter((l) => readsALine(role, aLineOwner(l)));
+  return deliveredALineTexts(run, m).filter((l) => readsALine(role, aLineOwner(l)) && !PROCESS_LINE.test(l));
 }
 
 /**

@@ -138,7 +138,6 @@ const BACKEND: Record<string, string> = {
   "claude-code": "Claude Code",
   claude: "Claude",
   opencode: "opencode",
-  cursor: "Cursor",
 };
 const DOING: Record<string, string> = {
   architect: "writing the plan",

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   symlinkSync,
@@ -23,6 +24,7 @@ import {
   gitToplevel,
   isAncestor,
   statusSnapshot,
+  updateSubmodules,
   worktreeIdentity,
 } from "../../src/infra/git.ts";
 import { isAlive } from "../../src/infra/proc.ts";
@@ -330,5 +332,54 @@ describe("git failures", () => {
     const hook = Number(readFileSync(pidFile, "utf8"));
     for (let i = 0; i < 500 && isAlive(hook, null); i++) await Bun.sleep(10);
     expect(isAlive(hook, null)).toBe(false);
+  });
+});
+
+describe("updateSubmodules", () => {
+  it("checks a worktree's submodule out from the main checkout's copy, without alternates", async () => {
+    const { repo: sub, origin: subOrigin } = repoWithOrigin();
+    const pinned = execFileSync("git", ["rev-parse", "HEAD"], { cwd: sub, encoding: "utf8" }).trim();
+    const superRepo = tempRepo();
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = "protocol.file.allow";
+    process.env.GIT_CONFIG_VALUE_0 = "always";
+    const run = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });
+    run(superRepo, "submodule", "add", "-q", subOrigin, "lib");
+    run(superRepo, "commit", "-q", "-m", "add lib");
+    const tree = join(mkdtempSync(join(tmpdir(), "catherd-subtree-")), "t");
+    run(superRepo, "worktree", "add", "-q", tree);
+    const r = await updateSubmodules(tree, 30_000);
+    expect(r.code).toBe(0);
+    const lib = join(tree, "lib");
+    expect(execFileSync("git", ["rev-parse", "HEAD"], { cwd: lib, encoding: "utf8" }).trim()).toBe(pinned);
+    const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+      cwd: lib,
+      encoding: "utf8",
+    }).trim();
+    expect(existsSync(join(gitDir, "objects/info/alternates"))).toBe(false);
+  });
+
+  it("populates nested submodules too", async () => {
+    const { repo: nested, origin: nestedOrigin } = repoWithOrigin();
+    const { repo: sub, origin: subOrigin } = repoWithOrigin();
+    const superRepo = tempRepo();
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = "protocol.file.allow";
+    process.env.GIT_CONFIG_VALUE_0 = "always";
+    const run = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });
+    writeFileSync(join(nested, "deep.txt"), "deep\n");
+    run(nested, "add", "deep.txt");
+    run(nested, "commit", "-q", "-m", "deep");
+    run(nested, "push", "-q", "origin", "HEAD");
+    run(sub, "submodule", "add", "-q", nestedOrigin, "nested");
+    run(sub, "commit", "-q", "-m", "add nested");
+    run(sub, "push", "-q", "origin", "HEAD");
+    run(superRepo, "submodule", "add", "-q", subOrigin, "lib");
+    run(superRepo, "commit", "-q", "-m", "add lib");
+    const tree = join(mkdtempSync(join(tmpdir(), "catherd-subtree-")), "t");
+    run(superRepo, "worktree", "add", "-q", tree);
+    const r = await updateSubmodules(tree, 30_000);
+    expect(r.code).toBe(0);
+    expect(existsSync(join(tree, "lib/nested/deep.txt"))).toBe(true);
   });
 });

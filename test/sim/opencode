@@ -69,6 +69,10 @@ if (args[0] === "api") {
   else if (method === "POST" && session && session[2] === "/interrupt") {
     if (s.interruptsTo) appendFileSync(s.interruptsTo, `${session[1]}\n`);
     say(JSON.stringify({ interrupted: true }));
+  } else if (method === "POST" && session && session[2] === "/prompt") {
+    const body = args[args.indexOf("-d") + 1] ?? "";
+    if (s.steersTo) appendFileSync(s.steersTo, `${session[1]}\t${body}\n`);
+    say(JSON.stringify({ data: { id: "msg_sim" } }));
   } else {
     process.stderr.write(`error: no route ${method} ${path}\n`);
     process.exit(1);

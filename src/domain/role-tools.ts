@@ -12,7 +12,6 @@ export const ROLE_SERVER_BACKENDS: readonly string[] = ["codex", "claude-code"];
 
 /**
  * Spec 1.5 plan 21: the backends whose sandbox catherd grants the role's scratch, so they get it as TMPDIR.
- * Cursor writes their grants once per isolated home, not per dispatch: it keeps the inherited one.
  */
 export const SCRATCH_BACKENDS: readonly string[] = ["codex", "claude-code", "opencode"];
 
@@ -29,5 +28,7 @@ export function roleMcpTools(role: Role): string[] {
   const tools = ["read_run_file", "read_knowledge"];
   if (role === "architect" || role === "researcher") tools.push("write_run_file");
   if (role === "verifier") tools.push("gate_check", "gate_pass", "gate_run");
+  if (role === "worker" || role === "writer") tools.push("team_send", "team_read", "team_wait");
+  if (role === "architect") tools.push("team_send", "team_read");
   return tools;
 }

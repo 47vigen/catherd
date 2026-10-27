@@ -276,7 +276,7 @@ describe("commit diffs", () => {
 });
 
 describe("lane files", () => {
-  it("a lane file that restates an A-line is refused", () => {
+  it("a lane file may restate an A-line: the architect writes what it needs", () => {
     const { repo } = freshRun();
     const run = createRun({
       repo,
@@ -287,11 +287,8 @@ describe("lane files", () => {
     const lane = (extra: string) =>
       `# M1.L1 — x\nOwns: src/a/\nKind: repo_code\nDifficulty: build\n${extra}\n`;
     const restating = lane("- the panel boots in a browser and every screen renders");
-    expect(() => writeRunFile({ run: run.id, path: "lanes/M1.L1.md", content: restating })).toThrow(
-      expect.objectContaining({ code: "E_LANE_INVALID", message: expect.stringContaining("A1") }),
+    expect(writeRunFile({ run: run.id, path: "lanes/M1.L1.md", content: restating }).bytes).toBeGreaterThan(
+      0,
     );
-    expect(
-      writeRunFile({ run: run.id, path: "lanes/M1.L1.md", content: lane("- boots") }).bytes,
-    ).toBeGreaterThan(0);
   });
 });

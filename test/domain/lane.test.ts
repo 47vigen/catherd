@@ -7,7 +7,6 @@ import {
   onlyAllowedHits,
   overlaps,
   parseLaneHeader,
-  restatedALine,
 } from "../../src/domain/lane.ts";
 
 const LANE = [
@@ -186,26 +185,4 @@ describe("whole-milestone After:", () => {
         "M3",
       ),
     ).toEqual(["M2", "M10"]));
-});
-
-describe("restatedALine", () => {
-  const A10 = "A10 [worker] — the panel boots in a browser and every screen renders without console errors";
-
-  it("a lane line that restates an A-line is found", () => {
-    const hit = restatedALine("# M1.L1\n- Rule: the panel boots in a browser and every screen renders.", [
-      A10,
-    ]);
-    expect(hit).toMatchObject({ id: "A10" });
-    expect(restatedALine("- Rule: the panel boots in a browser and some screen renders.", [A10])).toBeNull();
-  });
-
-  it("an A-line under 8 words never matches, and an untagged list is numbered", () => {
-    expect(restatedALine("the root gate is green", ["A1 the root gate is green"])).toBeNull();
-    expect(
-      restatedALine("the panel boots in a browser and every screen", [
-        "plan: x",
-        "the panel boots in a browser and every screen renders",
-      ]),
-    ).toMatchObject({ id: "A1" });
-  });
 });

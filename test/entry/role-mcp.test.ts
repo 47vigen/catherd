@@ -32,14 +32,19 @@ describe("the role server's start (spec 1.5 plan 21, #42 finding 8)", () => {
     if (start.ok) expect(start.ms).toBeLessThan((ROLE_MCP_STARTUP_SEC * 1000) / 2);
     expect(await probeRoleServer(1)).toEqual({ ok: false, error: "no answer in 1 ms" });
   });
+
+  it("gives Codex a tool timeout above team_wait's 300 s maximum", () => {
+    const args = codexRoleMcpArgs({ run: "20261002-101500-auth", role: "worker" });
+    expect(args).toContain("mcp_servers.catherd_role.tool_timeout_sec=330");
+  });
 });
 
 describe("dispatch-scoped role MCP", () => {
   it("exposes only each role's allowed tools", async () => {
     const { run } = freshRun();
     const cases: [Role, string[]][] = [
-      ["worker", ["read_run_file", "read_knowledge"]],
-      ["architect", ["read_run_file", "read_knowledge", "write_run_file"]],
+      ["worker", ["read_run_file", "read_knowledge", "team_send", "team_read", "team_wait"]],
+      ["architect", ["read_run_file", "read_knowledge", "write_run_file", "team_send", "team_read"]],
       ["researcher", ["read_run_file", "read_knowledge", "write_run_file"]],
       ["verifier", ["read_run_file", "read_knowledge", "gate_check", "gate_pass", "gate_run"]],
     ];

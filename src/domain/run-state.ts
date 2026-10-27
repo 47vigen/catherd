@@ -213,6 +213,7 @@ export interface DispatchView {
   rung: string;
   thread: string | null;
   startedAt: string;
+  teamSeen?: number;
   ended: {
     at: string;
     status: RunStatus;
@@ -318,6 +319,7 @@ export interface MadeDecision {
   rung: string;
   briefFile: string;
   briefHash: string;
+  teamSeen?: number;
   source: DecisionSource;
 }
 
@@ -1003,7 +1005,8 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     return;
   }
   l.waitOn = [];
-  if (reason === "check_broken" && waitForSiblings(s, l, x.siblings)) {
+  const short = x.status === "ok" && (x.replyStatus === "partial" || x.replyStatus === "blocked");
+  if ((reason === "check_broken" || (reason === null && short)) && waitForSiblings(s, l, x.siblings)) {
     l.thread = x.thread ?? l.thread;
     return;
   }
@@ -1130,14 +1133,6 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
     if ((e.status === "failed" || e.status === "timeout") && TRANSPORT.test(e.why))
       return transportHold(s, lane, e);
     lane.transportSince = null;
-    // a lane that changed test files it does not own failed its rung's attempt, whatever else its reply said
-    if (e.testEdits !== undefined && e.testEdits.length > 0 && e.status !== "limit") {
-      lane.thread = null;
-      lane.status = "pending";
-      lane.notes.push(`Restore these test files; you do not own them: ${e.testEdits.join(", ")}`);
-      failedOn(s, laneNameOf(lane), dv.rung, e.at);
-      return;
-    }
     // every lane stop waits for its class (and its reason, when it names none): nothing else happens to the lane meanwhile
     if (e.status !== "limit" && (e.reason !== null || unexplained(e))) {
       lane.classify = { dispatchId: e.dispatchId, reason: e.reason, ...x };
@@ -1650,6 +1645,7 @@ function apply(s: RunState, e: RunEvent): void {
         rung: e.rung,
         thread: e.thread,
         startedAt: e.at,
+        ...(e.teamSeen === undefined ? {} : { teamSeen: e.teamSeen }),
         ended: null,
       };
       delete s.waiting[e.name];
@@ -1841,6 +1837,7 @@ function apply(s: RunState, e: RunEvent): void {
         rung: e.rung,
         briefFile: e.briefFile,
         briefHash: e.briefHash,
+        ...(e.teamSeen === undefined ? {} : { teamSeen: e.teamSeen }),
         source: e.source,
       };
       s.decided[e.name] = e.n;

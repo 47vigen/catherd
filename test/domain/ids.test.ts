@@ -50,11 +50,12 @@ describe("parseRung", () => {
     expect(tryParseRung("nope:x#high")).toBeNull();
   });
 
-  it("knows the four backends by their ids, and none of the removed ones", () => {
-    expect(ADAPTER_IDS).toEqual(["codex", "claude-code", "opencode", "cursor"]);
+  it("knows the three backends by their ids, and none of the removed ones", () => {
+    expect(ADAPTER_IDS).toEqual(["codex", "claude-code", "opencode"]);
     expect(tryParseRung("antigravity:gemini-3.8-flash#high")).toBeNull();
     expect(tryParseRung("grok:grok-4.7#high")).toBeNull();
     expect(tryParseRung("agy:gemini-3.8-flash#low")).toBeNull();
+    expect(tryParseRung("cursor:auto#default")).toBeNull();
   });
 
   it("round-trips through formatRung", () => {

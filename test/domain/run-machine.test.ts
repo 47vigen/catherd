@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { BlockedReason } from "../../src/domain/blocked.ts";
 import { type JudgeDecision } from "../../src/domain/judge.ts";
-import { approvalQuestion, reapprovalQuestion } from "../../src/domain/plan-doc.ts";
+import { approvalQuestion } from "../../src/domain/plan-doc.ts";
 import {
   type Action,
   actionKey,
@@ -1740,7 +1740,7 @@ describe("the machine: the owner's approval of the architect's plan", () => {
     expect(log.state().phase).toBe("running");
     log.add("question.parked", {
       unit: "run",
-      question: reapprovalQuestion("r1", ["D2"]),
+      question: approvalQuestion("r1"),
       reason: "approval",
     });
     expect(log.state().phase).toBe("approval");

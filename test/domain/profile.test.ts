@@ -18,8 +18,10 @@ import {
   roleTimeouts,
   unknownValues,
 } from "../../src/domain/profile.ts";
+import { validateProfile } from "../../src/domain/profile-rules.ts";
 import { ROLES } from "../../src/domain/roles.ts";
 import legacy from "../fixtures/profiles/legacy-1.5.json";
+import { shipped } from "./shipped.ts";
 
 describe("the default profile (spec §7.2)", () => {
   const p = resolveProfile(defaultProfileDoc(), "default", "claude-code");
@@ -97,7 +99,6 @@ describe("resolveProfile", () => {
       {},
     ]);
     expect(p.harness["claude-code"]).toEqual({ isolated: false });
-    expect(p.billing.cursor).toBe("metered");
   });
 
   it("takes a partial role's missing fields from the built-in one, but not its default rung", () => {
@@ -393,7 +394,6 @@ describe("maxEffort", () => {
       "claude:claude-opus-5-5": "high",
       "claude-code:claude-opus-5-5": "high",
       "opencode:opencode/claude-opus-5-5": "high",
-      "cursor:claude-opus-5-5": "high",
       "claude:claude-sonnet-5-5": "high",
       "claude-code:claude-sonnet-5-5": "high",
       "opencode:opencode/claude-sonnet-5-5": "high",
@@ -542,5 +542,65 @@ describe("the decision model in the profile (plan 44 D25)", () => {
     expect(applyPatch({ schema: 1 }, set).decision?.url).toBe("https://decision.test/v1");
     expect(() => patchAt("decision.url", "ftp://x")).toThrow();
     expect(() => patchAt("decision.minConfidence", "0.2")).toThrow();
+  });
+});
+
+describe("Cursor retired (plan 45)", () => {
+  it("a profile that names Cursor loads with its Cursor rungs and keys dropped, each with a note", () => {
+    const old = ProfileDocSchema.parse({
+      schema: 1,
+      roles: {
+        worker: { rungs: ["cursor:auto#default", "codex:gpt-6-sol#high"] },
+        reviewer: { rungs: ["cursor:gpt-6#high"] },
+      },
+      failover: {
+        "cursor:auto#default": "codex:gpt-6-sol#high",
+        "codex:gpt-6-sol#high": "cursor:gpt-6#high",
+      },
+      billing: { codex: "plan", cursor: "metered" },
+      harness: { cursor: { isolated: false } },
+      maxEffort: { "cursor:claude-opus-5-5": "high" },
+    });
+    const { doc, notes } = migrateProfileDoc(old, false);
+    expect(doc.roles?.worker?.rungs).toEqual(["codex:gpt-6-sol#high"]);
+    expect(doc.roles?.reviewer).not.toHaveProperty("rungs");
+    expect([doc.failover, doc.harness, doc.maxEffort]).toEqual([{}, {}, {}]);
+    expect(doc.billing).toEqual({ codex: "plan" });
+    expect(notes).toContain("dropped cursor:auto#default from roles.worker.rungs: Cursor is retired");
+    expect(notes).toContain(
+      "dropped roles.reviewer.rungs: its only rung was Cursor's, so the role takes the default",
+    );
+    expect(migrateProfileDoc(doc, false).notes).toEqual([]);
+  });
+
+  it("a Cursor defaultRung goes with its rung, whether Cursor was the only rung or one of several", () => {
+    const old = applyPatch(defaultProfileDoc(), {
+      decision: { url: "https://decision.test/v1", model: "test-decider" },
+      roles: {
+        worker: {
+          rungs: [
+            "codex:gpt-6-luna#high",
+            "cursor:auto#default",
+            "codex:gpt-6-sol#medium",
+            "codex:gpt-6-sol#high",
+            "codex:gpt-6-sol#xhigh",
+          ],
+          defaultRung: "cursor:auto#default",
+        },
+        reviewer: { rungs: ["cursor:gpt-6#high"], defaultRung: "cursor:gpt-6#high" },
+      },
+    });
+    const { doc, notes } = migrateProfileDoc(old, false);
+    expect(doc.roles?.worker).not.toHaveProperty("defaultRung");
+    expect(doc.roles?.reviewer).not.toHaveProperty("defaultRung");
+    expect(notes).toContain("dropped roles.worker.defaultRung: Cursor is retired");
+    expect(notes).toContain("dropped roles.reviewer.defaultRung: Cursor is retired");
+    const p = resolveProfile(doc, "p", "claude-code");
+    expect(
+      validateProfile(p, shipped(), ["codex", "claude-code", "opencode", "claude"], doc, "claude-code"),
+    ).toEqual({
+      errors: [],
+      warnings: [],
+    });
   });
 });

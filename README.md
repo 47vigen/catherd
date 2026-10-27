@@ -6,7 +6,7 @@
  (")(")
 ```
 
-Autopilot builds from your own Claude Code or native Codex session. Your profile routes the architect, verifier and workers to their backends; Codex, opencode, Cursor
+Autopilot builds from your own Claude Code or native Codex session. Your profile routes the architect, verifier and workers to their backends; Codex, opencode
 or headless Claude Code processes write the code, and a decision model you point it at picks the model and effort for each dispatch.
 
 - **Your harness, as you set it up.** Every role runs in its vendor's own CLI with your config,
@@ -14,7 +14,7 @@ or headless Claude Code processes write the code, and a decision model you point
   you'd rather save the tokens your customizations cost.
 - **A daemon drives the run.** `run_start` launches a detached daemon that plans, dispatches, reviews, verifies
   and lands each milestone from the run's own `events.jsonl`. Every role runs headless in its vendor's CLI
-  (Claude Code, Codex, opencode, Cursor); the session needs none of it once the run has started, and a dropped
+  (Claude Code, Codex, opencode); the session needs none of it once the run has started, and a dropped
   session or MCP server never loses a run.
 - **Questions reach your phone.** A parked question and the final report are sent to your ntfy topic
   (`notify.url`), and answered from the session (`answer`) or the terminal (`catherd answer`).
@@ -34,8 +34,6 @@ or headless Claude Code processes write the code, and a decision model you point
   - [opencode](https://opencode.ai) **v2**, 2.0.16 or newer: `curl -fsSL https://opencode.ai/v2/install | bash`
     (the npm package `opencode-ai` is v1 and is not supported)
   - Claude Code's `claude` CLI 2.1.282 or newer, for headless `claude-code:` rungs
-  - Cursor's CLI, `cursor-agent` 2026.09.28 or newer: `curl https://cursor.com/install -fsS | bash`, then
-    `cursor-agent login` (below)
 - A decision model: an OpenAI-compatible endpoint and a model name, and a key in `CATHERD_DECISION_KEY` or saved by
   `catherd init` (below). A run refuses to start without one
 - Optional: [gitleaks](https://github.com/gitleaks/gitleaks) (`brew install gitleaks`): catherd's milestone check
@@ -44,23 +42,6 @@ or headless Claude Code processes write the code, and a decision model you point
 `catherd doctor` checks each backend's version and login and prints the fix for anything missing. The default
 profile runs its workers on Codex; without Codex, doctor's fix also names how to move those roles to a backend
 you have (`/catherd-setup`, or `catherd profile set roles.<role>.rungs <rung> --host <codex|claude-code>`). Codex-only setup does not require or configure Claude; enabled selected roles and reachable failover decide optional dependencies. Doctor sends nothing by default; `--test-push` is an explicit smoke send from a validated host session (`--thread <uuid>` names the Codex thread from a shell).
-
-### Cursor
-
-A Cursor rung names Cursor's own model slug, with the effort as the slug's suffix: `cursor:gpt-6-sol#xhigh` runs
-`gpt-6-sol-xhigh`, and `#default` runs the bare slug of a model whose index entry has no effort. `cursor-agent models` lists
-what your account offers; `catherd catalog refresh` reads it. No profile uses Cursor until you put a rung on it.
-Its own models (Composer, Grok) bill from Cursor's own pool, the other models at API rates after your plan's included
-usage, so a Cursor rung ranks as `metered`.
-
-- **Native** (the default) runs with your login and your Cursor setup. It also loads your Claude Code hooks,
-  skills and plugins, which Cursor reads from `~/.claude`. `workspace-write` runs in Cursor's sandbox under your
-  `~/.cursor/sandbox.json`, which catherd never edits: `catherd doctor` shows which of a worker's checks (the lock
-  dir, temp, loopback, the network, Docker) it allows. `read-only` runs Cursor's ask mode, which asks the model not
-  to write but cannot stop it (`advisory`).
-- **Isolated** (`catherd profile set harness.cursor.isolated true`) needs `CURSOR_API_KEY`, since a login cannot
-  move to another home. catherd runs Cursor under its own HOME with its own `sandbox.json`, which gives a worker
-  catherd's writable roots.
 
 ## Install
 
@@ -218,11 +199,20 @@ A brief has four parts: the role contract, the run facts, the unit context (capp
 Findings in it are capped at 2 KB each, and a resumed fix round sends this round only. The verifier prints
 `RAN: <cmd> — exit <n> — <log>` for each command it runs; a check that is missing or marked NOT RUN is a FAIL.
 Every stop and failed check gets a failure class, `product` or `harness`, and a harness failure gets one repair
-dispatch outside the round count. Test files are hashed when a lane starts, and a lane that edits a test file it
-does not own is refused.
+dispatch outside the round count.
+
+A lane's Owns is a hint for scheduling, not a wall: a worker changes whatever its task needs and reports each file
+outside its Owns on an `EXTRA:` line with its reason, which the reviewer reads. There is no test guard and no
+`out_of_scope` stop. A stop that names a running sibling's file waits for that sibling, then its fast check decides.
+Lanes talk through a team channel: `catherd team send|read|wait` and the same tools on the role server. Messages
+between lanes are queued and reach the target in its next brief; the architect's and the owner's messages steer a
+running opencode lane at once. The architect may add, change, split or drop tasks, lanes and milestones mid-run with
+no re-approval; the owner approves an architect-written plan once, before any code. A red milestone Check gives the
+fix round at most five findings per item. A milestone tree's submodules borrow objects from the main checkout
+(`--reference --dissociate`), so a fresh tree does not clone them again from the remote.
 
 Tool output is clamped per harness: `claude-code` roles get `BASH_MAX_OUTPUT_LENGTH`, `codex` roles get
-`tool_output_token_limit`, and `opencode` roles get a scratch `TMPDIR`. `opencode` and `cursor` have no output clamp.
+`tool_output_token_limit`, and `opencode` roles get a scratch `TMPDIR`. `opencode` has no output clamp.
 Roles run with `HONCHO_ENABLED=false`.
 
 `catherd profile set maxEffort.codex:gpt-6.1-sol xhigh` caps a model's effort for every route and failover; the
@@ -278,7 +268,6 @@ switch stay.
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `CATHERD_DECISION_KEY`      | The decision model's key, instead of the one `catherd init` saves                                                             |
 | `CATHERD_NO_SYNC`           | `1`: no automatic fetch of the Slopalytics index (at MCP server start, in `init` and at run start); `catalog sync` still runs |
-| `CURSOR_API_KEY`            | Cursor's API key: logs `cursor-agent` in, and is what an isolated Cursor role runs on                                         |
 | `CATHERD_HOME`              | Puts config and data under `$CATHERD_HOME/config` and `$CATHERD_HOME/data` instead of XDG                                     |
 | `CATHERD_LOG`               | Log level: `off`, `error`, `warn`, `info` (default) or `debug` (what `--verbose` sets)                                        |
 | `CATHERD_LOCK_SLOTS`        | `catherd lock`'s slot count when `--slots` is not given (before the profile's `lock.heavy`)                                   |

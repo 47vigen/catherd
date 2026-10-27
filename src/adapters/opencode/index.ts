@@ -45,9 +45,14 @@ const DAY_MS = 24 * 60 * 60_000;
 /** Limits for `opencode` queries; tests shorten them. */
 export const opencodeShell = { timeoutMs: 15_000, retryDelayMs: 1_500 };
 
-/** `opencode api <method> <path>`: the JSON the service answered, or null when it failed or said nothing. */
-async function opencodeApi(method: "GET" | "POST", path: string): Promise<Record<string, any> | null> {
-  const r = await runCli("opencode", ["api", method, path], opencodeShell);
+/** `opencode api <method> <path> [-d <JSON>]`: the JSON the service answered, or null when it failed or said nothing. */
+async function opencodeApi(
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+): Promise<Record<string, any> | null> {
+  const args = ["api", method, path, ...(body === undefined ? [] : ["-d", JSON.stringify(body)])];
+  const r = await runCli("opencode", args, opencodeShell);
   const j = r?.ok ? jsonOf(r.out) : null;
   return j && typeof j === "object" ? (j as Record<string, any>) : null;
 }
@@ -318,6 +323,11 @@ async function interrupt(thread: string): Promise<void> {
   await opencodeApi("POST", `/api/session/${thread}/interrupt`);
 }
 
+/** Plan 45 R9: a team message delivered into the running turn, as T3 Code's opencode v2 adapter steers. */
+async function steer(thread: string, text: string): Promise<boolean> {
+  return (await opencodeApi("POST", `/api/session/${thread}/prompt`, { text, delivery: "steer" })) !== null;
+}
+
 /** Spec §4.5: Go `X` → Zen `X` when Zen lists `X` with the same variant (in `repo`, when given). */
 function failoverFor(rung: Rung, repo?: string): Rung | null {
   if (!rung.model.startsWith("opencode-go/")) return null;
@@ -372,6 +382,7 @@ export const opencodeAdapter: BackendAdapter = {
   errors: { limit: OPENCODE_LIMIT, tooOld: OPENCODE_TOO_OLD },
   resume: { supported: true, sameAccessOnly: false, threadPattern: THREAD },
   interrupt: (thread) => interrupt(thread),
+  steer: (thread, text) => steer(thread, text),
   isBusy: (thread, _cwd, sinceMs) => isBusy(thread, sinceMs),
   providerRetry: (thread, _cwd, sinceMs) => providerRetry(thread, sinceMs),
   failoverFor,

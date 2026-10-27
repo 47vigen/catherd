@@ -3,7 +3,6 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { assertLaneHeader, LANE_HEADER_FIX, onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
-import { coverageProblems } from "../domain/plan-doc.ts";
 import { lintLanes, lintPlan } from "../domain/plan-lint.ts";
 import { checkEnv } from "../infra/env.ts";
 import { git } from "../infra/git.ts";
@@ -12,9 +11,8 @@ import { loginEnv } from "../infra/login-env.ts";
 import { killGroup } from "../infra/proc.ts";
 import { readGateEnv, resolveGateEnv } from "./gate-env.ts";
 import { landedMilestones } from "./milestones.ts";
-import { planDocs } from "./plan-input.ts";
 import type { Deps } from "./ports.ts";
-import { isDaemonRun, replayRun } from "./run-events-store.ts";
+import { replayRun } from "./run-events-store.ts";
 import { TAIL_LINES } from "./run-debug.ts";
 import { findRun, type Run, runPaths } from "./run-store.ts";
 import { treeOf } from "./tree-path.ts";
@@ -329,29 +327,6 @@ export async function preflight(
     for (const p of l.owns)
       if ((await git(cwd, ["check-ignore", "-q", "--", p])).kind === "ok")
         lint.push(`${l.lane}: Owns ${p} is ignored by git: catherd cannot commit it`);
-  // plan 32: a daemon run starts no lane the plan does not back, before the confirm list and before any check
-  if (isDaemonRun(run)) {
-    const problems = coverageProblems(
-      planDocs(run),
-      lanes.map((l) => ({ id: l.lane, tasks: l.tasks })),
-    );
-    if (problems.length)
-      return {
-        needsConfirmation: false,
-        commands,
-        results: problems.map((p) => ({
-          lane: p.lane || (i.milestone ?? "plan"),
-          check: null,
-          outcome: "cannot-start" as const,
-          exitCode: null,
-          tail: [],
-          note: p.note,
-        })),
-        blocked: true,
-        warnings: [],
-        lint,
-      };
-  }
   if (profile.preflight.confirm && !i.confirmed) return { needsConfirmation: true, commands, lint };
   const timeoutMs = i.timeoutMs ?? CHECK_TIMEOUT_MS;
   const results: PreflightResult[] = [];

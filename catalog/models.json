@@ -43,8 +43,7 @@
       "planWeight": 20,
       "on": {
         "codex": { "id": "gpt-6-sol" },
-        "opencode": { "id": "opencode/gpt-6-sol" },
-        "cursor": { "id": "gpt-6-sol" }
+        "opencode": { "id": "opencode/gpt-6-sol" }
       },
       "notes": {
         "ultra": "maximum reasoning with automatic task delegation to parallel subagents; never in a default ladder"
@@ -58,8 +57,7 @@
       "on": {
         "codex": { "id": "gpt-6-luna" },
         "opencode": { "id": "opencode/gpt-6-luna" },
-        "opencode-go": { "id": "opencode-go/gpt-6-luna" },
-        "cursor": { "id": "gpt-6-luna" }
+        "opencode-go": { "id": "opencode-go/gpt-6-luna" }
       }
     },
     {
@@ -123,8 +121,7 @@
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "on": {
         "claude-code": { "id": "claude-opus-5-5" },
-        "opencode": { "id": "opencode/claude-opus-5-5" },
-        "cursor": { "id": "claude-opus-5-5" }
+        "opencode": { "id": "opencode/claude-opus-5-5" }
       },
       "notes": {
         "effort": "the API default effort is medium"
@@ -168,75 +165,6 @@
       },
       "notes": {
         "effort": "no effort parameter in Claude Code: its only rung there is #default"
-      }
-    },
-    {
-      "id": "grok-4-7",
-      "name": "Grok 4.7",
-      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "on": {
-        "cursor": { "id": "grok-4.7" }
-      },
-      "notes": {
-        "pool": "a Cursor Model in Cursor: billed from Cursor's own pool (research §2.4)"
-      }
-    },
-    {
-      "id": "grok-4-6",
-      "name": "Grok 4.6",
-      "supersededBy": "grok-4-7",
-      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "on": {
-        "cursor": { "id": "cursor-grok-4.6" }
-      },
-      "notes": {
-        "pool": "a Cursor Model in Cursor: billed from Cursor's own pool (research §2.4)"
-      }
-    },
-    {
-      "id": "grok-4-5",
-      "name": "Grok 4.5",
-      "supersededBy": "grok-4-7",
-      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "on": {
-        "cursor": { "id": "cursor-grok-4.5" }
-      },
-      "notes": {
-        "pool": "a Cursor Model in Cursor: billed from Cursor's own pool (research §2.4)"
-      }
-    },
-    {
-      "id": "gemini-3-8-flash",
-      "name": "Gemini 3.8 Flash",
-      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "on": {
-        "cursor": { "id": "gemini-3.8-flash" }
-      }
-    },
-    {
-      "id": "gemini-3-7-flash",
-      "name": "Gemini 3.7 Flash",
-      "supersededBy": "gemini-3-8-flash",
-      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "on": {
-        "cursor": { "id": "gemini-3.7-flash" }
-      }
-    },
-    {
-      "id": "gemini-3-6-flash",
-      "name": "Gemini 3.6 Flash",
-      "supersededBy": "gemini-3-8-flash",
-      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "on": {
-        "cursor": { "id": "gemini-3.6-flash" }
-      }
-    },
-    {
-      "id": "gemini-3-1-pro-preview",
-      "name": "Gemini 3.1 Pro",
-      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "on": {
-        "cursor": { "id": "gemini-3.1-pro" }
       }
     }
   ]

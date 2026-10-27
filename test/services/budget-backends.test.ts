@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cursorAdapter } from "../../src/adapters/cursor/index.ts";
+import { opencodeAdapter } from "../../src/adapters/opencode/index.ts";
 import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { readyAdapter, resetReadiness } from "../../src/services/backends.ts";
@@ -13,7 +13,7 @@ import { fakeDispatch, freshRun, makeRecord } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 // a test that needs a backend with no adapter unregisters a real one (plan 17 Ruling X2)
-afterEach(() => registerAdapter(cursorAdapter));
+afterEach(() => registerAdapter(opencodeAdapter));
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters", "codex");
 const agentRun = {
@@ -79,8 +79,8 @@ describe("readyAdapter", () => {
   it("refuses a backend with no adapter, and a CLI that is logged out or too old, with its fix", async () => {
     resetReadiness();
     process.env.PATH = simPath();
-    unregisterAdapter("cursor");
-    expect((await code(readyAdapter("cursor"))).code).toBe("E_BACKEND_MISSING");
+    unregisterAdapter("opencode");
+    expect((await code(readyAdapter("opencode"))).code).toBe("E_BACKEND_MISSING");
     Object.assign(process.env, withScenario({ loggedIn: false }).env);
     expect(await code(readyAdapter("codex"))).toEqual({
       code: "E_BACKEND_NOT_LOGGED_IN",

@@ -1,6 +1,6 @@
 import { checkItems } from "./fail-lines.ts";
 import { type LaneHeader, parseLaneHeader } from "./lane.ts";
-import { milestoneCheck, milestoneSection } from "./plan-doc.ts";
+import { milestoneCheck, milestoneSection, PROCESS_LINE } from "./plan-doc.ts";
 
 export interface PlanLint {
   /** advice only: preflight reports it and goes on */
@@ -143,8 +143,6 @@ export function milestoneProblems(milestones: { id: string; after: string[] }[])
 }
 
 /** Words that ask for commit history, which catherd cannot show: it commits tests and code together. */
-const HISTORY =
-  /before (?:the|its) code|red before|failed before|in its own commit|alone in (?:its|a) commit|TDD|commit history/i;
 /** A check item that is a shell loop: `do` and `done` in it. */
 const LOOP = /\bdo\b[\s\S]*\bdone\b/;
 
@@ -158,7 +156,7 @@ const itemsOf = (check: string): string[] => {
 };
 
 /**
- * The plan's advice on one milestone: no Check, a Check item that is a shell loop, an A-line about commit history.
+ * The plan's advice on one milestone: no Check, a Check item that is a shell loop, an A-line about process.
  * `aLines` are the run's own A-lines. Preflight reports it and never refuses on it.
  */
 export function lintPlan(planText: string, milestone: string, aLines: string[]): string[] {
@@ -173,11 +171,9 @@ export function lintPlan(planText: string, milestone: string, aLines: string[]):
       );
   for (const line of [...(milestoneSection(planText, milestone) ?? "").split("\n"), ...aLines]) {
     const id = /^\s*(?:[-*]\s+)?(A\d+)\b/.exec(line)?.[1];
-    const words = HISTORY.exec(line)?.[0];
+    const words = PROCESS_LINE.exec(line)?.[0];
     if (id && words)
-      warnings.push(
-        `${milestone}: ${id} asks for commit history (${words}): catherd commits tests and code together; it is judged from the tree`,
-      );
+      warnings.push(`${milestone}: ${id} is about process (${words}), not the product: no gate judges it`);
   }
   return warnings;
 }

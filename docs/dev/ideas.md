@@ -16,6 +16,38 @@ judge on the role's exact brief (plan 44). Since 2.0 the daemon runs all of it (
 
 ## 2.0 follow-ups
 
+### From plan 45 (outcome gates)
+
+Left out of plan 45 on purpose:
+
+- **Live steering for Claude Code and Codex.** The architect's and the owner's team messages steer a running opencode
+  lane only; the other backends read them in their next brief. Claude Code needs `claude -p --input-format
+  stream-json` with the supervisor holding stdin open, and Codex needs `codex app-server` instead of `codex exec`: a
+  long-lived session per role and a supervisor change, about a plan each (R9).
+- **A verifier beside the milestone Check.** P8 spent 282 of 735 minutes idle while the Check ran. Superseded by the
+  architect-led redesign, which replaces the per-milestone verifier (R16).
+- **The review-finding dedupe.** A reviewer re-reports its own findings (`reviewer-M-2`) and re-raises dismissed
+  ones (P8 M3, P6 M50/M51/M53). Superseded by the redesign, which replaces the judge (R16).
+- **A sibling block that names only a symbol.** A stop waits for a sibling only when it names one of the sibling's
+  files; a stop that names a function or type of a sibling, and no file, is dispatched again (R5).
+- **Isolation per writer.** Lanes of a milestone share one tree, so two writers can still meet on a file. The
+  redesign owns isolation (owner).
+
+Found by the plan 45 final review, left as minors:
+
+- **`team_wait` returns at once for a `pending` sibling.** A sibling admitted but not started reads as not running,
+  so the wait ends before its code exists. Fix: treat `pending` like running.
+- **Sender matching by name suffix.** A message's sender is matched to a dispatch by the end of its name, with a
+  fallback to the `worker` and `owner` labels, so two dispatches with the same suffix can be confused. Fix: match the
+  full dispatch name from the role scope.
+- **`env -u CATHERD_ROLE` posts as the owner.** Any role that unsets its role variable can send a team message that
+  steers like the owner's. Local only, since every role runs on the owner's machine. Fix: tie the owner to the CLI's
+  parent session, not to a missing variable.
+- **An opencode steer with an empty 2xx body delivers twice.** The steer reads an empty answer as a failure, so the
+  message stays queued and reaches the next brief as well. Fix: take any 2xx as delivered.
+- **No tests for the `catherd team` CLI and the role server's team tools.** `test/services/team.test.ts` covers the
+  service only. Fix: one test per CLI form and per role-server tool.
+
 ### From plan 44 (the decision model and the briefs)
 
 Left out of plan 44 on purpose, or found while building it:
@@ -26,9 +58,8 @@ Left out of plan 44 on purpose, or found while building it:
 - **Several decision models voting.** One decision model answers each routing question. A panel of two or three that
   must agree could cut a bad rung pick, at the price of more calls on every dispatch. The 2.0 spec lists it as a
   non-goal. Fix: only after the scorecard shows the single model's picks are the weak point.
-- **A harness clamp for opencode and cursor.** Claude Code and Codex cap a shell command's output (plan 44 D12);
-  opencode and cursor have no such setting yet, so a noisy command can still fill their context. Fix: add the clamp
-  when each gains a setting. opencode's scratch `TMPDIR` is the only guard for now.
+- **A harness clamp for opencode.** Claude Code and Codex cap a shell command's output (plan 44 D12); opencode has
+  no such setting yet, so a noisy command can still fill its context. Fix: add the clamp when it gains a setting. opencode's scratch `TMPDIR` is the only guard for now.
 - **The scorecard targets are not measured on a live run (B16).** Targets: the worker brief median under 20 KB, no
   verifier PASS without executed commands, and zero stops from another role's duty. Fix: run a real plan on the
   `@next` build, read the report's "## Scorecard" table, and record the numbers here or in the scorecard doc.
@@ -141,13 +172,6 @@ Ideas the plan leaves for this file. The evidence is the event or code cited; wh
   climbs, one judge and three owner round trips on a step that cannot pass. Fix: an answer that drops a check step
   edits the lane's `Fast check:` (or records a waiver the check honours), and a judge `skip` carries into later
   rounds of that lane. (Run audit 22.)
-- **A lane misses the tests that pin the behaviour it changes.** `lanes/M4.L3.md` owned only `src/services/daemon.ts`
-  and its test; its task changed `ensureDaemon` for every caller, and `test/services/run-read.test.ts` and
-  `test/services/run-pause.test.ts` (which stub `daemonLauncher.launch`) expected the old launch. The worker parked
-  `out_of_scope`. In M4 a change to `src/domain/run-state.ts` broke `test/domain/run-state.test.ts`, which no lane
-  owned and no fast check ran; it surfaced only at the verifier, after five review rounds. Fix: when a lane changes
-  an exported function, the architect adds the tests that call or stub it to the lane's Owns:, and a lane's fast
-  check runs the test files of the source files it owns. (Run audit 15.)
 - **A plan-backed run maps no A-line, and the digest shows only the last review round.** M1's digest said "A-lines:
   not mapped to this milestone (none cited as A<n>)" and listed all six: a plan written before the run does not cite
   the run's `A<n>`, and a one-milestone mapping does not apply to six milestones. The same digest said "Reviewer:
@@ -206,15 +230,9 @@ Ideas the plan leaves for this file. The evidence is the event or code cited; wh
   - **A fresh milestone tree has no dependencies.** M5.L2's preflight ran the web typecheck before anything installed
     `web/node_modules` and parked `preflight` (seq 240, `tsc: No such file or directory`, exit 127). Fix: the tree
     setup runs the repo's install for each package a lane's check touches, before preflight.
-  - **Lanes still break callers no lane owns (run audit 11).** M1.L2 (seq 37, four `gatePass` callers), M1.L1 (seq
-    44), M3.L1 (seq 91, `Tokens.cacheWrite` fixtures in three adapter tests and `src/adapters/opencode/index.ts`) and
-    M5.L2 (seq 253, nullable `costUsd` in `web/`) each parked until the owner widened the lane. The run's rules review
-    proposed the architect rule; the plan lint could also grep the callers of every changed signature.
   - **A land-path regression surfaced only at review round 5.** M1's change made `land` need a per-item machine
     record, and `passGate` in `test/services/helpers.ts` wrote none, so `test/services/protocol.test.ts:519` failed
     from round 1; lane fast checks run only their own test files, so the verifier caught it at round 5 (seq 348).
-  - **A re-approval question shows no diff.** After the owner's plan changes, the second approval question gave the
-    whole plan again; seeing what changed took a hand diff of two `run-file read` outputs.
   - **Codex dispatches stay unpriced in a run whose daemon predates the catalog pricing.** 68 Codex dispatches carry
     `costUsd: null` (24 Claude Code dispatches are priced), so the run's $24.03 covers Claude Code only. Plan 39 M3
     prices Codex from the catalog; the next run on this build should show it.

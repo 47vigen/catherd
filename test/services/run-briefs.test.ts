@@ -23,6 +23,7 @@ import { copyPlanInputs, planDocs, taskBlock } from "../../src/services/plan-inp
 import { addKnowledge } from "../../src/services/run-service.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
 import { appendRecord, createRun, type Run } from "../../src/services/run-store.ts";
+import { teamSend } from "../../src/services/team.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
 import { freshRun, makeRecord, PLAN_TEXT, writeLane } from "./helpers.ts";
 
@@ -464,6 +465,53 @@ describe("briefs from the plan (plan 32)", () => {
     expect(text).toContain("Kind and Difficulty inform the decision model");
   });
 
+  it("a worker's brief carries the team messages sent to it since its last start", async () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a/"], "bun test src/a");
+    await teamSend({
+      run: run.id,
+      from: "worker-M1.L2",
+      to: "M1.L1",
+      text: "Operator is in src/b/settings.ts",
+    });
+    await teamSend({ run: run.id, from: "worker-M1.L2", to: "verifier", text: "for the verifier" });
+    const text = briefFor(run, runningLog().state(), act({}));
+    expect(text).toContain(
+      "Your team sent you these (catherd team read for the rest):\n- #1 worker-M1.L2 → M1.L1: Operator is in src/b/settings.ts",
+    );
+    expect(text).not.toContain("for the verifier");
+  });
+
+  it("the architect's brief carries the questions sent to it", async () => {
+    const { run, s } = await planned();
+    await teamSend({
+      run: run.id,
+      from: "worker-M1.L1",
+      to: "architect",
+      text: "Task 3 needs a field Operator: whose lane?",
+    });
+    const base = act({ brief: "architect", role: "architect", lane: null, unit: "run", name: "architect" });
+    expect(briefFor(run, s, base)).toContain(
+      "- #1 worker-M1.L1 → architect: Task 3 needs a field Operator: whose lane?",
+    );
+  });
+
+  it("the lane header says Owns is a hint and names the After and fast-check rules", async () => {
+    const { run, s } = await planned();
+    const base = act({ brief: "architect", role: "architect", lane: null, unit: "run", name: "architect" });
+    const text = briefFor(run, s, base);
+    expect(text).toContain(
+      "Owns is a hint, not a wall: it splits the work and schedules it (two lanes whose Owns overlap never run at the same time), and a worker changes whatever its task needs and reports each file outside its Owns. Give each file to one lane.",
+    );
+    expect(text).toContain(
+      "A lane that uses a name another lane of its milestone creates names that lane on its After: line.",
+    );
+    expect(text).toContain(
+      "A fast check tests the working tree, never a build from the committed HEAD (git archive, an image built from a commit): workers do not commit, so such a command goes in the milestone's Check.",
+    );
+    expect(text).not.toContain("Two lanes of one milestone never own the same file.");
+  });
+
   it("gives the reviewer the milestone's tasks and every out-of-lane file, declared or not", async () => {
     const { run, s } = await planned();
     await appendRecord(
@@ -482,7 +530,9 @@ describe("briefs from the plan (plan 32)", () => {
       act({ brief: "review", role: "reviewer", name: "reviewer-M1", unit: "M1", lane: null }),
     );
     expect(text).toContain('<plan-task file="p.md" id="1">');
-    expect(text).toContain("Files changed outside their lane:");
+    expect(text).toContain(
+      "Files changed outside their lane's Owns, with each worker's reason; such a change is no finding by itself:",
+    );
     expect(text).toContain("- src/x.ts — declared by worker-M1.L1: the type lives there");
     expect(text).toContain("- b.md — not declared by worker-M1.L1");
   });

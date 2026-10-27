@@ -41,7 +41,7 @@ describe("the brief in four parts", () => {
     expect(facts).toContain(`catherd: you are worker-M4.L1 of run ${RUN}.`);
     expect(facts).toContain("Put temporary files in $TMPDIR, never in /tmp.");
     expect(facts).toContain(
-      `Your catherd commands, from your shell: catherd run-file read ${RUN} <path>; catherd knowledge show.`,
+      `Your catherd commands, from your shell: catherd run-file read ${RUN} <path>; catherd knowledge show; catherd team send ${RUN} --to <lane|role|all> (the message on stdin); catherd team read ${RUN} [--since <n>] [--limit <n>]; catherd team wait ${RUN} --lane <lane> [--timeout-ms <ms>].`,
     );
     expect(part(text, "this-round")).toBe("<this-round>\nr\n</this-round>");
     expect(text).toEndWith("</this-round>\n");

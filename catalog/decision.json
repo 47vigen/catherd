@@ -66,7 +66,6 @@
             "provider_error": "The model, its tools or its sandbox failed: an API, network, overload, timeout or crash error, with no judgement about the work",
             "no_access": "The agent could not reach something it needs: a running app, a service, a host or credentials",
             "check_broken": "The agent's check, tests or lint cannot pass for a reason outside its task",
-            "out_of_scope": "The task needs changes outside the files the agent may change",
             "other": "None of the above"
           }
         }

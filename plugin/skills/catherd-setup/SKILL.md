@@ -23,7 +23,7 @@ You tune the user's catherd profile in conversation. A profile says, per role, w
 Ask these, one at a time, each with its recommended answer:
 
 1. **Their decision model.** A run refuses to start without one, so check `profile({ action: "get", repo })` for `decision.url` and `decision.model` first. If they are unset, ask for an OpenAI-compatible endpoint and a model. Recommend `decision.minConfidence` at its default, 0.8. The key is `CATHERD_DECISION_KEY` (or saved by `catherd init`); never ask them to paste it into the conversation.
-2. **The subscriptions they hold:** a ChatGPT plan (Codex), a Claude plan, OpenCode Go, Zen credit or API keys. They set `billing` per key (`codex`, `claude`, `claude-code`, `opencode-go`, `opencode`, `cursor`): `chatgpt-plan`, `claude-plan`, `subscription` or `metered`. Recommend leaning on subscriptions before metered spend. Explain which workers share this conversation's quota from the actual host and billing facts.
+2. **The subscriptions they hold:** a ChatGPT plan (Codex), a Claude plan, OpenCode Go, Zen credit or API keys. They set `billing` per key (`codex`, `claude`, `claude-code`, `opencode-go`, `opencode`): `chatgpt-plan`, `claude-plan`, `subscription` or `metered`. Recommend leaning on subscriptions before metered spend. Explain which workers share this conversation's quota from the actual host and billing facts.
 3. **The kind of work they orchestrate:** front-end screens, back-end services, terminal and ops work, docs. Recommend from their own runs when the catalog's `runs:` evidence has any.
 
 ## 2. Read the facts before proposing
@@ -76,7 +76,7 @@ Each proposal has three parts: the change, a worked example from their facts, an
 
 **Notifications.** `notify` controls the milestone, finish and blocked moments. Where a parked question reaches the owner is `notify.url`, an ntfy topic url: set it with `profile({ action: "set", notify_url })` (ask them for the url; never invent one). The daemon sends to it from the machine, so a question reaches the phone with no session open. `catherd doctor --test-push` sends a labeled test notice.
 
-**Harness isolation.** For each harness they use (`codex`, `claude-code`, `opencode`, `cursor`), offer `harness.<name>.isolated` and this tradeoff: "native keeps your hooks, skills and AGENTS.md; isolated saves some tokens per run, but the role loses them." Recommend native. The session reads no harness line, so quote no number. Codex reports no per-request input, so it has no harness figure (Codex has none: it reports no per-request input).
+**Harness isolation.** For each harness they use (`codex`, `claude-code`, `opencode`), offer `harness.<name>.isolated` and this tradeoff: "native keeps your hooks, skills and AGENTS.md; isolated saves some tokens per run, but the role loses them." Recommend native. The session reads no harness line, so quote no number. Codex reports no per-request input, so it has no harness figure (Codex has none: it reports no per-request input).
 
 ## 4. Write it
 
@@ -87,6 +87,6 @@ Each proposal has three parts: the change, a worked example from their facts, an
 
 ## 5. Say what applies when
 
-- Rung and ladder changes apply at the next dispatch, even in a run already under way. Access and isolation are pinned per run when it starts: a run under way keeps them until it is re-pinned (`catherd runs pin <run>`). Isolating Cursor needs `CURSOR_API_KEY` in the environment catherd runs in; `profile` validation refuses it without.
+- Rung and ladder changes apply at the next dispatch, even in a run already under way. Access and isolation are pinned per run when it starts: a run under way keeps them until it is re-pinned (`catherd runs pin <run>`).
 - Every role runs headless, so no agent file needs a new session: a change applies at the next dispatch. `newSessionNeededFor` stays empty unless a native Claude agent file is linked.
 - ProfileService manages Claude agent files/links only when native Claude roles are used. Codex-only setup and profile operations do not write under `~/.claude`; Claude CLI/login is needed only by an enabled selected role or reachable failover that uses it. Editing an inactive Claude-dependent profile writes its managed files but links none; they apply once active or repo-bound. Keep role-disabled, access, isolation, budget and failover choices intact.

@@ -223,7 +223,7 @@ export function validateProfile(
 
   const ladders = new Set(ROLES.filter((r) => p.roles[r].enabled).flatMap((r) => p.roles[r].rungs));
   // the stand-ins the fixes below may suggest: on a backend catherd runs and the profile already names (a
-  // ladder or a failover entry), never one this machine may not have (Cursor on a machine without it); a
+  // ladder or a failover entry), never one this machine may not have; a
   // native claude: rung names claude-code too, the same Claude Code CLI
   const named = new Set(
     [...ladders, ...Object.keys(p.failover), ...Object.values(p.failover)].flatMap((x) => {

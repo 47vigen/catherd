@@ -417,7 +417,7 @@ describe("preflight lint (plan 40)", () => {
     if (r.needsConfirmation) throw new Error("unexpected");
     expect(r.lint).toEqual([
       "M1: no Check: line: the verifier must run the whole gate by hand",
-      "M1: A1 asks for commit history (failed before): catherd commits tests and code together; it is judged from the tree",
+      "M1: A1 is about process (failed before), not the product: no gate judges it",
     ]);
   });
 });
@@ -434,29 +434,24 @@ describe("preflight of a daemon run (plan 32)", () => {
   }
   const withTasks = (tasks: string) => `Kind: repo_code\nDifficulty: build\nTasks: ${tasks}\n`;
 
-  it("refuses a lane with no task and a task with neither a signature nor a test, naming each", async () => {
+  it("starts a lane with no task, a task the plan does not have, and a task with no test", async () => {
     const { repo, run } = await daemon();
     const marker = join(repo, "ran");
     writeLane(run, "M1.L1", ["src/a.ts"], `touch ${marker}`);
-    writeLane(run, "M1.L2", ["src/b.ts"], "true", withTasks("4"));
+    writeLane(run, "M1.L2", ["src/b.ts"], "true", withTasks("4, 9203"));
     const r = await preflight(fakeDeps(), { run: run.id, milestone: "M1" });
-    expect(r).toMatchObject({ needsConfirmation: false, blocked: true });
-    if (r.needsConfirmation) throw new Error("unexpected");
-    expect(r.results.map((x) => x.note)).toEqual([
-      "lanes/M1.L1.md has no Tasks: line: name the plan tasks it implements",
-      "p.md Task 4 has neither a signature nor a test: add its signatures (a code block or an Interfaces: line) or a Test: line",
+    expect(r).toMatchObject({ needsConfirmation: false, blocked: false });
+    expect(outcomes(r)).toEqual([
+      ["M1.L1", "pass"],
+      ["M1.L2", "pass"],
     ]);
-    expect(r.results.every((x) => x.outcome === "cannot-start")).toBe(true);
-    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(marker)).toBe(true);
   });
 
-  it("refuses before the confirm list, and passes once the plan backs every lane", async () => {
+  it("asks for the confirm list and passes", async () => {
     const { repo, run } = await daemon(PLAN_TEXT);
     const deps = fakeDeps({ view: testView({ preflight: { confirm: true } }) });
     writeLane(run, "M1.L1", ["src/a.ts"], "true");
-    const refused = await preflight(deps, { run: run.id, milestone: "M1" });
-    expect(refused.needsConfirmation).toBe(false);
-    writeLane(run, "M1.L1", ["src/a.ts"], "true", withTasks("1, 2"));
     const listed = await preflight(deps, { run: run.id, milestone: "M1" });
     expect(listed.needsConfirmation).toBe(true);
     const ok = await preflight(deps, { run: run.id, milestone: "M1", confirmed: true });

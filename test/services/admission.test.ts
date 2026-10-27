@@ -3,7 +3,7 @@ import { replyContract } from "../../src/domain/role-prompts.ts";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cursorAdapter } from "../../src/adapters/cursor/index.ts";
+import { opencodeAdapter } from "../../src/adapters/opencode/index.ts";
 import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
@@ -15,6 +15,7 @@ import { ownsAdd } from "../../src/services/lane-edit.ts";
 import { copyPlanInputs } from "../../src/services/plan-input.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import { addKnowledge } from "../../src/services/run-service.ts";
+import * as runStore from "../../src/services/run-store.ts";
 import { appendRecord, readRecords } from "../../src/services/run-store.ts";
 import { claimTree } from "../../src/services/milestone-tree.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
@@ -41,7 +42,7 @@ const OC_MODELS = JSON.parse(
 
 afterEach(snapshotEnv());
 // a test that needs a backend with no adapter unregisters a real one (plan 17 Ruling X2)
-afterEach(() => registerAdapter(cursorAdapter));
+afterEach(() => registerAdapter(opencodeAdapter));
 beforeEach(() => {
   resetReadiness();
 });
@@ -385,10 +386,10 @@ describe("admission", () => {
       view: testView({ failover: { "codex:gpt-6-sol#high": "codex:gpt-6-astra#high" } }),
     });
     expect(await refusal(admit(deps, run, input({ rung: "codex:gpt-6-astra#high" })))).toBe("admitted");
-    unregisterAdapter("cursor");
-    deps.view.roles.worker?.rungs.push("cursor:auto#default");
+    unregisterAdapter("opencode");
+    deps.view.roles.worker?.rungs.push("opencode:auto#default");
     expect(
-      await refusal(admit(deps, run, input({ name: "w2", lane: null, rung: "cursor:auto#default" }))),
+      await refusal(admit(deps, run, input({ name: "w2", lane: null, rung: "opencode:auto#default" }))),
     ).toBe("E_BACKEND_MISSING");
   });
 
@@ -457,15 +458,19 @@ describe("admission", () => {
     const deps = fakeDeps();
     const endedAt = new Date().toISOString();
     const exited = { proc: "dead", exit: { code: 0, signal: null, reason: "exited", endedAt } } as const;
-    // a rung finalize cannot parse makes its finalize throw
-    await fakeDispatch(run, { name: "worker-M1.L9", lane: "M1.L9", owns: ["src/"], rung: "bogus" }, exited);
-    const started = Date.now();
-    expect(await refusal(admit(deps, run, input()))).toBe("E_ADMIT_OVERLAP");
-    // the failed finalize released its claim: the next one tries at once instead of waiting for a record
-    expect(await refusal(admit(deps, run, input({ name: "worker-M1.L9", lane: null })))).toBe(
-      "E_ADMIT_DUPLICATE",
-    );
-    expect(Date.now() - started).toBeLessThan(3_000);
+    await fakeDispatch(run, { name: "worker-M1.L9", lane: "M1.L9", owns: ["src/"] }, exited);
+    const failing = spyOn(runStore, "appendRecord").mockRejectedValue(new Error("disk full"));
+    try {
+      const started = Date.now();
+      expect(await refusal(admit(deps, run, input()))).toBe("E_ADMIT_OVERLAP");
+      // the failed finalize released its claim: the next one tries at once instead of waiting for a record
+      expect(await refusal(admit(deps, run, input({ name: "worker-M1.L9", lane: null })))).toBe(
+        "E_ADMIT_DUPLICATE",
+      );
+      expect(Date.now() - started).toBeLessThan(3_000);
+    } finally {
+      failing.mockRestore();
+    }
     expect(readRecords(run).records).toHaveLength(0);
   });
 

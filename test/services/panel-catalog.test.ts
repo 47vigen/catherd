@@ -31,17 +31,19 @@ describe("catalogView", () => {
 
   it("a pair with no measured cost is estimated from its list price", () => {
     withHome();
-    const p = entry("gemini-3-8-flash")?.points.find((x) => x.effort === "low");
-    const price = pairOf(loadCatalog(), "opencode:gemini-3-8-flash#low")?.price;
+    const p = entry("claude-sonnet-5")?.points.find((x) => x.effort === "none");
+    const price = pairOf(loadCatalog(), "opencode:opencode/claude-sonnet-5#none")?.price;
     expect(price).toBeTruthy();
-    expect([p?.usd, p?.measured]).toEqual([taskUsd(price!, "low"), false]);
+    expect([p?.usd, p?.measured]).toEqual([taskUsd(price!, "none"), false]);
   });
 
   it("a model no backend offers is left out", () => {
     withHome();
-    expect(entry("grok-4-7")).toBeDefined();
-    writeDiscovery("cursor", [{ id: "another-model", efforts: ["high"], context: null, imageIn: false }]);
-    expect(entry("grok-4-7")).toBeUndefined();
+    expect(entry("claude-haiku-5-5")).toBeDefined();
+    writeDiscovery("claude-code", [
+      { id: "another-model", efforts: ["high"], context: null, imageIn: false },
+    ]);
+    expect(entry("claude-haiku-5-5")).toBeUndefined();
     expect(entry("gpt-6-sol")).toBeDefined();
   });
 
@@ -51,10 +53,6 @@ describe("catalogView", () => {
     expect(entry("gpt-6-luna")?.superseded).toBe(false);
     // GPT-6.1 Sol replaces GPT-6 Sol on codex only
     expect(entry("gpt-6-sol")?.superseded).toBe(false);
-    expect(entry("grok-4-6")?.superseded).toBe(true);
-    // Grok 4.7 missing from cursor's listing: Grok 4.6 is current again
-    writeDiscovery("cursor", [{ id: "cursor-grok-4.6", efforts: ["high"], context: null, imageIn: false }]);
-    expect(entry("grok-4-6")?.superseded).toBe(false);
   });
 
   it("indexedAt is null when nothing was fetched", () => {

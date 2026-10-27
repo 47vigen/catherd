@@ -3665,8 +3665,7 @@
                 "claude",
                 "claude-code",
                 "opencode-go",
-                "opencode",
-                "cursor"
+                "opencode"
               ]
             },
             "additionalProperties": {
@@ -3780,8 +3779,7 @@
               "enum": [
                 "codex",
                 "claude-code",
-                "opencode",
-                "cursor"
+                "opencode"
               ]
             },
             "additionalProperties": {

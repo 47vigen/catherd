@@ -454,13 +454,43 @@ describe("run state", () => {
     expect(log.state().stuck["M1.L1"]).toMatchObject({ reason: "environment" });
   });
 
-  it("a lane that edited a foreign test file is sent back", () => {
+  it("a lane that edited a test outside its Owns keeps its thread and goes to its check", () => {
     const log = runningLog();
-    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", thread: "t-1" });
     endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", testEdits: ["test/b.test.ts"] });
-    const l = log.state().lanes["M1.L1"];
-    expect(l).toMatchObject({ status: "pending", thread: null });
-    expect(l?.notes.join("\n")).toContain("Restore these test files; you do not own them: test/b.test.ts");
+    const s = log.state();
+    expect(s.lanes["M1.L1"]).toMatchObject({ status: "checking", thread: "t-1", notes: [] });
+    expect(s.floors["worker-M1.L1"]).toBeUndefined();
+  });
+
+  it("a partial or unexplained stop that names a running sibling waits for it, keeping its thread", () => {
+    const log = runningLog(independent);
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", thread: "t-1" });
+    startDispatch(log, { name: "worker-M1.L2", unit: "M1.L2" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: "partial", siblings: ["M1.L2"] });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({
+      status: "checking",
+      waitOn: ["M1.L2"],
+      thread: "t-1",
+    });
+    expect(log.state().floors["worker-M1.L1"]).toBeUndefined();
+    const blocked = runningLog(independent);
+    const b = startDispatch(blocked, { name: "worker-M1.L1", unit: "M1.L1", thread: "t-1" });
+    startDispatch(blocked, { name: "worker-M1.L2", unit: "M1.L2" });
+    endDispatch(blocked, b, {
+      name: "worker-M1.L1",
+      unit: "M1.L1",
+      replyStatus: "blocked",
+      reason: null,
+      siblings: ["M1.L2"],
+    });
+    blocked.add("stop.classified", { dispatchId: b, reason: null });
+    expect(blocked.state().lanes["M1.L1"]).toMatchObject({
+      status: "checking",
+      waitOn: ["M1.L2"],
+      thread: "t-1",
+    });
+    expect(blocked.state().floors["worker-M1.L1"]).toBeUndefined();
   });
 
   it("records a review round's counts, open findings and keys", () => {

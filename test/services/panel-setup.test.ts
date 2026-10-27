@@ -26,7 +26,7 @@ describe("the panel's Setup view", () => {
     const v = SetupViewSchema.parse(await setupView(deps, repo));
     expect([v.profile.name, v.catalog.id]).toEqual(["default", "catalog"]);
     expect(v.backends.map((b) => b.label)).toEqual(
-      expect.arrayContaining(["codex", "opencode", "claude-code", "cursor"]),
+      expect.arrayContaining(["codex", "opencode", "claude-code"]),
     );
     const w = v.roles.find((r) => r.role === "worker")!;
     expect(w.rungs.map((r) => r.rung)).toEqual(BUILTIN_ROLES.worker.rungs);

@@ -9,10 +9,6 @@ interface Recorded {
   cwd: string;
   pwd: string | null;
   xdgConfig: string | null;
-  /** HOME as the CLI saw it (cursor-agent) */
-  home?: string | null;
-  /** a few env values the CLI saw, by name (cursor-agent: NO_OPEN_BROWSER, CURSOR_*, CATHERD_*_DIR) */
-  vars?: Record<string, string>;
   envKeys: string[];
 }
 
@@ -72,6 +68,8 @@ export interface OpencodeScenario extends Common {
   apiHangMs?: number;
   /** each interrupted session id is appended here, one per line */
   interruptsTo?: string;
+  /** each `POST /api/session/<id>/prompt` appends `<id>\t<body>` here, one per line */
+  steersTo?: string;
   /** each `opencode reload` appends a line here */
   reloadsTo?: string;
   /** overrides for one `run`, keyed by the exact `-m` value */
@@ -94,25 +92,5 @@ function write<S extends Common>(envKey: string, s: S) {
   };
 }
 
-export interface CursorScenario extends Common {
-  /** a server call (`models`, `-p`) answers (default true); CURSOR_API_KEY in the env logs it in too */
-  loggedIn?: boolean;
-  /** what `cursor-agent models` prints: this file's text */
-  modelsFile?: string;
-  /** the exit code of `models` (default 0) */
-  modelsExit?: number;
-  /** flags this "older" CLI does not know */
-  unknownFlags?: string[];
-  /** written to stderr after the events */
-  stderr?: string;
-  /** "missing": a CLI without the hidden `sandbox` command; else `sandbox run` runs the command */
-  sandbox?: "missing";
-  /** `sandbox run` refuses any command whose text holds one of these */
-  sandboxDeny?: string[];
-  /** `sandbox run` appends its arguments here, one JSON line per call */
-  sandboxArgsTo?: string;
-}
-
 export const withClaudeScenario = (s: ClaudeScenario) => write("CATHERD_SIM_CLAUDE", s);
-export const withCursorScenario = (s: CursorScenario) => write("CATHERD_SIM_CURSOR", s);
 export const withOpencodeScenario = (s: OpencodeScenario) => write("CATHERD_SIM_OPENCODE", s);

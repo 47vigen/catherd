@@ -17,11 +17,10 @@ import { type JudgeKind, judgeName, parseJudgeReply } from "../domain/judge.ts";
 import { milestoneAfter, onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
 import { milestoneProblems } from "../domain/plan-lint.ts";
 import { mayStartMilestone, memoryLimitsOf, memoryLoad, neededMb } from "../domain/milestone-memory.ts";
-import { changedDecisions, formatCommand, milestoneCheck, reapprovalQuestion } from "../domain/plan-doc.ts";
+import { formatCommand, milestoneCheck } from "../domain/plan-doc.ts";
 import { parseRanLines, parseRunLines, verifierShortfall } from "../domain/ran-lines.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { natural } from "../domain/util.ts";
-import { guardedEdits } from "../domain/test-guard.ts";
 import type { Role } from "../domain/roles.ts";
 import { type Finding, type MilestonePlan, RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
 import { type Action, type DecideAction, type Decided, decidedName, unitOf } from "../domain/run-machine.ts";
@@ -29,7 +28,15 @@ import { quotaUsage } from "../domain/select.ts";
 import { laneSlack } from "../domain/slack.ts";
 import { lanesOf, milestoneOf, ownerOfFile, type RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
-import { currentBranch, fetchBase, gitOrigin, gitRun, isAncestor, worktreeIdentity } from "../infra/git.ts";
+import {
+  currentBranch,
+  fetchBase,
+  gitOrigin,
+  gitRun,
+  isAncestor,
+  updateSubmodules,
+  worktreeIdentity,
+} from "../infra/git.ts";
 import { heavyLimits, heavySlots, LOCK_HELD_ENV, type LockWait, withHeavySlot } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
 import { writeTextAtomic } from "../infra/store.ts";
@@ -54,24 +61,19 @@ import {
 } from "./milestone-check.ts";
 import { baseTree, branchPusher, claimTree, memoryReader, removeTree } from "./milestone-tree.ts";
 import { sendRunNotice } from "./notify-service.ts";
-import {
-  deliveredALines,
-  deliveredALineTexts,
-  planDocs,
-  planProblems,
-  uncoveredALines,
-} from "./plan-input.ts";
+import { deliveredALines, deliveredALineTexts, planProblems, uncoveredALines } from "./plan-input.ts";
 import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
 import { park } from "./questions.ts";
 import { renderBrief } from "./run-briefs.ts";
-import { appendEvent, appendEvents, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
+import { appendEvent, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { writeRunReport } from "./run-report.ts";
 import { openLevels } from "./routing-service.ts";
 import { runProfile } from "./run-pin.ts";
 import { appendRoute, laneFile, laneIds, readRecords, type Run, runPaths } from "./run-store.ts";
 import { composeProjectOf, treeOf } from "./tree-path.ts";
 import { refreshState } from "./state.ts";
+import { teamLast } from "./team.ts";
 
 /**
  * What carries the machine's actions out. `run` appends the events the action produces (a long one when it is
@@ -88,7 +90,9 @@ export const effectLimits = { checkMs: 600_000, commitMs: 300_000 };
 export const milestoneChecker = { run: runMilestoneCheck };
 
 /** The most failing lines of one item that become findings; the rest stay in its check log. */
-const FINDINGS_PER_ITEM = 20;
+const FINDINGS_PER_ITEM = 5;
+/** plan 45: a finding names this many of the files its line was seen in; one root cause showed in dozens */
+const FILES_PER_FINDING = 3;
 const MERGE_ATTEMPTS = 3;
 /** a push refused only because origin moved since the fetch; a hook refusal or a conflict is not this */
 const LOST_RACE = /\((?:fetch first|non-fast-forward)\)|cannot lock ref|failed to update ref/;
@@ -145,7 +149,7 @@ const PASS_LINE = /^VERDICT: PASS\b/;
 /**
  * The `dispatch.ended` event of a finished dispatch: the record's status, the reply's findings (a reviewer's
  * BLOCKER, BUG and NIT lines, a failing verifier's lines) and the verifier's verdict, the reason a blocked reply
- * names, the HEAD a verifier checked, and the sibling files a `check_broken` lane blames.
+ * names, the HEAD a verifier checked, and the sibling lanes a stopped or partial lane names.
  */
 export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventInput {
   const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
@@ -188,8 +192,8 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
   }
   const stopped = record.replyStatus === "blocked" || record.replyStatus === "refused";
   const reason = stopped ? (parseBlockedReason(record.replyWhy)?.reason ?? null) : null;
-  // a sibling-owned path is no violation: the shared tree cannot tell which worker changed it (D11)
-  const testEdits = record.lane ? guardedEdits(record.violations, laneOwnsOf(run, record.lane).own) : [];
+  // plan 45 (R5): a partial or blocked lane reply that names a sibling's file waits for it
+  const short = stopped || record.replyStatus === "partial";
   return {
     type: "dispatch.ended",
     dispatchId: record.dispatchId,
@@ -205,10 +209,9 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     verdict,
     findings,
     foreign: reason === "check_broken" && record.lane ? foreignOf(run, record.lane, reply) : [],
-    siblings: reason === "check_broken" && record.lane ? siblingsOf(run, record.lane, reply) : [],
+    siblings: short && record.lane ? siblingsOf(run, record.lane, reply) : [],
     replyPath: record.replyPath,
     ...(noVerdict ? { noVerdict: true as const } : {}),
-    ...(testEdits.length ? { testEdits } : {}),
   };
 }
 
@@ -299,40 +302,6 @@ export function planOf(run: Run): MilestonePlan[] {
         lanes: mine.map(({ milestone: _m, ...l }) => l),
       },
     ];
-  });
-}
-
-/** Milestones whose dependencies add to a matching section of an owner or approved plan. */
-function widenedAfter(run: Run, plan: MilestonePlan[]): { milestone: string; added: string[] }[] {
-  const sources = replayRun(run).plan.length ? planDocs(run).map((doc) => doc.text) : [];
-  const approved = read(join(run.dir, "plan-approved.md"));
-  if (approved) sources.push(approved);
-  const prior = sources.map((text) => {
-    const sections = new Map<string, Set<string>>();
-    let current: Set<string> | undefined;
-    for (const line of text.split("\n")) {
-      const heading = HEADING.exec(line);
-      if (heading) {
-        current = new Set();
-        sections.set(heading[1] as string, current);
-      } else if (line.startsWith("## ")) current = undefined;
-      else {
-        const after = AFTER.exec(line)?.[1];
-        if (after) for (const id of after.match(/\bM\d+\b/g) ?? []) current?.add(id);
-      }
-    }
-    return sections;
-  });
-  return plan.flatMap((m) => {
-    const approvedAfter = approved ? prior.at(-1)?.get(m.id) : undefined;
-    const baselines = approvedAfter
-      ? [approvedAfter]
-      : prior.flatMap((sections) => {
-          const after = sections.get(m.id);
-          return after ? [after] : [];
-        });
-    const added = m.after.filter((id) => baselines.some((after) => !after.has(id)));
-    return added.length ? [{ milestone: m.id, added }] : [];
   });
 }
 
@@ -523,6 +492,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
       answer = single(a.pick, "coordinator", "the coordinator named this rung");
     }
 
+    // read before rendering: a message sent while it renders is delivered next time, never skipped
+    const teamSeen = teamLast(run);
     const brief = await renderBrief(run, s, next, false);
     const briefFile = `decisions/${name}/${a.n}/brief.md`;
     writeTextAtomic(join(run.dir, briefFile), brief);
@@ -594,6 +565,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       strict: a.strict,
       briefFile,
       briefHash,
+      teamSeen,
       p: answer.p,
       probabilities: answer.probabilities,
       why: answer.why,
@@ -695,6 +667,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const rung = a.rung;
     if (!rung) return void (await refuse("E_ADMIT_RUNG", `no rung was decided for ${a.name}`));
     // plan 44 D18: the brief the decision model judged is the brief sent; a file edited since is never sent
+    const teamSeen = a.decision ? a.decision.teamSeen : teamLast(run);
     const full = a.decision ? read(join(run.dir, a.decision.briefFile)) : await render(false);
     if (a.decision && sha256(full) !== a.decision.briefHash)
       return void (await refuse(
@@ -757,13 +730,14 @@ export function realEffects(deps: Deps, run: Run): Effects {
       rung: d.admit.rung,
       thread: a.thread,
       ...(judge ? { judgeKind: judge.kind } : {}),
+      ...(teamSeen === undefined ? {} : { teamSeen }),
     });
     await settle(d, a.unit, judge);
   }
 
   /**
-   * The architect's plan into `plan.ready`, once the plan backs every lane. A gap is `effect.failed`: its architect
-   * is sent back with it. An edit to a decision the owner approved asks them again before the plan is read.
+   * The architect's plan into `plan.ready`, once nothing in it keeps a milestone from starting. A gap is
+   * `effect.failed`: its architect is sent back with it. A change mid-run takes effect with no new approval (plan 45).
    */
   async function readPlan(): Promise<void> {
     const milestones = planOf(run);
@@ -777,35 +751,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       });
       return;
     }
-    const approved = read(join(run.dir, "plan-approved.md"));
-    const changed = approved ? changedDecisions(approved, read(runPaths(run.dir).plan)) : [];
-    const widened = widenedAfter(run, milestones);
-    const questions = [
-      ...(changed.length ? [reapprovalQuestion(run.id, changed)] : []),
-      ...(widened.length
-        ? [
-            `The plan adds milestone dependencies: ${widened.map((m) => `${m.milestone} now waits for ${m.added.join(", ")}`).join("; ")}. Approve with: catherd answer ${run.id} run approve`,
-          ]
-        : []),
-    ];
-    // one write: a crash between the two would lose the owner's change request
-    await appendEvents(
-      run,
-      [
-        ...(questions.length > 0
-          ? [
-              {
-                type: "question.parked" as const,
-                unit: RUN_UNIT,
-                question: questions.join("\n\n"),
-                reason: "approval" as const,
-              },
-            ]
-          : []),
-        { type: "plan.ready", milestones },
-      ],
-      at(),
-    );
+    await append({ type: "plan.ready", milestones });
   }
 
   async function route(a: Extract<Action, { type: "route" }>): Promise<void> {
@@ -975,7 +921,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
           const of = files[line] ?? [];
           return {
             label: "BLOCKER" as const,
-            text: `\`${item}\` fails: ${line}${of.length ? ` — in ${of.join(", ")}` : ""}`,
+            text: `\`${item}\` fails: ${line}${of.length ? ` — in ${of.slice(0, FILES_PER_FINDING).join(", ")}` : ""}`,
             file: of[0] ?? fileOf(line),
           };
         }),
@@ -1193,7 +1139,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       const head = await gitRun(repo, ["rev-parse", "HEAD"]);
       if (head.code !== 0) throw new Error(`git rev-parse HEAD failed: ${tailOf(head.err)}`);
       // a merge can move a submodule pointer; setup runs once per tree, so the checkout follows here (plan 43 D17)
-      const sub = await gitRun(repo, ["submodule", "update", "--init", "--recursive"], effectLimits.commitMs);
+      const sub = await updateSubmodules(repo, effectLimits.commitMs);
       if (sub.code !== 0)
         throw new Error(`git submodule update failed: ${tailOf(`${sub.out}\n${sub.err}`, 5)}`);
       return void (await append({

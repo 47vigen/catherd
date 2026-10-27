@@ -71,7 +71,59 @@ describe("the verifier's prompt (spec 1.1 §7)", () => {
 
   it("judges from the tree only the lines about the tree, and wants a RAN line for the rest (plan 44 D8)", () => {
     const text = rolePrompt("verifier", "1.5.0");
-    expect(text).toContain("a submodule pin, the diff's contents, commit history");
+    expect(text).toContain("(a submodule pin, a file's contents)");
     expect(text).toContain("every other line needs a RAN line");
+  });
+});
+
+describe("plan 45: no walls, and gates judge the product", () => {
+  it("the worker works freely, talks to its team and reports what it changed outside its Owns", () => {
+    const worker = rolePrompt("worker", "1.5.0");
+    for (const s of [
+      "Change only the files you own",
+      "Change only the files the findings name",
+      "commit messages, trailers or branch history",
+      "the files you must not touch",
+    ])
+      expect(worker).not.toContain(s);
+    for (const s of [
+      "Your lane's Owns is where its work is expected, not a wall",
+      "catherd team read",
+      "as `changed <what> in <file>: <why>`",
+      "--to architect",
+      "When your fast check itself builds from HEAD",
+      "EXTRA: <path> — <why>",
+    ])
+      expect(worker).toContain(s);
+  });
+
+  it("the writer works freely too, and only the architect's messages may arrive mid-turn", () => {
+    const writer = rolePrompt("writer", "1.5.0");
+    expect(writer).not.toContain("files you own");
+    expect(writer).toContain("Your lane's Owns is where its work is expected, not a wall");
+    expect(writer).toContain("EXTRA: <path> — <why>");
+    const worker = rolePrompt("worker", "1.5.0");
+    expect(worker).not.toContain("none interrupts a running worker");
+    expect(worker).toContain("only the architect's may arrive while you work");
+  });
+
+  it("the verifier, architect and reviewer judge the product, not the process", () => {
+    const verifier = rolePrompt("verifier", "1.5.0");
+    expect(verifier).not.toContain("commit history");
+    expect(verifier).toContain("Judge the product, never the process");
+    const architect = rolePrompt("architect", "1.5.0");
+    expect(architect).not.toContain("what no worker may touch");
+    expect(architect).toContain("Never write one about commit messages");
+    expect(architect).toContain("Never copy execution rules");
+    expect(rolePrompt("reviewer", "1.5.0")).toContain(
+      "A file changed outside its lane's Owns is no finding by itself",
+    );
+  });
+
+  it("the architect changes the plan mid-run with no approval and no test refusal", () => {
+    const architect = rolePrompt("architect", "1.5.0");
+    expect(architect).not.toContain("waits for the owner's approval again");
+    expect(architect).not.toContain("A task without a test is refused");
+    expect(architect).toContain("add, change, split or drop tasks, lanes and milestones");
   });
 });

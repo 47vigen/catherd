@@ -7,7 +7,7 @@ import { pairOf } from "../domain/catalog.ts";
 import { tokensUsd } from "../domain/cost.ts";
 import { changedPaths, type Snapshot, splitChanges } from "../domain/changes.ts";
 import { isCatherdError } from "../domain/errors.ts";
-import { parseRung } from "../domain/ids.ts";
+import { tryParseRung } from "../domain/ids.ts";
 import {
   type ExitInfo,
   parseReplyDesign,
@@ -154,9 +154,11 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
   };
   const startedAt = readProc(d.dir)?.startedAt ?? a.admittedAt;
   const reply = text(p.reply);
-  const finished: FinishedRun = {
+  // null: a rung no longer valid, such as a Cursor dispatch admitted before the upgrade (plan 45 R14)
+  const rung = tryParseRung(a.rung);
+  const finished: FinishedRun | null = rung && {
     request: {
-      rung: parseRung(a.rung),
+      rung,
       access: a.access,
       thread: a.thread,
       isolated: a.isolated,
@@ -171,20 +173,26 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     exit,
     startedAtMs: Date.parse(startedAt),
   };
-  const adapter = adapterFor(a.backend);
-  const first: Outcome = adapter
-    ? adapter.finalize(finished)
-    : {
-        status: "failed",
-        thread: a.thread,
-        tokens: { ...ZERO_TOKENS },
-        costUsd: null,
-        images: [],
-        error: { code: "E_BACKEND_MISSING", message: `catherd has no ${a.backend} adapter` },
-      };
-  const o = adapter
-    ? await settled(adapter, first, finished, () => priorOn(run, a.backend, first.thread ?? "", a.dispatchId))
-    : first;
+  const adapter = finished && adapterFor(a.backend);
+  const first: Outcome =
+    adapter && finished
+      ? adapter.finalize(finished)
+      : {
+          status: "failed",
+          thread: a.thread,
+          tokens: { ...ZERO_TOKENS },
+          costUsd: null,
+          images: [],
+          error: finished
+            ? { code: "E_BACKEND_MISSING", message: `catherd has no ${a.backend} adapter` }
+            : { code: "E_LOST", message: `catherd no longer runs ${a.rung}: the dispatch is lost` },
+        };
+  const o =
+    adapter && finished
+      ? await settled(adapter, first, finished, () =>
+          priorOn(run, a.backend, first.thread ?? "", a.dispatchId),
+        )
+      : first;
   // A CLI that streams its reply (claude, opencode) leaves reply.md to catherd.
   if (o.reply !== undefined && o.reply !== reply) writeTextAtomic(p.reply, o.reply);
   // one the CLI wrote itself (codex) has the CLI's mode

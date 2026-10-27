@@ -24,6 +24,13 @@ export const TASK_REF = /^(?:([^\s#,]+)#)?(\d+(?:\.\d+)*[a-z]?)$/;
 /** An A-line the milestone's Check covers: it ends `(Check)`, a trailing `.` allowed. */
 export const CHECK_COVERED = /\(Check\)\s*\.?\s*$/i;
 
+/**
+ * An A-line about the work itself, not the product: the run's own commits, test-first evidence, or file scope.
+ * Judged by no gate (plan 45). Anchored to process wording, so "the panel shows the commit message" stays a product line.
+ */
+export const PROCESS_LINE =
+  /\b(?:the|each|its|this) (?:lane|task|milestone)'s commits?\b|\bcommit (?:subject|message|title|history)s?(?= (?:is|are|must|should|reads?)\b)|\bin its own commit\b|\balone in (?:its|a) commit\b|\bred evidence\b|\bred (?:run|test)s? (?:first|before the code)\b|\bfailed before(?= (?:the|its) (?:code|implementation)\b)|\bTDD\b|\btests? (?:written )?first\b|\b(?:diff|lane|milestone)\b[^.]{0,40}?\b(?:must|may|should) not (?:touch|change|modify|edit)\b|\b(?:touch(?:es)?|changes|modifies) only (?:the )?files\b/i;
+
 export const A_LINE_OWNERS = ["worker", "reviewer", "verifier", "run"] as const;
 export type ALineOwner = (typeof A_LINE_OWNERS)[number];
 
@@ -119,37 +126,6 @@ function pick(doc: PlanDoc, id: string): PlanTask | string | undefined {
   return held.length > 1 ? `${doc.name} holds Task ${id} twice: renumber one of them` : held[0];
 }
 
-/** What is wrong between a milestone's lanes and the plan: a lane with no task, a bad ref, a task with nothing to build or test. */
-export function coverageProblems(
-  docs: PlanDoc[],
-  lanes: { id: string; tasks: string[] }[],
-): { lane: string; note: string }[] {
-  const out: { lane: string; note: string }[] = [];
-  const named = new Set<PlanTask>();
-  for (const l of lanes) {
-    if (l.tasks.length === 0) {
-      out.push({
-        lane: l.id,
-        note: `lanes/${l.id}.md has no Tasks: line: name the plan tasks it implements`,
-      });
-      continue;
-    }
-    for (const ref of l.tasks) {
-      const r = resolveTask(docs, ref);
-      if (typeof r === "string") out.push({ lane: l.id, note: `lanes/${l.id}.md: Tasks: ${ref} — ${r}` });
-      else named.add(r);
-    }
-  }
-  // only a task a lane builds needs something to build or test: the rest of the plan is the owner's
-  for (const t of named)
-    if (!t.signature && !t.test)
-      out.push({
-        lane: "",
-        note: `${t.doc} Task ${t.id} has neither a signature nor a test: add its signatures (a code block or an Interfaces: line) or a Test: line`,
-      });
-  return out;
-}
-
 export const DEPTH_SECTIONS = ["What already exists", "Contracts", "Decisions"] as const;
 
 /** The text under a `## <name>` heading (case-insensitive prefix), up to the next `## ` heading; null when absent. */
@@ -169,9 +145,6 @@ export function depthProblems(doc: PlanDoc): string[] {
   const out: string[] = [];
   const full = doc.text;
   for (const s of DEPTH_SECTIONS) if (section(full, s) === null) out.push(`plan.md has no "## ${s}" section`);
-  if (doc.tasks.length === 0) out.push('plan.md has no "### Task <n>:" heading');
-  for (const t of doc.tasks)
-    if (!t.test) out.push(`plan.md Task ${t.id} has no test: add a Test: line naming its test file and case`);
   for (const [id, text] of decisionLines(full)) {
     if (!/rejected/i.test(text))
       out.push(
@@ -203,9 +176,6 @@ export function isAccept(answer: string): boolean {
 export const approvalQuestion = (runId: string) =>
   `The architect's plan is ready for your review: catherd run-file read ${runId} plan.md. Answer approve, or say what to change.`;
 
-export const reapprovalQuestion = (runId: string, ids: string[]) =>
-  `The architect changed approved decisions ${ids.join(", ")} of plan.md: catherd run-file read ${runId} plan.md. Answer approve, or say what to change.`;
-
 /** Each decision of the Decisions section, keyed by its id: its `D<n>` line and the lines under it up to the next `D<n>` line, a blank line or a heading, whitespace collapsed. */
 export function decisionLines(text: string): Map<string, string> {
   const out = new Map<string, string>();
@@ -218,15 +188,6 @@ export function decisionLines(text: string): Map<string, string> {
   }
   for (const [k, v] of out) out.set(k, v.replace(/\s+/g, " "));
   return out;
-}
-
-/** The `D<n>` ids added, removed or edited between two plan texts, in number order. */
-export function changedDecisions(approved: string, now: string): string[] {
-  const a = decisionLines(approved);
-  const b = decisionLines(now);
-  return [...new Set([...a.keys(), ...b.keys()])]
-    .filter((id) => a.get(id) !== b.get(id))
-    .sort((x, y) => Number(x.slice(1)) - Number(y.slice(1)));
 }
 
 /** The copies' file names: basenames, a repeat numbered `-2` before its extension. */

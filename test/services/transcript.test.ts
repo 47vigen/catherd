@@ -44,7 +44,7 @@ describe("readTranscript", () => {
 
   it("a backend with no transcript shows each line raw", () => {
     const dir = mk(`{"x":1}\n\n{"y":2}\n`);
-    const p = readTranscript(dir, "cursor", { ...opts, from: 0 });
+    const p = readTranscript(dir, "nope", { ...opts, from: 0 });
     expect(p.items).toEqual([
       { kind: "raw", line: 0, text: '{"x":1}' },
       { kind: "raw", line: 2, text: '{"y":2}' },
@@ -111,7 +111,7 @@ describe("tailTranscript", () => {
         wake = resolve;
       });
     const first = wait();
-    const stop = tailTranscript(dir, "cursor", 0, (p) => wake(p), { pollMs: 5 });
+    const stop = tailTranscript(dir, "nope", 0, (p) => wake(p), { pollMs: 5 });
     try {
       expect((await first).raw).toEqual(["AAAA"]);
       const second = wait();
@@ -142,7 +142,7 @@ describe("tailTranscript", () => {
         wake = resolve;
       });
     const first = wait();
-    const stop = tailTranscript(dir, "cursor", 0, (p) => wake(p), { pollMs: 5 });
+    const stop = tailTranscript(dir, "nope", 0, (p) => wake(p), { pollMs: 5 });
     try {
       expect((await first).next).toBe(3);
       const second = wait();

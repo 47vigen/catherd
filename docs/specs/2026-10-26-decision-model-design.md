@@ -132,7 +132,9 @@ effect:  dispatch sends that file; refuses if its hash ≠ decision.made.briefHa
 - The existing `noul` signals (`shared_state`, `unclear_cause`, `cross_boundary`, `outside_repo`,
   `mechanical`) stay as a floor and cap rule, as in `route-v2`'s `floorLogic` and `capBuild`.
 - A pick is usable when its probability is at least the profile's `decision.minConfidence` (default 0.8).
-  When none is, catherd takes the lowest level whose cumulative probability from the top reaches the bar.
+  When none is, catherd takes the lowest level k that is enough with probability at least the bar: the smallest
+  k with P(difficulty ≤ k) ≥ the bar, summed from the bottom (plan 45; it summed from the top before, which
+  picked the optimistic low end).
   That is a decision, not a fallback. Only an error or an unparsable reply counts as failure.
 
 ### The floor

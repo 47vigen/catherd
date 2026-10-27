@@ -20,13 +20,6 @@ describe("catalog/models.json", () => {
       "claude-sonnet-5",
       "claude-haiku-5-5",
       "claude-4-5-haiku",
-      "grok-4-7",
-      "grok-4-6",
-      "grok-4-5",
-      "gemini-3-8-flash",
-      "gemini-3-7-flash",
-      "gemini-3-6-flash",
-      "gemini-3-1-pro-preview",
     ]);
     const sol = shippedModels().families.find((f) => f.id === "gpt-6-sol");
     expect(sol?.on.codex).toEqual({ id: "gpt-6-sol" });
@@ -90,11 +83,9 @@ describe("rungInfo", () => {
     });
   });
 
-  it("matches a listed model with no family by its own name, its provider dropped; Composer has none", () => {
+  it("matches a listed model with no family by its own name, its provider dropped", () => {
     const c = shipped({ index: indexOf({ "kimi-k3#max": 43 }) });
     expect(pairOf(c, "opencode:opencode-go/kimi-k3#max")?.intelligence).toBe(43);
-    expect(pairOf(c, "cursor:composer-2.5#default")).toBeNull();
-    expect(pairOf(c, "cursor:cursor-grok-4.6#high")).toBeNull(); // grok-4-6 is not in this index
     expect(rungInfo(c, "opencode:opencode-go/kimi-k3#max").family).toBeNull();
   });
 
@@ -103,13 +94,11 @@ describe("rungInfo", () => {
       index: indexOf({
         "claude-4-5-haiku#default": 17,
         "claude-4-5-haiku#none": 15,
-        "gemini-3-6-flash#high": 34,
         "gpt-6-sol#low": 34,
         "gpt-6-sol#high": 42,
       }),
     });
     expect(pairOf(c, "claude-code:claude-haiku-4-5-20251001#default")?.intelligence).toBe(17);
-    expect(pairOf(c, "cursor:gemini-3.6-flash#default")?.intelligence).toBe(34);
     expect(pairOf(c, "codex:gpt-6-sol#default")).toBeNull();
     expect(pairOf(c, "codex:gpt-6-sol#ultra")).toBeNull();
     expect(pairOf(c, "not a rung")).toBeNull();
@@ -240,14 +229,12 @@ describe("successorOf", () => {
     expect(id(c, "opencode:opencode-go/gpt-5.6-luna#high")).toBe("gpt-6-luna");
     expect(id(c, "claude:claude-sonnet-5#high")).toBe("claude-sonnet-5-5");
     expect(id(c, "claude-code:claude-haiku-4-5-20251001#default")).toBe("claude-haiku-5-5");
-    expect(id(c, "cursor:cursor-grok-4.5#default")).toBe("grok-4-7");
   });
 
   it("keeps a model current on a backend its successor is not on", () => {
     const c = shipped();
     // GPT-6.1 Sol runs only on codex
     expect(id(c, "opencode:opencode/gpt-6-sol#high")).toBeNull();
-    expect(id(c, "cursor:gpt-6-sol#high")).toBeNull();
     // GPT-5.6 Sol on opencode skips nothing: GPT-6 Sol is there
     expect(id(c, "opencode:opencode/gpt-5.6-sol#high")).toBe("gpt-6-sol");
     // Claude Haiku 5.5 runs only on claude-code
