@@ -217,15 +217,26 @@ Options:
 - **A completed merge posts a notice** to every running writer: "task T merged: files …, sha …" (the completed-change
   notice that recovered 82% of constructed conflicts). A writer that needs that work runs `git merge integration` in
   its own tree; nobody waits on a sibling's symbols ([walls]: P6 M50.L3).
-- **Regenerable files never conflict** (LayerFS's `.lww` rule). The profile or the repo lists paths that are
-  rebuilt rather than written by hand: lockfiles, generated API clients, build output. A merge conflict confined to
-  them takes the integration side and reruns the repo's regenerate command (the install for a lockfile) in the task's
-  tree; only a conflict in any other file goes back to the writer.
-- **Every dispatch leaves a checkpoint** (LayerFS's per-step checkpoints, on git). When a writer's dispatch ends,
-  committed or not, the daemon records the tree as `refs/catherd/<run>/<task>/<n>` (`git stash create -u`, then
-  `git update-ref`; the object store dedupes it). `delegate_task {from}` may start a new writer from any checkpoint,
-  so a retry on another rung starts from before the failed attempt, a race (E1) forks from one point, and a
-  reviewer reads exactly one dispatch's diff. Run cleanup deletes the refs.
+- **Regenerable files never conflict** (the job LayerFS's `.lww` does, done safely: newest-mtime-wins on a
+  lockfile silently drops one side's dependency, and git resets mtimes). The profile or the repo lists paths that are
+  rebuilt rather than written by hand: lockfiles, generated API clients, build output. They get a `merge=regen`
+  attribute whose driver keeps the integration side (`cp %B %A`); after the merge the daemon reruns the repo's
+  regenerate command (the install for a lockfile) in the task's tree. Only a conflict in any other file goes back to
+  the writer.
+- **Checkpoints, on git** (LayerFS's per-step checkpoints, at the granularity catherd can see). The daemon snapshots a
+  writer's tree, committed or not, as `refs/catherd/<run>/<task>/<n>`: at the end of every dispatch, before any kill,
+  timeout or stall stop, and every two minutes while it runs. The snapshot uses an alternate index so the writer's
+  index and files are never touched and untracked files are included (`GIT_INDEX_FILE=<tmp> git read-tree HEAD &&
+  git add -A && git commit-tree $(git write-tree) -p HEAD`, then `git update-ref`; `git stash create` cannot do this,
+  it takes no `-u`, measured). A retry of the same ledger task **continues from the last attempt's snapshot** by
+  default ([retry]: M1.L5 finished in 1 min after a ruling, the work was nearly done); `delegate_task {from: "clean"}`
+  or any earlier checkpoint restarts instead. A race (E1) forks from one point; a reviewer reads exactly one
+  dispatch's diff. Run cleanup deletes the refs.
+- **Conflicts are predicted, not discovered.** After each merge into the integration branch, the daemon runs
+  `git merge-tree --write-tree integration <snapshot>` against every running writer's latest snapshot (no tree is
+  touched). A writer whose work would now conflict gets the paths in its notice at once, instead of at its own merge.
+- **Check results are keyed by tree.** A fast or full check result is stored against `HEAD^{tree}`; a tree already
+  checked (a fast-forward, a revert, a race duplicate) reuses the result instead of rerunning ([rerun]).
 - **The writer cap stays memory-bound** (plan 35's milestone memory, applied to writers instead of milestones). The
   box is not assumed slow: contention was measured at 3–5% of wall ([box]).
 - **Read-only roles get no tree.** Reviewers, the verifier and the researcher read a ref (`git worktree` only when
