@@ -48,6 +48,8 @@ dispatch's model and effort ("rungs", written `backend:model#effort`). npm packa
   `1.x` gets bug fixes only (CONTRIBUTING.md, "Maintenance line (1.x)"); `latest` moves only through the "chore:
   release catherd" PR, after the scorecard passes on the `@next` build and the owner says so.
 - Cursor was retired on 2026-10-27 (plan 45), as Grok Build and Antigravity were in 2.0; git keeps them.
+- Since plan 45 a lane's Owns is a hint, not a wall: no test guard, no `out_of_scope`, and lanes talk through the
+  team channel (`src/services/team.ts`).
 
 ## Autopilot: executing plans end to end
 

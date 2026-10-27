@@ -639,3 +639,12 @@ On a machine with the release candidate, with your real config:
    shows one row per failover, with the quotas in `held`; a failover with no stand-in has `"rung": null`.
 2. **A cap holds.** `catherd profile validate` on the default profile prints no warning; after `catherd profile set
 roles.worker.rungs codex:gpt-6.1-sol#max` it says the rung is above `maxEffort xhigh` and that routing skips it.
+
+## 22. The team channel (2.0, plan 45)
+
+On a machine with opencode ≥ 2.1 and a run with a running opencode lane:
+
+1. **A steer arrives mid-turn.** From the architect (or the owner), `catherd team send <run> <lane> "…"` returns
+   `delivery: steered`, and the lane's opencode session shows the message before its turn ends.
+2. **The body shape is accepted.** opencode ≥ 2.1 accepts the steer body `{text, delivery: "steer"}`; until this
+   check passes, a steer may fall back to the queue (`delivery: queued`) and reach the lane in its next brief.

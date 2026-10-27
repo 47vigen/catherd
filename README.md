@@ -199,8 +199,17 @@ A brief has four parts: the role contract, the run facts, the unit context (capp
 Findings in it are capped at 2 KB each, and a resumed fix round sends this round only. The verifier prints
 `RAN: <cmd> — exit <n> — <log>` for each command it runs; a check that is missing or marked NOT RUN is a FAIL.
 Every stop and failed check gets a failure class, `product` or `harness`, and a harness failure gets one repair
-dispatch outside the round count. Test files are hashed when a lane starts, and a lane that edits a test file it
-does not own is refused.
+dispatch outside the round count.
+
+A lane's Owns is a hint for scheduling, not a wall: a worker changes whatever its task needs and reports each file
+outside its Owns on an `EXTRA:` line with its reason, which the reviewer reads. There is no test guard and no
+`out_of_scope` stop. A stop that names a running sibling's file waits for that sibling, then its fast check decides.
+Lanes talk through a team channel: `catherd team send|read|wait` and the same tools on the role server. Messages
+between lanes are queued and reach the target in its next brief; the architect's and the owner's messages steer a
+running opencode lane at once. The architect may add, change, split or drop tasks, lanes and milestones mid-run with
+no re-approval; the owner approves an architect-written plan once, before any code. A red milestone Check gives the
+fix round at most five findings per item. A milestone tree's submodules borrow objects from the main checkout
+(`--reference --dissociate`), so a fresh tree does not clone them again from the remote.
 
 Tool output is clamped per harness: `claude-code` roles get `BASH_MAX_OUTPUT_LENGTH`, `codex` roles get
 `tool_output_token_limit`, and `opencode` roles get a scratch `TMPDIR`. `opencode` has no output clamp.
