@@ -447,14 +447,18 @@ export function briefFor(run: Run, s: RunState, a: DispatchAction): BriefParts {
     : a.unit === RUN_UNIT
       ? s.notes
       : (s.milestones.find((m) => m.id === a.unit)?.notes ?? []);
-  // plan 45: what the team sent this dispatch since its name last started (T3 Code's `queue` delivery)
-  const since =
-    Object.values(s.dispatches)
-      .filter((d) => d.name === a.name)
-      .map((d) => d.startedAt)
-      .sort()
-      .at(-1) ?? null;
-  const sent = teamFor(run, { name: a.name, unit: a.unit, role: a.role, since });
+  // plan 45: what the team sent this dispatch since its name's last brief (T3 Code's `queue` delivery)
+  const last = Object.values(s.dispatches)
+    .filter((d) => d.name === a.name)
+    .sort((x, y) => x.startedAt.localeCompare(y.startedAt))
+    .at(-1);
+  const sent = teamFor(run, {
+    name: a.name,
+    unit: a.unit,
+    role: a.role,
+    since: last?.startedAt ?? null,
+    ...(last?.teamSeen === undefined ? {} : { seen: last.teamSeen }),
+  });
   const team = sent.length
     ? [`Your team sent you these (catherd team read for the rest):\n${sent.join("\n")}`]
     : [];

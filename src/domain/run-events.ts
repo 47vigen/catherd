@@ -151,6 +151,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     thread: z.string().nullable(),
     /** a judge call's kind: the machine asks the same question again from it when the reply is unreadable */
     judgeKind: z.enum(JUDGE_KINDS).nullable().optional(),
+    /** the last team message number when its brief was rendered; older lines have none (their startedAt is used) */
+    teamSeen: z.number().int().min(0).optional(),
   }),
   ev("dispatch.refused", {
     name: z.string(),
@@ -233,6 +235,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     strict: z.boolean(),
     briefFile: z.string(),
     briefHash: z.string(),
+    /** the last team message number when the brief was rendered; older lines have none */
+    teamSeen: z.number().int().min(0).optional(),
     p: z.number().nullable(),
     probabilities: z.record(z.string(), z.number()),
     why: z.string(),

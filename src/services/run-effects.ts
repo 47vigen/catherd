@@ -73,6 +73,7 @@ import { runProfile } from "./run-pin.ts";
 import { appendRoute, laneFile, laneIds, readRecords, type Run, runPaths } from "./run-store.ts";
 import { composeProjectOf, treeOf } from "./tree-path.ts";
 import { refreshState } from "./state.ts";
+import { teamLast } from "./team.ts";
 
 /**
  * What carries the machine's actions out. `run` appends the events the action produces (a long one when it is
@@ -491,6 +492,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
       answer = single(a.pick, "coordinator", "the coordinator named this rung");
     }
 
+    // read before rendering: a message sent while it renders is delivered next time, never skipped
+    const teamSeen = teamLast(run);
     const brief = await renderBrief(run, s, next, false);
     const briefFile = `decisions/${name}/${a.n}/brief.md`;
     writeTextAtomic(join(run.dir, briefFile), brief);
@@ -562,6 +565,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       strict: a.strict,
       briefFile,
       briefHash,
+      teamSeen,
       p: answer.p,
       probabilities: answer.probabilities,
       why: answer.why,
@@ -663,6 +667,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const rung = a.rung;
     if (!rung) return void (await refuse("E_ADMIT_RUNG", `no rung was decided for ${a.name}`));
     // plan 44 D18: the brief the decision model judged is the brief sent; a file edited since is never sent
+    const teamSeen = a.decision ? a.decision.teamSeen : teamLast(run);
     const full = a.decision ? read(join(run.dir, a.decision.briefFile)) : await render(false);
     if (a.decision && sha256(full) !== a.decision.briefHash)
       return void (await refuse(
@@ -725,6 +730,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       rung: d.admit.rung,
       thread: a.thread,
       ...(judge ? { judgeKind: judge.kind } : {}),
+      ...(teamSeen === undefined ? {} : { teamSeen }),
     });
     await settle(d, a.unit, judge);
   }

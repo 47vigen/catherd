@@ -213,6 +213,7 @@ export interface DispatchView {
   rung: string;
   thread: string | null;
   startedAt: string;
+  teamSeen?: number;
   ended: {
     at: string;
     status: RunStatus;
@@ -318,6 +319,7 @@ export interface MadeDecision {
   rung: string;
   briefFile: string;
   briefHash: string;
+  teamSeen?: number;
   source: DecisionSource;
 }
 
@@ -1643,6 +1645,7 @@ function apply(s: RunState, e: RunEvent): void {
         rung: e.rung,
         thread: e.thread,
         startedAt: e.at,
+        ...(e.teamSeen === undefined ? {} : { teamSeen: e.teamSeen }),
         ended: null,
       };
       delete s.waiting[e.name];
@@ -1834,6 +1837,7 @@ function apply(s: RunState, e: RunEvent): void {
         rung: e.rung,
         briefFile: e.briefFile,
         briefHash: e.briefHash,
+        ...(e.teamSeen === undefined ? {} : { teamSeen: e.teamSeen }),
         source: e.source,
       };
       s.decided[e.name] = e.n;

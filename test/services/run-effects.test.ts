@@ -14,7 +14,8 @@ import { resetReadiness } from "../../src/services/backends.ts";
 import { launcher, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { liveDispatches } from "../../src/services/dispatches.ts";
-import { renderBrief } from "../../src/services/run-briefs.ts";
+import { briefFor, renderBrief } from "../../src/services/run-briefs.ts";
+import { teamSend } from "../../src/services/team.ts";
 import * as failoverRungs from "../../src/services/failover-rungs.ts";
 import { openQuestions } from "../../src/services/questions.ts";
 import { preflightUser } from "../../src/services/preflight.ts";
@@ -995,6 +996,27 @@ describe("the decide effect (plan 44 task 16)", () => {
       readFileSync(join(run.dir, made.briefFile), "utf8"),
     );
     expect(lastOf(run, "dispatch.started")).toMatchObject({ rung: made.rung });
+  });
+
+  it("a team message sent after the decided brief was rendered reaches the next brief", async () => {
+    const { run, fx, made } = await decided();
+    await teamSend({ run: run.id, from: "worker-M1.L2", to: "M1.L1", text: "moved Operator to src/b" });
+    await fx.run(
+      dispatchAction({
+        rung: made.rung,
+        decision: {
+          n: made.n,
+          briefFile: made.briefFile,
+          briefHash: made.briefHash,
+          teamSeen: made.teamSeen,
+        },
+      }),
+      replayRun(run),
+    );
+    expect(lastOf(run, "dispatch.started")).toMatchObject({ teamSeen: 0 });
+    expect(briefFor(run, replayRun(run), dispatchAction({})).round.join("\n")).toContain(
+      "#1 worker-M1.L2 → M1.L1: moved Operator to src/b",
+    );
   });
 
   it("a changed decision file is refused as stale", async () => {

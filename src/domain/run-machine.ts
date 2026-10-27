@@ -38,6 +38,8 @@ export interface Decided {
   n: number;
   briefFile: string;
   briefHash: string;
+  /** the last team message number when the brief was rendered; a decision recorded before it has none */
+  teamSeen?: number;
 }
 
 /** `rung` and `decision` are null until `decision.made`: the machine issues the `decide` first, then this with both set. */
@@ -278,7 +280,12 @@ export function decided(s: RunState, a: DispatchAction | JudgeAction): Action[] 
   if (waiting(s, name)) return [];
   const d = s.decisions[name];
   if (d) {
-    const decision = { n: d.n, briefFile: d.briefFile, briefHash: d.briefHash };
+    const decision: Decided = {
+      n: d.n,
+      briefFile: d.briefFile,
+      briefHash: d.briefHash,
+      ...(d.teamSeen === undefined ? {} : { teamSeen: d.teamSeen }),
+    };
     if (a.type === "judge") return [{ ...a, rung: d.rung, decision }];
     const ran = a.thread === null ? undefined : threadRung(s, a.thread);
     const thread = ran !== undefined && ran !== d.rung ? null : a.thread;

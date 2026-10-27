@@ -129,18 +129,21 @@ export async function teamWait(
   }
 }
 
-/** The last messages sent to this dispatch (its name, unit, role or all) by others, after `since`: brief lines. */
+/** The number of the run's last message, 0 when there is none: the watermark a rendered brief records. */
+export const teamLast = (run: Run): number => teamMessages(run).at(-1)?.n ?? 0;
+
+/**
+ * The last messages sent to this dispatch (its name, unit, role or all) by others, after message `seen`, or after
+ * `since` when no watermark was recorded: brief lines.
+ */
 export function teamFor(
   run: Run,
-  d: { name: string; unit: string; role: string; since: string | null },
+  d: { name: string; unit: string; role: string; since: string | null; seen?: number },
 ): string[] {
+  const after = (m: TeamMessage): boolean =>
+    d.seen !== undefined ? m.n > d.seen : d.since === null || m.at > d.since;
   return teamMessages(run)
-    .filter(
-      (m) =>
-        m.from !== d.name &&
-        [d.name, d.unit, d.role, "all"].includes(m.to) &&
-        (d.since === null || m.at > d.since),
-    )
+    .filter((m) => m.from !== d.name && [d.name, d.unit, d.role, "all"].includes(m.to) && after(m))
     .slice(-FOR_BRIEF)
     .map((m) => `- #${m.n} ${m.from} → ${m.to}: ${cut(m.text, BRIEF_CHARS)}`);
 }
