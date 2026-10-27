@@ -5,9 +5,19 @@ import {
   foreignFailure,
   siblingLanesNamed,
   parseBlockedReason,
+  STOP_REASONS,
 } from "../../src/domain/blocked.ts";
 
 describe("blocked reasons", () => {
+  it("lists the five reasons a role may give in the prompt line, in order, and no out_of_scope", () => {
+    expect(BLOCKED_LINE).toContain("STATUS: blocked — <reason>: <why>");
+    const at = STOP_REASONS.map((r) => BLOCKED_LINE.indexOf(`${r} (`));
+    expect(at.every((x, i) => x > (at[i - 1] ?? -1))).toBe(true);
+    expect(BLOCKED_LINE).not.toContain("out_of_scope");
+    expect(parseBlockedReason("out_of_scope: needs src/x.ts")).toBeNull();
+    expect(BLOCKED_REASONS).toContain("out_of_scope");
+  });
+
   it("reads a blocked reply's reason and its why", () => {
     expect(parseBlockedReason("check_broken: lint fails in src/b.ts")).toEqual({
       reason: "check_broken",
@@ -41,11 +51,5 @@ describe("blocked reasons", () => {
 
   it("is not foreign when the log also names an own file", () => {
     expect(foreignFailure("src/b.ts:3 x\na.ts(4,2): error", ["src/a.ts"], ["src/b.ts"])).toEqual([]);
-  });
-
-  it("lists the six reasons in the prompt line, in order", () => {
-    expect(BLOCKED_LINE).toContain("STATUS: blocked — <reason>: <why>");
-    const at = BLOCKED_REASONS.map((r) => BLOCKED_LINE.indexOf(`${r} (`));
-    expect(at.every((x, i) => x > (at[i - 1] ?? -1))).toBe(true);
   });
 });

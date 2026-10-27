@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BLOCKED_REASONS } from "./blocked.ts";
+import { STOP_REASONS } from "./blocked.ts";
 import { headlessRung } from "./ids.ts";
 import type { Role } from "./roles.ts";
 import { scrubKeyShapes, scrubSecretAssignments } from "./secrets.ts";
@@ -64,7 +64,7 @@ export type VerdictSetName = "stop" | "failure-class";
 
 /** The answers each verdict set's caller accepts; a set's `fallback` must be one of them. */
 export const VERDICT_OPTIONS = {
-  stop: [...BLOCKED_REASONS, "other"],
+  stop: [...STOP_REASONS, "other"],
   "failure-class": ["product", "harness"],
 } as const;
 

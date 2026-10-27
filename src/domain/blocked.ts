@@ -9,6 +9,15 @@ export const BLOCKED_REASONS = [
 ] as const;
 export type BlockedReason = (typeof BLOCKED_REASONS)[number];
 
+/** The reasons a role may give; `out_of_scope` stays in BLOCKED_REASONS only so old runs replay (plan 45). */
+export const STOP_REASONS = [
+  "needs_user",
+  "too_hard",
+  "provider_error",
+  "no_access",
+  "check_broken",
+] as const;
+
 const REASON_AT_START = /^[`*\s]*([a-z][a-z_-]*)[`*]*\s*(?:[:—–-]\s*)?([\s\S]*)$/i;
 
 /** The reason a `STATUS: blocked — <reason>: <why>` line names, and its why; null when it names none. */
@@ -16,7 +25,7 @@ export function parseBlockedReason(why: string | null): { reason: BlockedReason;
   const m = why === null ? null : REASON_AT_START.exec(why.trim());
   if (!m) return null;
   const word = (m[1] as string).toLowerCase().replace(/-/g, "_");
-  const reason = BLOCKED_REASONS.find((r) => r === word);
+  const reason = STOP_REASONS.find((r) => r === word);
   return reason ? { reason, why: (m[2] ?? "").trim() } : null;
 }
 
@@ -26,8 +35,7 @@ export const BLOCKED_LINE = `Nobody reads your thread until you finish: never as
   "too_hard (you tried and cannot solve it; a stronger model should)",
   "provider_error (your model, tools or sandbox failed)",
   "no_access (you cannot reach what you need: the running app, a service, credentials)",
-  "check_broken (the check cannot pass for a reason outside your task; name each failing file:line)",
-  "out_of_scope (the task needs changes outside the files you own)",
+  "check_broken (the check cannot pass for a reason outside your task, such as a sibling's code that is not there yet; name each failing file:line)",
 ].join(", ")}.`;
 
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
