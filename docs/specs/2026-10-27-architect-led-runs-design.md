@@ -316,8 +316,10 @@ Rejected: no rule at all (leaves the one gaming path the literature names); the 
 
 - `land` pushes the feature branch and opens or updates the MR, every time the architect calls it, with no park. It
   never pushes the base, never force-pushes a branch the run did not create, and refuses a protected branch.
-- **One feature branch and one MR per repo per run** by default. Milestones are the architect's checkpoints on that
-  branch, not branches. Multi-MR runs are open question Q1.
+- **One feature branch and one MR per repo per run.** Milestones are the architect's checkpoints on that branch, not
+  branches. Ruling (owner delegated, 2026-10-27): the 2.0 milestone-per-branch mode with stacked MRs merged in order
+  is dropped. It removes the "merged: MR !N" wait and the pin-bump chain ([chain]); a change too large for one MR is
+  split across runs.
 - `land {final: true}` needs a green full check and a verifier PASS on the pushed sha (the E_LAND_GATE requirement on
   reviews and dispatch evidence goes), then sends the owner one question: merge? The run ends `done` when the owner
   answers; it does not wait on the merge itself.
@@ -361,7 +363,7 @@ coordinator's recommendation; the owner may still veto)
 
 Today one run dir (P8) holds 1,831 files and 105 MB: `events.jsonl`, `runs.jsonl`, `decisions/`, questions, routes,
 outcomes, digests, `state.json`, each written through the per-file atomic-write-and-lock machinery
-(`src/infra/store.ts`, `src/services/run-store.ts`, `run-events-store.ts`, `profile-store.ts`, `workspace-store.ts`).
+(`src/infra/store.ts`, `src/services/run-store.ts`, `run-events-store.ts`).
 Every cross-run question, including the 14-run baseline above, took ad-hoc scripts over JSONL.
 
 - **One database** at `<catherd data dir>/catherd.db`, opened with Bun's built-in `bun:sqlite` (no new dependency),
@@ -374,8 +376,8 @@ Every cross-run question, including the 14-run baseline above, took ad-hoc scrip
   delivered-at; `team_read`/`thread_read` page by a `seq` since-cursor, `team_wait` waits on it); `ledger_tasks` and
   `ledger_progress` (D2: the architect edits them through `ledger`, and `tasks.json`/`progress.md` are rendered into
   the run dir after each change, read-only, so agents still read them as files); `checks` (ref, sha, command, exit,
-  failure lines, baseline flag, minutes); `merges`; `caps` and budget spend; `questions`; `outcomes`; `profiles`,
-  `config`, `repo_bindings`, `workspaces`.
+  failure lines, baseline flag, minutes); `merges`; `caps` and budget spend; `questions`; `outcomes`; workspace-run state
+  (the parent execution graph and its child links).
 - **Files stay files** for everything an agent reads or writes as a document: `plan.md`, lane notes, briefs, replies,
   research and writer outputs, reports, logs, screenshots. Agents work on files natively, and D1 and D12's "return a
   path, not the content" needs them. A row points at a file by its path; it never holds a document's body.
@@ -383,8 +385,10 @@ Every cross-run question, including the 14-run baseline above, took ad-hoc scrip
   each applied in one transaction at open. A database newer than the binary is refused with the existing
   `E_CONFIG_NEWER_SCHEMA` path. The domain layer stays pure; SQLite lives in `infra`, behind the same store
   interfaces the services use now, so `test/architecture.test.ts` keeps holding.
-- **Profiles move too** (ruling): `ProfileService` stays their single writer and `profile show` prints them; the cost
-  is that a profile is no longer a file to diff in an editor.
+- **Configuration stays files** (owner, 2026-10-27): profiles, config, repo bindings, the workspace registry and repo
+  knowledge. The owner edits profiles by hand and diffs them, and a profile change that is his is reported, never
+  reverted. `ProfileService` stays their single writer, on the existing file store (`src/infra/store.ts`,
+  `profile-store.ts`, the registry part of `workspace-store.ts`), unchanged. Only run and machine state moves.
 - **The panel's live updates** tail `events` by `seq` instead of watching `events.jsonl` (2.0 decision 24 amended).
 - **Backup.** At each run's end the daemon writes `VACUUM INTO <data dir>/backups/catherd-<date>.db` and keeps the
   last 7. The database is the only machine state, so this one copy is the whole backup; documents stay in run dirs as
@@ -408,7 +412,7 @@ convergence) by the architect's own call within D10's caps; 8 (blocked reasons m
 vocabulary, but reasons go to the architect, plus `impossible`; 11–12 routing on one scale shrinks to D7's ladders
 (Slopalytics stays the catalog: a ladder may only hold indexed pairs); 18 (gate evidence: auto-rerun, baseline every
 check) by D6; 19 (recovery: foreign failures) by D5; 20 (standing rules reviewed after each run) is deleted
-([judge]: 74% restrictions; rules that only grow degrade compliance); 21 (a milestone per branch) by D11 and Q1; 22
+([judge]: 74% restrictions; rules that only grow degrade compliance); 21 (a milestone per branch) is dropped by D11; 22
 (the plan as input, its preflight, the one planned stop) keeps the plan as the preferred input but drops the
 preflight refusals and lets the architect edit it. Decisions 1, 2, 4, 5, 6, 9, 10, 13, 15–17 and 23–26 stand.
 Decision 14's Cursor backend is retired by plan 45.
@@ -434,11 +438,11 @@ stays for what D4 keeps.
 | Test-ownership guard, foreign-failure blame | `src/domain/test-guard.ts` (plan 45 trims it), the restore order at `run-state.ts:1134`, `foreignFailure` in `src/domain/blocked.ts`, `src/domain/role-scope.ts` ownership parts | [walls] |
 | The shared milestone tree as the writers' tree | Shrinks: `src/services/milestone-tree.ts` becomes the integration tree; per-writer trees added beside it | [walls] |
 | Same-rung retry floors | `floors` and `failedOn` in `run-state.ts` (`run-state.ts:829` clearing included) | [retry] |
-| Per-file machine state and its locks | Shrinks: `src/infra/store.ts` (atomic write and lock for machine state), `src/services/run-store.ts`, `run-events-store.ts`, `profile-store.ts`, `workspace-store.ts` become SQLite-backed (D13); `decisions/`, `routes`, `state.json`, `runs.jsonl` and `outcomes.jsonl` files stop being written | 1,831 files / 105 MB in one run dir; ad-hoc scripts for every cross-run question |
+| Per-file run and machine state | `src/services/run-store.ts` and `run-events-store.ts` become SQLite-backed, as does the run-state part of `workspace-store.ts` (D13); `src/infra/store.ts` stays for profiles, config, repo bindings, the workspace registry and knowledge, which stay files; `decisions/`, `routes`, `state.json`, `runs.jsonl` and `outcomes.jsonl` files stop being written | 1,831 files / 105 MB in one run dir; ad-hoc scripts for every cross-run question |
 
 Kept on purpose: the supervisor, `heavy-lock.ts` (heavy commands and load gate), the event log and replay (now the D13 `events` table), the
 notifier, questions (for the scopes D10 allows), failover, budgets, the panel (its Runs timeline reads the new
-events), `scorecard` and `outcomes.jsonl`, plan lint as warnings, Slopalytics catalog.
+events), `scorecard` (outcomes now in the D13 database), plan lint as warnings, Slopalytics catalog.
 
 ## Migration
 
@@ -448,10 +452,10 @@ decision block and bars, the run event schema changes, and role contracts change
 - **Runs in flight.** A 3.0 daemon does not resume a run whose `events.jsonl` was written by 2.x: it imports it
   read-only once it has finished (D13) for `status`, `result` and the panel, and tells the owner to finish it with `npx catherd-cli@2` (the 2.x line keeps bug
   fixes, as 1.x did). 2.0 followed the same rule for 1.5 runs.
-- **Profiles.** `ProfileService` migrates on first read, schema-versioned as today: drop `judge` and its rungs, drop
+- **Profiles** stay files (D13). `ProfileService` migrates them on first read, schema-versioned as today: drop `judge` and its rungs, drop
   `decision` and `bars`; each role's rungs become its ladder in their current intelligence order; give the architect
   `workspace-write`; add `caps` with D10's defaults and the standing-role cap. `profile validate` names every dropped
-  key. Nothing is guessed: a role with no rung left still stops the run at start (2.0 decision 12).
+  key, and the migration is written back as a file the owner can diff. Nothing is guessed: a role with no rung left still stops the run at start (2.0 decision 12).
 - **Lane files and plans** written for 2.x stay readable; ownership lines become hints, `Difficulty:` and `Kind:` are
   plain text for the architect.
 
@@ -483,20 +487,17 @@ FAILs; zero landing parks.
 - **Peer-to-peer agents with no coordinator.** The owner wants free talk; the evidence (CooperBench, Cognition) finds
   open peer negotiation harmful. 3.0 lets anyone talk on the team channel, with notices and questions as the default
   content, and keeps one brain that decides.
-- **A learned router in place of the decision model.** Possible later, trained on catherd's own `outcomes.jsonl`; not
+- **A learned router in place of the decision model.** Possible later, trained on catherd's own outcomes (the D13 `dispatches` and `outcomes` tables); not
   before the ladders have been measured.
 
-## Open questions for the owner
+## Rulings on the former open questions (owner delegated, 2026-10-27)
 
-- **Q1. Multi-MR runs.** D11 makes one feature branch and one MR per repo the default, which removes the
-  "merged: MR !N" wait and the pin-bump chain ([chain]). Keep the 2.0 milestone-per-branch mode (stacked MRs, each
-  merged in order) as an option the architect may choose, or drop it? Recommendation: drop it; a large change is
-  split across runs instead.
-- **Q2. The architect's own rung family.** D8 makes reviewers cross-family to the author. The architect is the
-  author of the plan and the integrator. Should its default ladder be a different family from the default worker
-  ladder (for example a Codex architect over opencode and Claude workers)? Recommendation: yes, set by `init`, and the
-  owner's profile wins.
+- **R1. Multi-MR runs are dropped.** One feature branch and one MR per repo per run (D11). A change too large for one
+  MR is split across runs.
+- **R2. The architect's default ladder is from a different model family than the workers' default ladder** (for
+  example a Codex architect over opencode and Claude workers), set by `init`, for the same reason D8 makes reviewers
+  cross-family: the architect authors the plan and integrates the work. The owner's profile always wins.
 
-Everything else is ruled above. Rulings the builder may revisit with evidence: the 70% context threshold (D1), the
-ledger's 40-entry window (D2), the default caps (D10), the standing-role cap of 4 and the 30 s warm-pool trigger
-(D12).
+No question is left open for the owner. Rulings the builder may revisit with evidence: the 70% context threshold
+(D1), the ledger's 40-entry window (D2), the default caps (D10), the standing-role cap of 4 and the 30 s warm-pool
+trigger (D12).
