@@ -566,6 +566,32 @@ Kept on purpose: the supervisor, `heavy-lock.ts` (heavy commands and load gate),
 notifier, questions (for the scopes D10 allows), failover, budgets, the panel (its Runs timeline reads the new
 events), `scorecard` (outcomes now in the D13 database), plan lint as warnings, Slopalytics catalog.
 
+### Contract lines (from tstack, MIT, read 2026-10-28)
+
+Lines the role contracts gain, each removing a stall or a source of noise; none is a gate on process.
+
+- **A run is the permission to test** (worker, verifier). When the repo's agent files say to ask before browser,
+  simulator or dev-server testing, the brief is that permission: a headless role cannot answer a prompt. It uses the
+  method that gives direct proof and names it in its report.
+- **Reviewer scope.** A BUG needs an input from the acceptance lines or an existing caller; an edge case outside the
+  task's intent, a small performance cost or extra compatibility is a nit. The reviewer contract moves to D8's
+  `important | nit | pre-existing` scale. A fix round prefers the change that deletes or narrows code. A finding still
+  disputed after two replies goes to the architect, which decides and logs why.
+- **Reproduce, then fix** (architect, verifier). A bug task's acceptance line carries a `RUN:` command; the verifier
+  runs it on the base (`check {base: true}`) and on the head and reports both exit codes on its `RAN:` lines.
+- **Handoffs are context, not proof.** The architect's first message after a restart compares the ledger with
+  `git log` and the tree before acting. A researcher's answer cites file:line, and the caller spot-checks one claim
+  instead of acting on it unchecked.
+- **Plans can be stale.** Before delegating from an owner's plan, the architect checks what the base changed since the
+  plan was written and reports a task already done or superseded as `SKIP <task> — <evidence>`.
+- **No silent substitution.** When the reviewer ladder has no rung of another model family, the same-family review
+  runs and its verdict is marked `same-family` in the digest and the MR audit.
+- **The base moved.** `land {final}` fetches the base; when base commits that landed after the last green full check
+  touch files in the run's diff, it merges the base and runs the full check again on the new sha first.
+- **MR text leads with the problem**, in the owner's words, then the change and one proof line; the audit block goes
+  last.
+- **Owner questions carry their context**: the run or MR link, the options, and the recommendation first.
+
 ## Migration
 
 **16. Still 2.0.0, on `next` until 2.0 is released.** The profile schema loses the judge role, the decision block
