@@ -115,12 +115,13 @@ describe("level texts", () => {
 describe("pickLevel", () => {
   const rule = { floor: ["shared_state"], cap: ["mechanical"], noulMin: 0.8 };
 
-  it("a sure level wins, else the cumulative from the top", () => {
+  it("a sure level wins, else the lowest level that is enough with probability min", () => {
     const spread = { "3": 0.54, "4": 0.16, "2": 0.2, "1": 0.08, "0": 0.02 };
-    expect(pickLevel(spread, 5, 0.8).level).toBe(2);
-    expect(pickLevel({ "0": 0.66, "1": 0.2, "2": 0.1, "3": 0.03, "4": 0.01 }, 5, 0.8).level).toBe(0);
+    expect(pickLevel(spread, 5, 0.8)).toMatchObject({ level: 3, rule: "P(≤3) 0.84 ≥ 0.8" });
+    expect(pickLevel({ "0": 0.66, "1": 0.2, "2": 0.1, "3": 0.03, "4": 0.01 }, 5, 0.8).level).toBe(1);
+    expect(pickLevel({ "0": 0.42, "1": 0.58 }, 2, 0.8).level).toBe(1);
     expect(pickLevel({ "1": 0.85 }, 3, 0.8).level).toBe(1);
-    expect(pickLevel({ "1": 0.1, "2": 0.7 }, 3, 0.8).level).toBe(1);
+    expect(pickLevel({ "1": 0.1, "2": 0.7 }, 3, 0.8).level).toBe(2);
     expect(pickLevel({}, 3, 0.8).level).toBe(2);
     expect(pickLevel({ "0": 1 }, 1, 0.8).level).toBe(0);
   });

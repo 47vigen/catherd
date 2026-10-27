@@ -266,9 +266,10 @@ export function difficultyQuestions(
 const round6 = (x: number) => Math.round(x * 1e6) / 1e6;
 
 /**
- * A level at probability `min` or more wins; else the lowest level whose own probability and everything
- * above it reaches `min` (the cumulative from the top); a model that gave too little mass gets the
- * strongest level. A noul yes then floors the level at the first whose six-index is 3 (new logic), or
+ * A level at probability `min` or more wins. When none is, catherd takes the lowest level k that is enough
+ * with probability at least the bar: the smallest k with P(difficulty ≤ k) ≥ `min`, summed from the bottom
+ * (plan 45; it summed from the top before, which picked the optimistic low end); a model that gave too
+ * little mass gets the strongest level. A noul yes then floors the level at the first whose six-index is 3 (new logic), or
  * else caps it at the last whose six-index is 2 (follows an example): the floor wins.
  */
 export function pickLevel(
@@ -284,9 +285,9 @@ export function pickLevel(
   for (let k = n - 1; k >= 0 && !pick; k--)
     if (round6(p(k)) >= min) pick = { level: k, p: p(k), rule: `P(${k}) ${p(k)} ≥ ${min}` };
   let sum = 0;
-  for (let k = n - 1; k >= 0 && !pick; k--) {
+  for (let k = 0; k < n && !pick; k++) {
     sum = round6(sum + p(k));
-    if (sum >= min) pick = { level: k, p: sum, rule: `P(≥${k}) ${sum} ≥ ${min}` };
+    if (sum >= min) pick = { level: k, p: sum, rule: `P(≤${k}) ${sum} ≥ ${min}` };
   }
   pick ??= { level: n - 1, p: null, rule: `too little probability for ${min}` };
   if (!rule) return pick;
