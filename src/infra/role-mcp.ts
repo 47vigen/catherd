@@ -62,6 +62,8 @@ export function codexRoleMcpArgs(context: RoleMcpContext): string[] {
     // required: a role without its run tools cannot work; doctor's probe shows it starts well inside the timeout
     `${prefix}.required=true`,
     `${prefix}.startup_timeout_sec=${ROLE_MCP_STARTUP_SEC}`,
+    // team_wait holds its tool call up to 300 s; Codex's default tool timeout (60 s) would cut it off
+    `${prefix}.tool_timeout_sec=330`,
     `${prefix}.enabled_tools=${JSON.stringify(roleMcpTools(context.role))}`,
     ...roleMcpTools(context.role).map((tool) => `${prefix}.tools.${tool}.approval_mode="approve"`),
   ];
