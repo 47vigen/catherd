@@ -18,7 +18,7 @@ them. 3.0 removes the fixed pipeline. The architect drives the run as its brain.
 should not do: run processes, hold worktrees and locks, write the event log, enforce caps and safety stops, and do
 the mechanics of merging and pushing.
 
-## Baseline: what 14 runs measured (codekesh, 2026-10-25..27)
+## Baseline: what 14 runs measured (the shared run host, 2026-10-25..27)
 
 Every decision below names the measurement it answers, by the tag in brackets.
 
@@ -64,6 +64,7 @@ the path, on one final evaluator, on effective harnesses (a small machine-readab
 | O6 | Push the feature branch without asking. Ask the owner once, at the end, for the merge. Stop only for production, secrets, irreversible shared-state actions, and "stuck / impossible". |
 | O7 | "The box is slow" is never accepted without hard proof. Prefer deleting mechanisms over adding them. Cursor is retired. |
 | O8 | The researcher and the writer are standing roles, on hand at any moment, above all for the architect (D12). |
+| O9 | Honcho memory comes back for every catherd role as a principled knowledge base, without repeating the mistake that turned it off (D14). |
 
 ## Decisions
 
@@ -144,7 +145,8 @@ event and from there into the MR's audit section (O2: it reports what it changed
 | `ask_owner` | `{question, options?, scope: "task:<id>" \| "run", why}`: parks only that scope. Refused unless the question falls in an O6 stop class (production, secrets, an irreversible shared-state action, stuck or impossible); a refusal says so and the architect decides. |
 | `finish` | `{verdict: "done" \| "impossible" \| "stopped", why}`: ends the run with its report. |
 
-Reviewers, the verifier, the researcher and the writer are not separate tools: they are `delegate_task` with that
+The architect also gets `memory_search` and `memory_chat` (D14). Reviewers, the verifier, the researcher and the
+writer are not separate tools: they are `delegate_task` with that
 role. The architect also keeps `read_run_file`, `read_knowledge` and `write_run_file`.
 
 The architect's access becomes `workspace-write` on the integration worktree. It may make a small change itself (the
@@ -352,8 +354,9 @@ update docs, a report or the MR text.
   median exceeds 30 s over a staged run.
 - **Tool surface.** Researcher: read-only on the repo, the backend's native web search and fetch where the profile
   allows it, `read_run_file`, `read_knowledge`, `write_run_file` limited to its own report path, `team_send` for a
-  question. Writer: `workspace-write` in its own tree when it edits repo docs (merged like any writer's work, D5), else
-  `write_run_file` to run documents (`report.md`, the MR text); `read_run_file`, `read_knowledge`, `team_send`.
+  question, `memory_search` and `memory_chat` (D14). Writer: `workspace-write` in its own tree when it edits repo docs (merged like any writer's work, D5), else
+  `write_run_file` to run documents (`report.md`, the MR text); `read_run_file`, `read_knowledge`, `team_send`,
+  `memory_search` and `memory_chat` (D14).
 - The pre-planning dossier becomes the architect's first `delegate_task` to the researcher, when it wants one.
 
 ### Machine state
@@ -376,7 +379,7 @@ Every cross-run question, including the 14-run baseline above, took ad-hoc scrip
   delivered-at; `team_read`/`thread_read` page by a `seq` since-cursor, `team_wait` waits on it); `ledger_tasks` and
   `ledger_progress` (D2: the architect edits them through `ledger`, and `tasks.json`/`progress.md` are rendered into
   the run dir after each change, read-only, so agents still read them as files); `checks` (ref, sha, command, exit,
-  failure lines, baseline flag, minutes); `merges`; `caps` and budget spend; `questions`; `outcomes`; workspace-run state
+  failure lines, baseline flag, minutes); `merges`; `caps` and budget spend; `questions`; `outcomes`; `memory_outbox` (D14); workspace-run state
   (the parent execution graph and its child links).
 - **Files stay files** for everything an agent reads or writes as a document: `plan.md`, lane notes, briefs, replies,
   research and writer outputs, reports, logs, screenshots. Agents work on files natively, and D1 and D12's "return a
@@ -394,10 +397,10 @@ Every cross-run question, including the 14-run baseline above, took ad-hoc scrip
   last 7. The database is the only machine state, so this one copy is the whole backup; documents stay in run dirs as
   today.
 - **What the panel and scorecard gain.** Cross-run queries in SQL: idle %, concurrency, blocked minutes by reason,
-  check share of wall, cost per rung, a rung's success rate per role, stall counts; the D16 metrics become views, and
+  check share of wall, cost per rung, a rung's success rate per role, stall counts; the D17 metrics become views, and
   the scorecard stops parsing JSONL (`scorecard-metrics.ts`, `outcome-summary.ts` shrink to queries). The panel's
   Runs page can filter and compare runs. A later learned router (rejected for now) would train on `dispatches`.
-- **2.x runs.** Left on files while in flight; they finish on `catherd-cli@2` (D15). On first start, 3.0 imports
+- **2.x runs.** Left on files while in flight; they finish on `catherd-cli@2` (D16). On first start, 3.0 imports
   every finished 2.x run dir read-only (events, dispatches from the records, outcomes, checks) with `legacy = 1`, so
   the 14-run baseline is queryable beside 3.0 runs. Import never writes to a run dir, and an unreadable dir is
   reported and skipped.
@@ -405,9 +408,83 @@ Every cross-run question, including the 14-run baseline above, took ad-hoc scrip
 Rejected: keeping JSONL and adding an index (two stores to keep in step); an external database or a new dependency
 (O7); putting documents in the database (agents and the path-return rule need files).
 
+### Memory
+
+**14. Honcho comes back as the run's knowledge base, in its own workspace, written only by catherd.** (O9)
+
+**The mistake not to repeat.** Plan 2.0's roles ran in each vendor CLI as the owner configured it, so a headless
+Claude role loaded the owner's `claude-honcho` plugin. Its hooks uploaded every role brief into the owner's personal
+workspace as the owner's own peer, and the post-tool-use hook stored tool noise. Honcho then derived "the owner said
+the scratch folder is …/runs/…" and injected it into later sessions. A headless role started in an unknown folder
+also took over the interactive session's memory target (the plugin rewrites its instance cache and session map). The
+cleanup deleted thousands of messages and soft-deleted thousands of conclusions, and catherd#100 gave every dispatch
+`HONCHO_ENABLED=false` (`src/services/admission.ts`). Three causes, each answered below: the wrong workspace, the
+wrong speaker, and uncurated content.
+
+- **(1) Its own workspace and key.** Memory writes go to one workspace (default name `catherd`, set in config)
+  through a key scoped to that workspace. The endpoint and the key come from catherd's config and environment
+  (`memory.url`, `CATHERD_MEMORY_KEY`); nothing personal is in the code or docs. No role and no catherd process ever
+  holds a key that can write the owner's personal workspace; that is enforced by the server (the key is scoped), not
+  by catherd's discipline. Cost: one more workspace for the owner to create and one key to keep. Rejected: a session
+  inside the personal workspace (one wrong config line and the mistake repeats; and recall is workspace-wide, so the
+  owner's own recall would fill with run facts).
+- **(2) Peers.** The roles are peers: `architect`, `worker`, `reviewer`, `verifier`, `researcher`, `writer`, and
+  `catherd` itself as the orchestrator peer. The owner's answers go under a peer named `owner`, never the owner's
+  personal peer name, and only when the owner actually answered: an answer typed in the panel (token-authenticated)
+  or one the session marks `by: "owner"` because the owner typed it. An answer a coordinator gives on its own is
+  posted under `catherd` as "the coordinator ruled …". `observe_me` is set explicitly on every peer (the server
+  default is true, which once made 64% of a store's observations about an assistant that nobody read): true for
+  `architect`, `worker`, `reviewer`, `verifier`, `researcher`, `catherd` and `owner`, because each posts only curated
+  facts (below); false for `writer`, whose output is documents already in the repo. `observe_others` is false for
+  every peer, so no peer builds a private view of another. catherd sets no peer cards. If the dreamer writes one, the
+  strict prefixes apply, and `INSTRUCTION:` stays reserved for a rule that peer stated itself.
+- **(3) Sessions: one per repo,** named from the repo binding (`repo-<binding>`), never from a filesystem path. A
+  workspace run writes each child repo to its own session. Knowledge accumulates per repo across runs; the run,
+  dispatch, ledger task and commit sha go in each message's metadata. Rejected: a session per run (recall is not gated
+  by session, so it buys nothing for search, while every session pays its own rolling-summary work, the dearest
+  deriver job); one session for everything (the summary would mix repos).
+- **(4) What is written: curated messages only, posted by catherd through the Honcho API.** No role writes memory.
+  catherd builds each message from events it already records:
+  - the architect's decisions and replans with their `why` (from its tool calls, D3), and every reversal as a
+    superseding message;
+  - each merged task's report: "changed X because Y", with the files (from the merge event and the reply);
+  - reviewer and verifier findings the architect confirmed (fixed or listed under Known issues), never raw findings;
+  - a researcher report's summary (its first 1,500 characters and the report's path);
+  - landed outcomes: the MR, the sha, Known issues, oracle overrides; and `impossible` verdicts with their reason;
+  - owner answers, under `owner`, as above.
+
+  Never written: briefs, raw replies, tool calls, check logs, progress chatter. Every message starts with its date
+  (`2026-10-27 — …`), because Honcho has no recency weighting and the date must be inside the embedded text. Every
+  message passes catherd's secret scan (`src/domain/secrets.ts`) and is dropped, not redacted, on a hit. Posting is
+  asynchronous through an outbox table in the D13 database with retries, so a slow or down Honcho never holds a run.
+  The workspace's `custom_instructions` are set by `catherd memory setup`: keep code facts with identifiers,
+  decisions with reasons and reversals, contracts and traps; derive nothing from status, progress or approvals.
+  Cost: the deriver load on the shared Honcho server (one curated message per decision or merge, a few hundred per
+  big run, against thousands of uncurated ones before) and the code that curates.
+- **Plugin hooks inside roles stay off.** `HONCHO_ENABLED=false` stays in every dispatch's env, and catherd turns off
+  any Honcho MCP server a backend loads from the owner's config (Codex's `honcho` entry would otherwise write as its
+  own peer into the personal workspace); `doctor` verifies both per backend. Rejected: pointing the plugin at the
+  catherd workspace with saving off through `HONCHO_WORKSPACE` / `HONCHO_PEER_NAME` / `HONCHO_SAVE_MESSAGES` /
+  `HONCHO_SAVE_TOOL_USE`. Even with saving off, the plugin still resolves sessions from the role's cwd and rewrites
+  the owner's instance cache and session map, the trap above, and its session-start injection would put memory into
+  every worker's context, which (5) forbids.
+- **(5) Reading.** The architect, the researcher and the writer get two role tools on catherd's role server:
+  `memory_search {query, repo?, limit?}` (conclusions, semantic search; defaults to this run's repo session) and
+  `memory_chat {question, repo?}` (the dialectic, reasoning medium, 120 s limit, answer capped at 4,000 characters).
+  Nothing is injected into any brief automatically, and workers get no memory tool: a worker that needs history asks
+  the researcher (D12). A memory answer is a lead, not a fact; the architect's brief says so.
+- **(6) Health.** `catherd doctor` and `catherd memory check` assert, with no writes: the catherd key lists its own
+  workspace's sessions; the same key is refused (HTTP 401) on every workspace named in `memory.isolateFrom` (the
+  owner lists his personal workspace there); no message in the catherd workspace comes from a peer outside the seven
+  role peers and `owner`; and every role's dispatch env carries `HONCHO_ENABLED=false` (also a unit test on
+  `admission.ts`). A failure turns memory writes off for the run and says why; the run itself continues. It is the
+  same isolation check the owner already runs for another workspace on that server.
+- **Off by default.** With no `memory.url` configured, catherd writes and reads nothing, and the memory tools are not
+  offered.
+
 ### Compatibility of 2.0 decisions
 
-**14. What 3.0 replaces in the 2.0 spec.** Decision 3 (judgment is a role) is replaced by D1; 7 (fix rounds by
+**15. What 3.0 replaces in the 2.0 spec.** Decision 3 (judgment is a role) is replaced by D1; 7 (fix rounds by
 convergence) by the architect's own call within D10's caps; 8 (blocked reasons map to transitions) keeps the reason
 vocabulary, but reasons go to the architect, plus `impossible`; 11–12 routing on one scale shrinks to D7's ladders
 (Slopalytics stays the catalog: a ladder may only hold indexed pairs); 18 (gate evidence: auto-rerun, baseline every
@@ -446,7 +523,7 @@ events), `scorecard` (outcomes now in the D13 database), plan lint as warnings, 
 
 ## Migration
 
-**15. Version 3.0.0, on `next` first.** The session tools stay, but the profile schema loses the judge role, the
+**16. Version 3.0.0, on `next` first.** The session tools stay, but the profile schema loses the judge role, the
 decision block and bars, the run event schema changes, and role contracts change. That is a major version.
 
 - **Runs in flight.** A 3.0 daemon does not resume a run whose `events.jsonl` was written by 2.x: it imports it
@@ -454,19 +531,21 @@ decision block and bars, the run event schema changes, and role contracts change
   fixes, as 1.x did). 2.0 followed the same rule for 1.5 runs.
 - **Profiles** stay files (D13). `ProfileService` migrates them on first read, schema-versioned as today: drop `judge` and its rungs, drop
   `decision` and `bars`; each role's rungs become its ladder in their current intelligence order; give the architect
-  `workspace-write`; add `caps` with D10's defaults and the standing-role cap. `profile validate` names every dropped
+  `workspace-write`; add `caps` with D10's defaults and the standing-role cap, and an empty `memory` block (memory off until
+  configured, D14). `profile validate` names every dropped
   key, and the migration is written back as a file the owner can diff. Nothing is guessed: a role with no rung left still stops the run at start (2.0 decision 12).
 - **Lane files and plans** written for 2.x stay readable; ownership lines become hints, `Difficulty:` and `Kind:` are
   plain text for the architect.
 
-**16. Staged rollout, measured against the 14 runs.** (O7: remove parts one at a time and measure)
+**17. Staged rollout, measured against the 14 runs.** (O7: remove parts one at a time and measure)
 
 | Stage | What runs | Measured against |
 |---|---|---|
 | 0 | Plan 45 (the bridge) on 2.x. | The 14 runs. Isolates what notices, outcome gates and plan freedom buy by themselves. |
 | 1 | The SQLite state (D13), with the read-only import of the finished 2.x runs. The architect loop (D1–D3), the daemon reducer (D4), stall and caps (D10), landing (D11), standing roles (D12) on 3.0.0-next, still on the shared milestone tree. Judge, decision model, acceptance milestone, landing parks, auto-rerun, role lock and admission tick deleted. | Stage 0 and the 14 runs. |
 | 2 | Per-writer worktrees and merge (D5), streaming fast checks (D6), the oracle rule (D9). | Stage 1. If isolation does not reduce blocked minutes, it is reverted (O7). |
-| 3 | The 2.0 scorecard's four fixed tasks plus replays of three of the 14 runs (one big: P8; one with the [walls] loop: P6; one landing-heavy). `latest` moves on the owner's word after it passes. | All of the above. |
+| 3 | Memory (D14): the catherd workspace and key, the curated outbox, the role peers, the read tools, and the isolation check, which must pass before the first write. | Stage 2, on the same tasks. Memory is kept when a sample of 50 conclusions after two runs holds at least 60% repo facts with identifiers and no brief text, and the architect's runs on a repo it has seen are no worse on wall time and rounds; otherwise writes are turned off and the finding goes to `ideas.md`. |
+| 4 | The 2.0 scorecard's four fixed tasks plus replays of three of the 14 runs (one big: P8; one with the [walls] loop: P6; one landing-heavy). `latest` moves on the owner's word after it passes. | All of the above. |
 
 Metrics per run, as queries over the D13 database (the scorecard's existing fields plus four):
 
@@ -474,7 +553,7 @@ Metrics per run, as queries over the D13 database (the scorecard's existing fiel
 - **blocked minutes** by reason (baseline 448 min of 1,313 worker min);
 - check minutes as a share of wall (baseline ~35%); rounds per task; interventions and owner questions (baseline
   every one answered yes);
-- cost; standing-role start latency (D12);
+- cost; standing-role start latency (D12); memory messages posted, outbox failures, and memory tool calls per run (D14);
 - output quality: verifier FAILs that were real bugs, MR first-pass, Known issues count, bugs found after merge.
 
 Pass bar for `latest`: no quality metric worse than the baseline; wall time and idle % better; zero process-audit
