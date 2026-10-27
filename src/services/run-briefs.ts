@@ -27,6 +27,7 @@ import {
 } from "./plan-input.ts";
 import { laneFile, readRecords, type Run, runPaths } from "./run-store.ts";
 import { standingRules } from "./run-service.ts";
+import { teamFor } from "./team.ts";
 import { verifierBrief } from "./verifier-brief.ts";
 
 type DispatchAction = Extract<Action, { type: "dispatch" }>;
@@ -78,7 +79,9 @@ const LANE_HEADER = [
   "  Tasks: <plan task numbers, comma-separated; <plan file>#<n> when the run has several plan files>",
   "Kind and Difficulty inform the decision model that picks the lane's model.",
   "Three optional lines follow: `After: Mx.Ly, …` when the lane compiles against another lane's changes; `Allow: path[:line], …` under a fast check that greps for absence, naming the hits that are allowed exceptions; and `Reference: <repo path>` when the lane builds something with a close sibling in the repository.",
-  "Two lanes of one milestone never own the same file.",
+  "Owns is a hint, not a wall: it splits the work and schedules it (two lanes whose Owns overlap never run at the same time), and a worker changes whatever its task needs and reports each file outside its Owns. Give each file to one lane.",
+  "A lane that uses a name another lane of its milestone creates names that lane on its After: line.",
+  "A fast check tests the working tree, never a build from the committed HEAD (git archive, an image built from a commit): workers do not commit, so such a command goes in the milestone's Check.",
 ].join("\n");
 
 function architectBrief(run: Run, s: RunState, a: DispatchAction): string[] {
@@ -238,7 +241,11 @@ function reviewPlan(run: Run, s: RunState, milestone: string): string[] {
         .map((v) => `- ${v} — not declared by ${r.name}`),
     ];
   });
-  return outside.length ? [`Files changed outside their lane:\n${outside.join("\n")}`] : [];
+  return outside.length
+    ? [
+        `Files changed outside their lane's Owns, with each worker's reason; such a change is no finding by itself:\n${outside.join("\n")}`,
+      ]
+    : [];
 }
 
 /** The findings a fix round rejected since the milestone's latest review ended, for the re-check to judge. */
@@ -440,7 +447,18 @@ export function briefFor(run: Run, s: RunState, a: DispatchAction): BriefParts {
     : a.unit === RUN_UNIT
       ? s.notes
       : (s.milestones.find((m) => m.id === a.unit)?.notes ?? []);
-  return { facts: runFacts(run, a.role, branchLine(s, a)), unit, round: [...round, ...answered] };
+  // plan 45: what the team sent this dispatch since its name last started (T3 Code's `queue` delivery)
+  const since =
+    Object.values(s.dispatches)
+      .filter((d) => d.name === a.name)
+      .map((d) => d.startedAt)
+      .sort()
+      .at(-1) ?? null;
+  const sent = teamFor(run, { name: a.name, unit: a.unit, role: a.role, since });
+  const team = sent.length
+    ? [`Your team sent you these (catherd team read for the rest):\n${sent.join("\n")}`]
+    : [];
+  return { facts: runFacts(run, a.role, branchLine(s, a)), unit, round: [...round, ...team, ...answered] };
 }
 
 function briefBody(run: Run, s: RunState, a: DispatchAction): Pick<BriefParts, "unit" | "round"> {

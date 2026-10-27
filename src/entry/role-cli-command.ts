@@ -7,6 +7,8 @@ import { DISPATCH_ID_ENV, activityReporter } from "../infra/lock-activity.ts";
 import { runMilestoneCheck } from "../services/milestone-check.ts";
 import { assertRoleMay } from "../services/role-access.ts";
 import { readRunFile, writeRunFile } from "../services/run-service.ts";
+import { teamRead, teamSend, teamWait } from "../services/team.ts";
+import "../adapters/all.ts";
 import { printJson } from "./cli-kit.ts";
 import { defaultDeps } from "./deps.ts";
 
@@ -165,4 +167,65 @@ export const gateCommand = defineCommand({
     description: "A verifier's gate evidence: check an item, record a pass, run the check",
   },
   subCommands: { check, pass, run: runCheck },
+});
+
+const TEAM_RUN = { run: { type: "positional", required: true, description: "the run id" } } as const;
+
+const intArg = (name: string, v: string | undefined): number | undefined => {
+  if (v === undefined) return undefined;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0)
+    throw new CatherdError("E_INPUT_INVALID", `--${name} "${v}" is not a whole number`, {
+      fix: `pass --${name} 10`,
+    });
+  return n;
+};
+
+const teamSendCmd = defineCommand({
+  meta: { name: "send", description: "Send stdin as one message to a lane, a role or all (team_send)" },
+  args: {
+    ...TEAM_RUN,
+    to: { type: "string", required: true, description: "a lane (M1.L2), a role, or all" },
+  },
+  async run({ args }) {
+    const s = scope();
+    assertRoleMay(s, args.run, "team_send");
+    const text = await Bun.stdin.text();
+    printJson(await teamSend({ run: args.run, from: s?.name ?? "owner", to: args.to, text }));
+  },
+});
+
+const teamReadCmd = defineCommand({
+  meta: { name: "read", description: "Print the run's team messages, a small page at a time (team_read)" },
+  args: {
+    ...TEAM_RUN,
+    since: { type: "string", description: "the message number to read after (the last page's next)" },
+    limit: { type: "string", description: "how many messages, 1 to 20" },
+  },
+  run({ args }) {
+    assertRoleMay(scope(), args.run, "team_read");
+    printJson(
+      teamRead({ run: args.run, since: intArg("since", args.since), limit: intArg("limit", args.limit) }),
+    );
+  },
+});
+
+const teamWaitCmd = defineCommand({
+  meta: { name: "wait", description: "Wait until a lane stops running or posts a message (team_wait)" },
+  args: {
+    ...TEAM_RUN,
+    lane: { type: "string", required: true, description: "the lane to wait on, like M1.L2" },
+    "timeout-ms": { type: "string", description: "how long to wait, up to 300000" },
+  },
+  async run({ args }) {
+    assertRoleMay(scope(), args.run, "team_wait");
+    printJson(
+      await teamWait({ run: args.run, lane: args.lane, timeoutMs: intArg("timeout-ms", args["timeout-ms"]) }),
+    );
+  },
+});
+
+export const teamCommand = defineCommand({
+  meta: { name: "team", description: "The run's team channel: send, read, wait" },
+  subCommands: { send: teamSendCmd, read: teamReadCmd, wait: teamWaitCmd },
 });

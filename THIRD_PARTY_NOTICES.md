@@ -2,6 +2,39 @@
 
 catherd's panel (`web/`) is derived from remora's `web/` (<https://github.com/47vigen/remora>, 17b59b5), Apache-2.0, by catherd's author.
 
+## T3 Code by T3 Tools Inc., MIT, https://github.com/pingdotgg/t3code, tool contract ported (not synced)
+
+`src/services/team.ts` and its three tools, `team_send`, `team_read` and `team_wait`, port the contract of T3 Code's
+orchestrator thread tools (`t3_thread_send`, `t3_thread_read`, `t3_thread_wait`): their names and parameter shapes,
+the `auto` delivery (a message is queued, or steered into a running turn where the backend allows), small paged reads
+(`limit`, a per-message character cut, `since`/`next` paging), a wait with a timeout, and the opencode v2 prompt with
+`delivery: "steer"` that steers a running session. No code was copied; the contract was ported once and is not kept in
+sync.
+
+```text
+MIT License
+
+Copyright (c) 2026 T3 Tools Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## Bifrost UI by Maxim AI, Apache-2.0, https://github.com/maximhq/bifrost, files derived (modified, not synced)
 
 These files in `web/src` are derived from Bifrost's `ui/` source and carry a header naming the file they come from.

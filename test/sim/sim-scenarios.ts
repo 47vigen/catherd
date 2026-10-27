@@ -72,6 +72,8 @@ export interface OpencodeScenario extends Common {
   apiHangMs?: number;
   /** each interrupted session id is appended here, one per line */
   interruptsTo?: string;
+  /** each `POST /api/session/<id>/prompt` appends `<id>\t<body>` here, one per line */
+  steersTo?: string;
   /** each `opencode reload` appends a line here */
   reloadsTo?: string;
   /** overrides for one `run`, keyed by the exact `-m` value */

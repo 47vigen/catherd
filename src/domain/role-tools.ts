@@ -29,5 +29,7 @@ export function roleMcpTools(role: Role): string[] {
   const tools = ["read_run_file", "read_knowledge"];
   if (role === "architect" || role === "researcher") tools.push("write_run_file");
   if (role === "verifier") tools.push("gate_check", "gate_pass", "gate_run");
+  if (role === "worker" || role === "writer") tools.push("team_send", "team_read", "team_wait");
+  if (role === "architect") tools.push("team_send", "team_read");
   return tools;
 }

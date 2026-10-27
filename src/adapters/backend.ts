@@ -158,6 +158,8 @@ export interface BackendAdapter {
   errors: { limit: RegExp[]; tooOld: RegExp[] };
   resume: { supported: boolean; sameAccessOnly: boolean; threadPattern: RegExp };
   interrupt?(thread: string, cwd: string): Promise<void>;
+  /** Plan 45: deliver `text` into the session's running turn; false when the backend refused it. Only opencode. */
+  steer?(thread: string, text: string): Promise<boolean>;
   /** `sinceMs`: when this run started, so what an earlier run on the thread left behind does not count */
   isBusy?(thread: string, cwd: string, sinceMs?: number): Promise<boolean>;
   /**

@@ -2,7 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
+import "../../adapters/all.ts";
 import { ID_PATTERN } from "../../domain/ids.ts";
+import { roleScopeFromEnv } from "../../domain/role-scope.ts";
 import { ROLE_MCP_SERVER, type RoleMcpContext, roleMcpTools } from "../../domain/role-tools.ts";
 import { log } from "../../infra/log.ts";
 import { gateCheckOrList, gatePass } from "../../services/gate-service.ts";
@@ -10,6 +12,7 @@ import { runMilestoneCheck } from "../../services/milestone-check.ts";
 import type { Deps } from "../../services/ports.ts";
 import { readKnowledge, readRunFile, writeRunFile } from "../../services/run-service.ts";
 import { findRun } from "../../services/run-store.ts";
+import { teamRead, teamSend, teamWait } from "../../services/team.ts";
 import { defaultDeps } from "../deps.ts";
 import { handle, sdkToolError, toolOf } from "./result.ts";
 
@@ -120,6 +123,50 @@ export function buildRoleServer(context: RoleMcpContext, deps: Deps = defaultDep
         annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
       },
       (a) => call("gate_run", () => runMilestoneCheck(a)),
+    );
+  const from = () => roleScopeFromEnv(process.env, { scratch: true })?.name ?? context.role;
+  if (tools.has("team_send"))
+    server.registerTool(
+      "team_send",
+      {
+        description:
+          "Send one short message to a lane of your run (M1.L2), a role (architect), or all: what you changed that others use (file, what, why), or a question for the architect. It is queued: the target reads it with team_read, and its next brief carries it. The architect's and the owner's messages reach a running lane at once where its backend allows.",
+        inputSchema: { run: boundRun, to: z.string().min(1), text: z.string().min(1) },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      },
+      (a) => call("team_send", () => teamSend({ ...a, from: from() })),
+    );
+  if (tools.has("team_read"))
+    server.registerTool(
+      "team_read",
+      {
+        description:
+          "Read your run's team messages. Keep reads small: low `limit` (1 to 20) and `maxChars`. Page with `since=next`.",
+        inputSchema: {
+          run: boundRun,
+          since: z.number().int().min(0).optional(),
+          limit: z.number().int().min(1).max(20).optional(),
+          maxChars: z.number().int().min(1).max(2000).optional(),
+        },
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      (a) => call("team_read", () => teamRead(a)),
+    );
+  if (tools.has("team_wait"))
+    server.registerTool(
+      "team_wait",
+      {
+        description:
+          "Wait until a lane stops running or posts a message. A lane that is not running: at once. On timeout (`timeoutMs`, up to 300000), go on with your work or call again.",
+        inputSchema: {
+          run: boundRun,
+          lane: z.string().regex(ID_PATTERN),
+          timeoutMs: z.number().int().min(0).max(300_000).optional(),
+          since: z.number().int().min(0).optional(),
+        },
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      (a) => call("team_wait", () => teamWait(a)),
     );
   return server;
 }

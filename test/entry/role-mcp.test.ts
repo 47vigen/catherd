@@ -38,8 +38,8 @@ describe("dispatch-scoped role MCP", () => {
   it("exposes only each role's allowed tools", async () => {
     const { run } = freshRun();
     const cases: [Role, string[]][] = [
-      ["worker", ["read_run_file", "read_knowledge"]],
-      ["architect", ["read_run_file", "read_knowledge", "write_run_file"]],
+      ["worker", ["read_run_file", "read_knowledge", "team_send", "team_read", "team_wait"]],
+      ["architect", ["read_run_file", "read_knowledge", "write_run_file", "team_send", "team_read"]],
       ["researcher", ["read_run_file", "read_knowledge", "write_run_file"]],
       ["verifier", ["read_run_file", "read_knowledge", "gate_check", "gate_pass", "gate_run"]],
     ];

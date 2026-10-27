@@ -118,6 +118,16 @@ describe("opencode busy and interrupt", () => {
     await opencodeAdapter.interrupt?.(SES, "/repo");
     expect(readFileSync(to, "utf8")).toBe(`${SES}\n`);
   });
+
+  it("steers a team message into the running session, and says false when the service fails (plan 45)", async () => {
+    const to = join(mkdtempSync(join(tmpdir(), "catherd-steer-")), "steers");
+    const text = "worker-M1.L4: Operator is in";
+    onSim({ steersTo: to });
+    expect(await opencodeAdapter.steer?.(SES, text)).toBe(true);
+    expect(readFileSync(to, "utf8")).toBe(`${SES}\t${JSON.stringify({ text, delivery: "steer" })}\n`);
+    onSim({ apiFails: true });
+    expect(await opencodeAdapter.steer?.(SES, text)).toBe(false);
+  });
 });
 
 describe("opencode settle", () => {
