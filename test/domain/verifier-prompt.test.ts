@@ -109,4 +109,11 @@ describe("plan 45: no walls, and gates judge the product", () => {
       "A file changed outside its lane's Owns is no finding by itself",
     );
   });
+
+  it("the architect changes the plan mid-run with no approval and no test refusal", () => {
+    const architect = rolePrompt("architect", "1.5.0");
+    expect(architect).not.toContain("waits for the owner's approval again");
+    expect(architect).not.toContain("A task without a test is refused");
+    expect(architect).toContain("add, change, split or drop tasks, lanes and milestones");
+  });
 });

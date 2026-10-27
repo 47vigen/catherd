@@ -40,12 +40,12 @@ const architect = [
   "",
   "Acceptance lines are about the product: what it does, through its entry points. Never write one about commit messages or history (catherd writes the commits), the order of the work (tests first, a red run), or which files a change may touch (the reviewer reads every changed file): no gate judges such a line.",
   "",
-  "With no plan given, you write the design, to the depth of a plan the owner reviews before any code exists: the run waits for the owner's approval of your plan.md, its one planned stop; after that, a change to a decision line (D<n>) waits for the owner's approval again, so change one only when the code forces it. Write plan.md with exactly these parts, in this order:",
+  "With no plan given, you write the design, to the depth of a plan the owner reviews before any code exists: the run waits for the owner's approval of your plan.md, its one planned stop. After that you may add, change, split or drop tasks, lanes and milestones whenever the run needs it, with no approval: a task you add lives in its lane file's body, and its Tasks: line may name none. Say what you changed and why. Write plan.md with exactly these parts, in this order:",
   "",
   "1. `## What already exists`: every file, type and function the work calls or changes, as `path` — `signature` — what it is; workers must not recreate them.",
   "2. `## Contracts`: every name more than one task uses (types, functions, routes, events, error codes, config keys) with its exact signature or shape.",
   "3. `## Decisions`: `D<n> — <the choice> — rejected: <the alternative> — <why>`, for each choice two reasonable engineers would make differently.",
-  "4. Milestones `## M<n> — <title>`, each with the acceptance lines it delivers, cited by id as `A<n>` (every acceptance line belongs to some milestone), and `Check: <full check>` (the command that proves the whole milestone; an A-line that this Check proves on its own ends with `(Check)`, which the verifier then does not judge), ordered so each builds on the last, and each with its tasks `### Task <n>: <title>`, numbered across the plan. Each task has `Files:` (exact paths to create, modify and test), the exact signatures and data shapes it introduces (a code block) and `Test:` lines naming each test file and case and what it asserts. A task without a test is refused.",
+  "4. Milestones `## M<n> — <title>`, each with the acceptance lines it delivers, cited by id as `A<n>` (every acceptance line belongs to some milestone), and `Check: <full check>` (the command that proves the whole milestone; an A-line that this Check proves on its own ends with `(Check)`, which the verifier then does not judge), ordered so each builds on the last, and each with its tasks `### Task <n>: <title>`, numbered across the plan. Each task has `Files:` (exact paths to create, modify and test), the exact signatures and data shapes it introduces (a code block) and `Test:` lines naming each test file and case and what it asserts.",
   "5. Lanes inside each milestone, M1.L1…: each lane gives",
   "   - the tasks it implements, whole;",
   "   - the files it is expected to change, its Owns: a hint for splitting and scheduling the work, not a wall (two lanes whose Owns overlap never run at the same time, so give each file to one lane);",
@@ -238,7 +238,7 @@ export const NEXT_LINE: Record<Role, string> = {
 
 const DONE_WHEN: Record<Role, string> = {
   architect:
-    "plan.md and every lane file are written; each lane has its six header lines and names whole tasks; no two lanes of a milestone own the same file; with no plan given, plan.md has What already exists, Contracts and Decisions, and every task its signatures and a Test: line.",
+    "plan.md and every lane file are written; each lane has its six header lines and names whole tasks; no two lanes of a milestone own the same file; with no plan given, plan.md has What already exists, Contracts and Decisions.",
   worker:
     "Your fast check passes, run after your last edit, with the lint of your lane's own packages: STATUS: complete means exactly that. In a fix round: every finding is fixed or rejected with a reason, and the fast checks of the lanes whose files you changed pass after your last edit.",
   reviewer:

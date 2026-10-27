@@ -17,7 +17,7 @@ import { type JudgeKind, judgeName, parseJudgeReply } from "../domain/judge.ts";
 import { milestoneAfter, onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
 import { milestoneProblems } from "../domain/plan-lint.ts";
 import { mayStartMilestone, memoryLimitsOf, memoryLoad, neededMb } from "../domain/milestone-memory.ts";
-import { changedDecisions, formatCommand, milestoneCheck, reapprovalQuestion } from "../domain/plan-doc.ts";
+import { formatCommand, milestoneCheck } from "../domain/plan-doc.ts";
 import { parseRanLines, parseRunLines, verifierShortfall } from "../domain/ran-lines.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { natural } from "../domain/util.ts";
@@ -61,18 +61,12 @@ import {
 } from "./milestone-check.ts";
 import { baseTree, branchPusher, claimTree, memoryReader, removeTree } from "./milestone-tree.ts";
 import { sendRunNotice } from "./notify-service.ts";
-import {
-  deliveredALines,
-  deliveredALineTexts,
-  planDocs,
-  planProblems,
-  uncoveredALines,
-} from "./plan-input.ts";
+import { deliveredALines, deliveredALineTexts, planProblems, uncoveredALines } from "./plan-input.ts";
 import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
 import { park } from "./questions.ts";
 import { renderBrief } from "./run-briefs.ts";
-import { appendEvent, appendEvents, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
+import { appendEvent, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { writeRunReport } from "./run-report.ts";
 import { openLevels } from "./routing-service.ts";
 import { runProfile } from "./run-pin.ts";
@@ -307,40 +301,6 @@ export function planOf(run: Run): MilestonePlan[] {
         lanes: mine.map(({ milestone: _m, ...l }) => l),
       },
     ];
-  });
-}
-
-/** Milestones whose dependencies add to a matching section of an owner or approved plan. */
-function widenedAfter(run: Run, plan: MilestonePlan[]): { milestone: string; added: string[] }[] {
-  const sources = replayRun(run).plan.length ? planDocs(run).map((doc) => doc.text) : [];
-  const approved = read(join(run.dir, "plan-approved.md"));
-  if (approved) sources.push(approved);
-  const prior = sources.map((text) => {
-    const sections = new Map<string, Set<string>>();
-    let current: Set<string> | undefined;
-    for (const line of text.split("\n")) {
-      const heading = HEADING.exec(line);
-      if (heading) {
-        current = new Set();
-        sections.set(heading[1] as string, current);
-      } else if (line.startsWith("## ")) current = undefined;
-      else {
-        const after = AFTER.exec(line)?.[1];
-        if (after) for (const id of after.match(/\bM\d+\b/g) ?? []) current?.add(id);
-      }
-    }
-    return sections;
-  });
-  return plan.flatMap((m) => {
-    const approvedAfter = approved ? prior.at(-1)?.get(m.id) : undefined;
-    const baselines = approvedAfter
-      ? [approvedAfter]
-      : prior.flatMap((sections) => {
-          const after = sections.get(m.id);
-          return after ? [after] : [];
-        });
-    const added = m.after.filter((id) => baselines.some((after) => !after.has(id)));
-    return added.length ? [{ milestone: m.id, added }] : [];
   });
 }
 
@@ -770,8 +730,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
   }
 
   /**
-   * The architect's plan into `plan.ready`, once the plan backs every lane. A gap is `effect.failed`: its architect
-   * is sent back with it. An edit to a decision the owner approved asks them again before the plan is read.
+   * The architect's plan into `plan.ready`, once nothing in it keeps a milestone from starting. A gap is
+   * `effect.failed`: its architect is sent back with it. A change mid-run takes effect with no new approval (plan 45).
    */
   async function readPlan(): Promise<void> {
     const milestones = planOf(run);
@@ -785,35 +745,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       });
       return;
     }
-    const approved = read(join(run.dir, "plan-approved.md"));
-    const changed = approved ? changedDecisions(approved, read(runPaths(run.dir).plan)) : [];
-    const widened = widenedAfter(run, milestones);
-    const questions = [
-      ...(changed.length ? [reapprovalQuestion(run.id, changed)] : []),
-      ...(widened.length
-        ? [
-            `The plan adds milestone dependencies: ${widened.map((m) => `${m.milestone} now waits for ${m.added.join(", ")}`).join("; ")}. Approve with: catherd answer ${run.id} run approve`,
-          ]
-        : []),
-    ];
-    // one write: a crash between the two would lose the owner's change request
-    await appendEvents(
-      run,
-      [
-        ...(questions.length > 0
-          ? [
-              {
-                type: "question.parked" as const,
-                unit: RUN_UNIT,
-                question: questions.join("\n\n"),
-                reason: "approval" as const,
-              },
-            ]
-          : []),
-        { type: "plan.ready", milestones },
-      ],
-      at(),
-    );
+    await append({ type: "plan.ready", milestones });
   }
 
   async function route(a: Extract<Action, { type: "route" }>): Promise<void> {

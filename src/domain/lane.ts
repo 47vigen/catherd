@@ -170,41 +170,6 @@ export function assertLaneValues(text: string, where: string): LaneHeader {
   return h;
 }
 
-const fold = (s: string) =>
-  s
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-
-/** How many leading words of an A-line a lane line must hold to restate it (plan 44 D5). */
-const RESTATED_WORDS = 8;
-
-/**
- * The first lane line that holds the first 8 words of an A-line after its id and tag (folded: lower case, punctuation
- * as spaces), with that A-line's id. A-lines without ids are numbered as the run numbers them; a shorter one never matches.
- */
-export function restatedALine(
-  laneText: string,
-  aLines: readonly string[],
-): { line: string; id: string } | null {
-  const own = aLines.some((l) => /^\s*A\d+\b/.test(l));
-  let n = 0;
-  const keys = aLines.flatMap((a) => {
-    const id =
-      /^\s*(?:[-*]\s+)?(A\d+)\b/.exec(a)?.[1] ?? (own || /^\s*plan:\s*\S/i.test(a) ? null : `A${++n}`);
-    const words = fold(a.replace(/^\s*(?:[-*]\s+)?(?:A\d+\b)?\s*(?:\[[^\]]*\])?/, "")).split(" ");
-    return id && words.length >= RESTATED_WORDS
-      ? [{ id, key: ` ${words.slice(0, RESTATED_WORDS).join(" ")} ` }]
-      : [];
-  });
-  for (const line of laneText.split("\n")) {
-    const folded = ` ${fold(line)} `;
-    const hit = keys.find((k) => folded.includes(k.key));
-    if (hit) return { line: line.trim(), id: hit.id };
-  }
-  return null;
-}
-
 /** A repo path in the form normalizeOwned gives it, or null for one that leaves the repo. */
 function repoPath(p: string): string | null {
   try {

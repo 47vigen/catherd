@@ -33,7 +33,6 @@ import {
 } from "../../src/services/milestone-check.ts";
 import { heavyLimits } from "../../src/infra/heavy-lock.ts";
 import { addKnowledge, knowledgePath } from "../../src/services/run-service.ts";
-import { reapprovalQuestion } from "../../src/domain/plan-doc.ts";
 import { appendEvent, eventsFile, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
 import { appendRecord, type Run, runPaths } from "../../src/services/run-store.ts";
@@ -1312,52 +1311,6 @@ describe("planning", () => {
     writeFileSync(join(run.dir, "plan.md"), `${DEEP}\n## M2 — next\nAfter: ${after}\n## M3 — independent\n`);
   }
 
-  it("a plan.md After wider than the owner's plan parks for approval", async () => {
-    const { run, fx } = setup();
-    dependencyPlan(run, "M1, M3");
-    mkdirSync(join(run.dir, "plan-input"));
-    writeFileSync(join(run.dir, "plan-input", "owner.md"), `${DEEP}\n## M2 — next\nAfter: M1\n`);
-    await appendEvent(run, {
-      type: "run.started",
-      ...startedFields,
-      plan: ["owner.md"],
-    });
-    await fx.run({ type: "readPlan" }, replayRun(run));
-    const question = lastOf(run, "question.parked");
-    expect(question).toMatchObject({ unit: "run", reason: "approval" });
-    expect(question?.question).toContain("M2");
-    expect(question?.question).toContain("M3");
-    expect(types(run).slice(-2)).toEqual(["question.parked", "plan.ready"]);
-  });
-
-  it("keeps first-read dependency approval pending when the owner requests revision", async () => {
-    const { run, fx } = setup();
-    dependencyPlan(run, "M1, M3");
-    mkdirSync(join(run.dir, "plan-input"));
-    writeFileSync(join(run.dir, "plan-input", "owner.md"), `${DEEP}\n## M2 — next\nAfter: M1\n`);
-    await appendEvent(run, {
-      type: "run.started",
-      ...startedFields,
-      plan: ["owner.md"],
-    });
-    await fx.run({ type: "readPlan" }, replayRun(run));
-    expect(replayRun(run).phase).toBe("approval");
-    await appendEvent(run, {
-      type: "question.answered",
-      unit: "run",
-      answer: "remove M3",
-      by: "owner",
-    });
-    const actions = next(replayRun(run), lastOf(run, "question.answered")!);
-    expect(actions.some((a) => a.type === "route")).toBe(false);
-    expect(actions).toContainEqual(
-      expect.objectContaining({
-        type: "decide",
-        next: expect.objectContaining({ type: "dispatch", name: "architect" }),
-      }),
-    );
-  });
-
   it("uses an approved dependency section instead of the older owner input", async () => {
     const { run, fx } = setup();
     dependencyPlan(run, "M1, M3");
@@ -1395,19 +1348,6 @@ describe("planning", () => {
     expect(lastOf(run, "plan.ready")).toBeDefined();
   });
 
-  it("compares After to plan-approved.md without plan inputs, allowing narrower dependencies", async () => {
-    const { run, fx } = setup();
-    dependencyPlan(run, "M1");
-    writeFileSync(join(run.dir, "plan-approved.md"), readFileSync(join(run.dir, "plan.md")));
-    await appendEvent(run, { type: "run.started", ...startedFields });
-    dependencyPlan(run, "none");
-    await fx.run({ type: "readPlan" }, replayRun(run));
-    expect(lastOf(run, "question.parked")).toBeUndefined();
-    dependencyPlan(run, "M1, M3");
-    await fx.run({ type: "readPlan" }, replayRun(run));
-    expect(lastOf(run, "question.parked")?.question).toContain("M2 now waits for M3");
-  });
-
   it("fails readPlan with the plan's problems, and reads it once it is deep enough", async () => {
     const { run, fx } = setup();
     writeLane(run, "M1.L1", ["src/a/"]);
@@ -1416,8 +1356,9 @@ describe("planning", () => {
     await fx.run({ type: "readPlan" }, replayRun(run));
     const failed = lastOf(run, "effect.failed");
     expect(failed).toMatchObject({ action: "readPlan", unit: "run" });
-    expect(failed?.message).toStartWith("the plan needs: lanes/M1.L1.md has no Tasks: line");
+    expect(failed?.message).toStartWith('the plan needs: plan.md has no "## What already exists" section');
     expect(failed?.message).toContain('plan.md has no "## Contracts" section');
+    expect(failed?.message).not.toContain("Tasks:");
     expect(lastOf(run, "plan.ready")).toBeUndefined();
     writeLane(run, "M1.L1", ["src/a/"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
     writeFileSync(join(run.dir, "plan.md"), DEEP);
@@ -1458,29 +1399,17 @@ describe("planning", () => {
     expect(lastOf(run, "plan.ready")).toBeUndefined();
   });
 
-  it("parks again for approval when an architect change edits a decision, and not otherwise", async () => {
+  it("never parks for approval again: an architect change mid-run takes effect", async () => {
     const { run, fx } = setup();
     writeLane(run, "M1.L1", ["src/a/"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
     writeFileSync(join(run.dir, "plan.md"), DEEP);
     await appendEvent(run, { type: "run.started", ...startedFields });
-    // no plan-approved.md: nothing to compare with
     await fx.run({ type: "readPlan" }, replayRun(run));
-    expect(types(run).filter((t) => t === "question.parked")).toEqual([]);
     writeFileSync(join(run.dir, "plan-approved.md"), DEEP);
-    // a task text edit: no stop
-    writeFileSync(join(run.dir, "plan.md"), DEEP.replace("asserts a", "asserts a, b"));
-    await fx.run({ type: "readPlan" }, replayRun(run));
-    expect(types(run).filter((t) => t === "question.parked")).toEqual([]);
-    // a decision edit: parks first, then plan.ready
     writeFileSync(join(run.dir, "plan.md"), DEEP.replace("D2 — keep it flat", "D2 — nest it"));
     await fx.run({ type: "readPlan" }, replayRun(run));
-    const tail = readEvents(run).slice(-2);
-    expect(tail.map((e) => e.type)).toEqual(["question.parked", "plan.ready"]);
-    expect(tail[0]).toMatchObject({
-      unit: "run",
-      reason: "approval",
-      question: reapprovalQuestion(run.id, ["D2"]),
-    });
+    expect(readEvents(run).at(-1)?.type).toBe("plan.ready");
+    expect(types(run).filter((t) => t === "question.parked")).toEqual([]);
   });
 });
 

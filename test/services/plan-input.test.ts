@@ -142,16 +142,19 @@ describe("a lane's tasks", () => {
     );
   });
 
-  it("lists every lane's coverage problem, and plan.md's depth only with no plan input", async () => {
+  it("asks nothing of a lane's tasks, and plan.md's depth only before the owner approved it", async () => {
     const { run } = await planRun(["p.md"]);
     writeLane(run, "M1.L1", ["src/a.ts"]);
-    expect(planProblems(run).filter((p) => !p.includes("under no milestone"))).toEqual([
-      "lanes/M1.L1.md has no Tasks: line: name the plan tasks it implements",
-    ]);
+    writeLane(run, "M1.L2", ["src/b.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 9203\n");
+    expect(planProblems(run).filter((p) => !p.includes("under no milestone"))).toEqual([]);
     const bare = freshRun().run;
     await appendEvent(bare, { type: "run.started", ...startedFields });
     writeFileSync(join(bare.dir, "plan.md"), "# P\n");
     expect(planProblems(bare)).toContain('plan.md has no "## Contracts" section');
+    expect(planProblems(bare).some((p) => p.includes("### Task"))).toBe(false);
+    await appendEvent(bare, { type: "plan.ready", milestones: [] });
+    await appendEvent(bare, { type: "plan.approved", by: "owner" });
+    expect(planProblems(bare).filter((p) => p.startsWith("plan.md"))).toEqual([]);
     expect(existsSync(join(run.dir, "plan.md"))).toBe(false);
   });
 

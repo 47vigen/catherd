@@ -253,7 +253,7 @@ describe("rolePrompt", () => {
       "## What already exists",
       "## Contracts",
       "rejected: <the alternative>",
-      "A task without a test is refused",
+      "with no approval: a task you add lives in its lane file's body",
       "Tasks: <plan task numbers",
       "`Reference: <repo path>`",
       "more small lanes beat one long one",
