@@ -87,7 +87,9 @@ export const effectLimits = { checkMs: 600_000, commitMs: 300_000 };
 export const milestoneChecker = { run: runMilestoneCheck };
 
 /** The most failing lines of one item that become findings; the rest stay in its check log. */
-const FINDINGS_PER_ITEM = 20;
+const FINDINGS_PER_ITEM = 5;
+/** plan 45: a finding names this many of the files its line was seen in; one root cause showed in dozens */
+const FILES_PER_FINDING = 3;
 const MERGE_ATTEMPTS = 3;
 /** a push refused only because origin moved since the fetch; a hook refusal or a conflict is not this */
 const LOST_RACE = /\((?:fetch first|non-fast-forward)\)|cannot lock ref|failed to update ref/;
@@ -973,7 +975,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
           const of = files[line] ?? [];
           return {
             label: "BLOCKER" as const,
-            text: `\`${item}\` fails: ${line}${of.length ? ` — in ${of.join(", ")}` : ""}`,
+            text: `\`${item}\` fails: ${line}${of.length ? ` — in ${of.slice(0, FILES_PER_FINDING).join(", ")}` : ""}`,
             file: of[0] ?? fileOf(line),
           };
         }),

@@ -2878,6 +2878,23 @@ describe("the daemon's machine check (plan 40 D1, D4, D13)", () => {
     ]);
   });
 
+  it("a red check gives at most 5 findings an item, each naming at most 3 files", async () => {
+    const { repo, run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFileSync(runPaths(run.dir).plan, "# P\n## M1 — core\nCheck: bun test\n");
+    await seed(run);
+    const head = git(repo, "rev-parse", "HEAD").trim();
+    const fails = Array.from({ length: 8 }, (_, n) => `(fail) case ${n}`);
+    const files = ["a", "b", "c", "d", "e"].map((f) => `test/${f}.test.ts`);
+    stubCheck(run, () => ({ exit: 1, fails, failFiles: Object.fromEntries(fails.map((f) => [f, files])) }));
+    await fx.run({ type: "machineCheck", milestone: "M1", commit: head }, replayRun(run));
+    const findings = lastOf(run, "milestone.checked")?.findings ?? [];
+    expect(findings).toHaveLength(5);
+    expect(findings[0]?.text).toBe(
+      "`bun test` fails: (fail) case 0 — in test/a.test.ts, test/b.test.ts, test/c.test.ts",
+    );
+  });
+
   it("a failing item with no baseline gets one from the base, on a tree removed after", async () => {
     const { repo, run, fx, commit } = await committedBaseRun();
     writeFileSync(runPaths(run.dir).plan, "# P\n## M1 — core\nCheck: bun test\n");
