@@ -11,3 +11,4 @@ T8 22a6b2c0, T9 68e65fb7 cherry-picked; wave 3 gate: 1 fail, web/openapi.json st
 Final review (opus-medium): 0 Critical, 4 Important (I1 cursor defaultRung, I2 PROCESS_LINE too wide, I3 codex tool timeout vs team_wait, I4 writer wall) + minors; fixed in 885cc98e..43b1554c; remaining minors in ideas.md
 Ruling: a retired-rung dispatch finalizes as failed/E_LOST — record statuses have no "lost" — a dashboard counting E_LOST as a backend failure misreads one upgrade
 Ruling: web/src keeps the Cursor provider icon — plan 45 leaves web/ alone and old run history still names cursor — a stale icon only
+Codex bot round (one): 2 P2 fixed — 650ed193 nested submodules get --init; 2a7199bc team watermark is the last message number rendered into the brief (teamSeen), old events fall back to startedAt
