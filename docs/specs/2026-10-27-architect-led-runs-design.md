@@ -559,6 +559,85 @@ Metrics per run, as queries over the D13 database (the scorecard's existing fiel
 Pass bar for `latest`: no quality metric worse than the baseline; wall time and idle % better; zero process-audit
 FAILs; zero landing parks.
 
+After stage 4, the experiments below are switched on one at a time, each measured on its own metric.
+
+## Experiments
+
+Five ideas from the owner, designed here. They are not part of 3.0's binding shape. Each is a profile flag
+(`experiments.<id>: true`, default off), is switched on **alone**, on top of the finished stage 4 (or the stage its
+prerequisite lands in), runs on the same replayed tasks, and is kept only if it beats the 14-run baseline and the
+stage-4 numbers on its named metric without making output quality worse. Otherwise it is switched off, and the result
+goes to `docs/dev/ideas.md` with its numbers. Two experiments are never measured in the same run.
+
+**E1. Race instead of escalate.** (targets tail latency: flash-class worker stalls of 29 and 55 min; a strong rung
+blocked 35 min twice)
+
+- When the architect marks a ledger task `race: true` (it is on the critical path), or a task's first attempt failed,
+  catherd starts the same brief on **two** cheap rungs at once, each in its own worktree (D5), from different
+  providers where the ladder allows it, so one quota hold or one provider's stall does not hit both.
+- The first attempt whose fast check passes on the merged result wins and is merged; the other is cancelled at once
+  (`task_cancel`), its tree removed. Both runs count toward cost and the attempts cap (D10).
+- If both fail with the same stall fingerprint, that is a stall (D10), not a reason to race again. A raced attempt
+  never touches an oracle (D9), so the winner is judged on the same tests as a single attempt.
+- Why it can pay: a flash-class worker succeeded 95% of the time at about $0.01 with a 6-minute median, so a second
+  copy costs cents and cuts the tail, where escalation pays for a slower, dearer rung after the stall already happened.
+- Risk: double writer slots on a tight memory cap. A race counts as two writers, and it does not start when it would
+  delay a non-raced task.
+- **Metric:** p90 task time (dispatch to merge) and cost per landed task.
+
+**E2. Speculative continuation.** (targets the check-sized idle: checks were ~35% of wall)
+
+- While a full check runs on integration head H, the architect may dispatch tasks that depend on H with
+  `delegate_task {from: H, speculative: true}`. They work in their own trees on top of the unverified head.
+- Green: nothing happens; they were simply early. Red: catherd tells each speculative task (a `queue` message) that
+  H failed, names the fix task, and once the fix merges, rebases each speculative branch onto the fixed head; a
+  rebase conflict goes back to that task's writer (D5). The architect may instead cancel them.
+- Speculative tasks never merge before H is green: `merge` holds them until it is.
+- Like a CPU's branch prediction, it pays when checks are mostly green. Measured, a red check is common enough
+  (the auto-rerun stayed red 19 of 22 times), so the architect is told to speculate only on tasks whose files do not
+  overlap the failing area, and the metric counts the waste honestly.
+- **Metric:** idle % and wasted dispatch minutes (speculative minutes later cancelled or redone after a red check).
+
+**E3. Fast checks on the affected tests only.** (targets fast-check minutes; prerequisite D6)
+
+- A task's fast check runs only the tests reachable from the symbols the task changed; the full check still runs once
+  on the integrated product (D6), and that is where an escape is caught.
+- The source of "affected" is pluggable, tried in order:
+  1. a code-graph MCP server configured in the profile (`experiments.affected.mcp`), for example a codebase-memory
+     graph with `trace_path` / `query_graph`: changed symbols → their callers → the test functions among them;
+  2. the test runner's own changed-files mode, declared per repo in knowledge (`vitest --changed <base>`,
+     `jest --changedSince`, `go test` over the changed packages with the shared build cache);
+  3. otherwise the plain fast check, unchanged.
+- The selection is written to the check result (which source, which tests), so a miss can be traced. A graph that is
+  stale for the task's commit is not used (the server reports its indexed commit; catherd compares it with the base).
+- **Metric:** fast-check minutes, and escaped failures: full-check failures in files a task's selected fast check
+  should have covered. Kept only if escapes stay at or below 1 per 10 merged tasks.
+
+**E4. Warm tree pool.** (targets dispatch start latency: tree ready → preflight took 89 min in sum over 42 trees)
+
+- catherd keeps one or two prepared worktrees per repo (dependencies installed, shared caches primed, the gitignored
+  `.env*` files copied), parked on the integration head.
+- A writer takes a pool tree; catherd resets it to the task's `from` ref (a fast-forward or a `git reset --hard` to
+  that ref, then an install only when the lockfile changed) and refills the pool in the background when the box has a
+  free slot. Pool trees count toward the memory cap; when the cap is tight, the pool is the first thing given up.
+- Trees from cancelled races (E1) or dropped speculation (E2) go back to the pool after a reset instead of being
+  removed.
+- **Metric:** dispatch start latency (request → the writer's first output), with the pool's disk and memory reported.
+
+**E5. Facts, not rules.** (targets the [judge] failure mode: the one accepted rule, GOCACHE in tree, slowed every check)
+
+- When a role discovers an environment fact (a cron wiping a cache, a flaky suite, a slow command, a port in use),
+  it reports it on the team channel with kind `fact` and its evidence (a command and its output, a log path).
+- catherd records it as a dated fact with the evidence: in the repo's knowledge file under `## Facts`
+  (`- 2026-10-27 — <fact> (evidence: <path or command>)`), and in memory (D14) when memory is on. A fact is shown to
+  roles as a fact, never phrased as an instruction, and catherd never turns one into a rule.
+- Rules for future briefs are written only by the owner (knowledge `## Rules`, by hand or `catherd knowledge`). The
+  2.0 rule review is already deleted (D15); this experiment measures whether facts alone prevent repeats.
+- A fact can be superseded: a later fact on the same subject is written with "supersedes <date>", and the old line
+  stays.
+- **Metric:** the rules count stays flat across runs (no rule written by catherd), and repeat incidents: the same
+  environment problem costing a run time after a fact about it was recorded.
+
 ## Rejected alternatives (whole-design)
 
 - **Keep the 2.0 machine and tune its transitions.** The 14 runs show the waste is the transitions themselves; each
