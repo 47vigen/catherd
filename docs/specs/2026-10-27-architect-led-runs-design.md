@@ -207,8 +207,9 @@ Options:
   worktree script already does this), else install with the shared cache. Tree setup keeps its 15-minute limit
   (`treeLimits.setupMs`). Submodules borrow objects from the main checkout's copy (`--reference --dissociate`:
   61 s → 5 s for credit's platform). LayerFS itself (a FUSE overlay with instant forks) is not adopted: it mounts
-  per tool call, which needs the harness to call it, and roles run in each vendor CLI as configured (native harness); it needs Linux FUSE and is
-  not yet crash-safe. Copy-on-write clones are not available either: the box's ext4 has no reflink (measured).
+  per tool call, which needs the harness to call it, and roles run in each vendor CLI as configured (native harness); no published plugin gives a
+  native CLI a workspace except by running the CLI inside LayerFS's Docker sandbox; and v1.1.0 is not durable
+  (`synchronous=OFF`, no fsync), has no garbage collection (issue #411), and shipped with its Linux FUSE gate not run. Copy-on-write clones are not available either: the box's ext4 has no reflink (measured).
 - **Merges are the daemon's, conflicts are the writer's** (Cursor: workers resolve their own conflicts; an
   integrator role made more bottlenecks than it solved). `merge` first merges the integration branch into the task
   branch inside the task's tree; a clean merge runs the fast check there and fast-forwards the integration branch.
