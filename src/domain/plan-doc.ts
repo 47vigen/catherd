@@ -24,9 +24,12 @@ export const TASK_REF = /^(?:([^\s#,]+)#)?(\d+(?:\.\d+)*[a-z]?)$/;
 /** An A-line the milestone's Check covers: it ends `(Check)`, a trailing `.` allowed. */
 export const CHECK_COVERED = /\(Check\)\s*\.?\s*$/i;
 
-/** An A-line about commit subjects or history, test-first evidence, or file scope: judged by no gate (plan 45). */
+/**
+ * An A-line about the work itself, not the product: the run's own commits, test-first evidence, or file scope.
+ * Judged by no gate (plan 45). Anchored to process wording, so "the panel shows the commit message" stays a product line.
+ */
 export const PROCESS_LINE =
-  /\bcommit (?:subject|message|title)s?\b|\bcommit history\b|\bin its own commit\b|\balone in (?:its|a) commit\b|\bred (?:run|evidence)\b|\bred before\b|\bbefore (?:the|its) (?:code|implementation)\b|\bfailed before\b|\bTDD\b|\btests? (?:written )?first\b|\b(?:diff|change|milestone|lane|work)\b[^.]{0,40}?\b(?:must|may|should) not (?:touch|change|modify|edit)\b|\b(?:touches|changes|modifies) only\b/i;
+  /\b(?:the|each|its|this) (?:lane|task|milestone)'s commits?\b|\bcommit (?:subject|message|title|history)s?(?= (?:is|are|must|should|reads?)\b)|\bin its own commit\b|\balone in (?:its|a) commit\b|\bred evidence\b|\bred (?:run|test)s? (?:first|before the code)\b|\bfailed before(?= (?:the|its) (?:code|implementation)\b)|\bTDD\b|\btests? (?:written )?first\b|\b(?:diff|lane|milestone)\b[^.]{0,40}?\b(?:must|may|should) not (?:touch|change|modify|edit)\b|\b(?:touch(?:es)?|changes|modifies) only (?:the )?files\b/i;
 
 export const A_LINE_OWNERS = ["worker", "reviewer", "verifier", "run"] as const;
 export type ALineOwner = (typeof A_LINE_OWNERS)[number];

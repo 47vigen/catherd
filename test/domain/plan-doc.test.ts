@@ -16,6 +16,7 @@ import {
   planInputNames,
   readsALine,
   resolveTask,
+  PROCESS_LINE,
 } from "../../src/domain/plan-doc.ts";
 
 describe("parsePlanDoc", () => {
@@ -184,6 +185,32 @@ it("CHECK_COVERED takes an A-line that ends (Check), a trailing period allowed",
   expect(covered.every((line) => CHECK_COVERED.test(line))).toBe(true);
   const uncovered = ["- A4 judged by eye", "- A5 (Check) and then more", "- A6 Check"];
   expect(uncovered.some((line) => CHECK_COVERED.test(line))).toBe(false);
+});
+
+it("PROCESS_LINE takes process wording about the work, and leaves product lines alone", () => {
+  const process = [
+    "A1 — each commit subject reads exactly `feat(kit): add pin`",
+    "A2 — red evidence: the new tests fail before the implementation",
+    "A3 — this diff may not touch files outside packages/kit",
+    "A4 — tests failed before the code",
+    "A5 — TDD all the way",
+    "A6 — commit subject reads feat: y",
+    "A7 — the lane's commits name the task",
+    "A8 — the parser lands in its own commit",
+    "A9 — a red run first, then the code",
+    "A10 — tests written first",
+    "A11 — the change touches only the files of packages/kit",
+  ];
+  expect(process.filter((l) => !PROCESS_LINE.test(l))).toEqual([]);
+  const product = [
+    "A1 — Saving changes only the edited row",
+    "A2 — the panel shows the commit message of each run",
+    "A3 — the CLI prints the commit subject",
+    "A4 — a schema change must not change existing rows",
+    "A5 — the hook rejects a red run before push",
+    "A6 — the CLI does not modify files outside the target directory",
+  ];
+  expect(product.filter((l) => PROCESS_LINE.test(l))).toEqual([]);
 });
 
 it("baselineItems reads the section and the preamble", () => {
