@@ -215,7 +215,7 @@ export async function updateSubmodules(repo: string, timeoutMs?: number): Promis
     const borrow = existsSync(local) ? ["--reference", local, "--dissociate"] : [];
     last = await gitRun(
       repo,
-      ["submodule", "update", "--recursive", ...borrow, "--", m[2] as string],
+      ["submodule", "update", "--init", "--recursive", ...borrow, "--", m[2] as string],
       timeoutMs,
     );
     if (last.code !== 0) return last;

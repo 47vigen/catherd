@@ -358,4 +358,28 @@ describe("updateSubmodules", () => {
     }).trim();
     expect(existsSync(join(gitDir, "objects/info/alternates"))).toBe(false);
   });
+
+  it("populates nested submodules too", async () => {
+    const { repo: nested, origin: nestedOrigin } = repoWithOrigin();
+    const { repo: sub, origin: subOrigin } = repoWithOrigin();
+    const superRepo = tempRepo();
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = "protocol.file.allow";
+    process.env.GIT_CONFIG_VALUE_0 = "always";
+    const run = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });
+    writeFileSync(join(nested, "deep.txt"), "deep\n");
+    run(nested, "add", "deep.txt");
+    run(nested, "commit", "-q", "-m", "deep");
+    run(nested, "push", "-q", "origin", "HEAD");
+    run(sub, "submodule", "add", "-q", nestedOrigin, "nested");
+    run(sub, "commit", "-q", "-m", "add nested");
+    run(sub, "push", "-q", "origin", "HEAD");
+    run(superRepo, "submodule", "add", "-q", subOrigin, "lib");
+    run(superRepo, "commit", "-q", "-m", "add lib");
+    const tree = join(mkdtempSync(join(tmpdir(), "catherd-subtree-")), "t");
+    run(superRepo, "worktree", "add", "-q", tree);
+    const r = await updateSubmodules(tree, 30_000);
+    expect(r.code).toBe(0);
+    expect(existsSync(join(tree, "lib/nested/deep.txt"))).toBe(true);
+  });
 });
