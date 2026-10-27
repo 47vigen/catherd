@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parsePorcelainZ, type Snapshot } from "../domain/changes.ts";
 import { CatherdError } from "../domain/errors.ts";
@@ -188,6 +188,39 @@ export async function gitRun(repo: string, args: string[], timeoutMs = 300_000):
     err: timedOut ? "" : await err,
     timedOut,
   };
+}
+
+/**
+ * `git submodule update --init --recursive`, borrowing each submodule's objects from the main checkout's copy at
+ * `<common-dir>/modules/<name>` when it has one; `--dissociate` keeps the tree from depending on it afterwards.
+ * Returns the first failing step, else the last one.
+ */
+export async function updateSubmodules(repo: string, timeoutMs?: number): Promise<GitOutput> {
+  const init = await gitRun(repo, ["submodule", "init"], timeoutMs);
+  if (init.code !== 0) return init;
+  const common = await gitRun(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"], timeoutMs);
+  if (common.code !== 0) return common;
+  const paths = await gitRun(repo, [
+    "config",
+    "-f",
+    ".gitmodules",
+    "--get-regexp",
+    "^submodule\\..*\\.path$",
+  ]);
+  let last = init;
+  for (const line of paths.out.split("\n").filter(Boolean)) {
+    const m = /^submodule\.(.+)\.path (.+)$/.exec(line);
+    if (!m) continue;
+    const local = join(common.out.trim(), "modules", m[1] as string);
+    const borrow = existsSync(local) ? ["--reference", local, "--dissociate"] : [];
+    last = await gitRun(
+      repo,
+      ["submodule", "update", "--recursive", ...borrow, "--", m[2] as string],
+      timeoutMs,
+    );
+    if (last.code !== 0) return last;
+  }
+  return last;
 }
 
 /**

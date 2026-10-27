@@ -28,7 +28,15 @@ import { quotaUsage } from "../domain/select.ts";
 import { laneSlack } from "../domain/slack.ts";
 import { lanesOf, milestoneOf, ownerOfFile, type RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
-import { currentBranch, fetchBase, gitOrigin, gitRun, isAncestor, worktreeIdentity } from "../infra/git.ts";
+import {
+  currentBranch,
+  fetchBase,
+  gitOrigin,
+  gitRun,
+  isAncestor,
+  updateSubmodules,
+  worktreeIdentity,
+} from "../infra/git.ts";
 import { heavyLimits, heavySlots, LOCK_HELD_ENV, type LockWait, withHeavySlot } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
 import { writeTextAtomic } from "../infra/store.ts";
@@ -1193,7 +1201,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       const head = await gitRun(repo, ["rev-parse", "HEAD"]);
       if (head.code !== 0) throw new Error(`git rev-parse HEAD failed: ${tailOf(head.err)}`);
       // a merge can move a submodule pointer; setup runs once per tree, so the checkout follows here (plan 43 D17)
-      const sub = await gitRun(repo, ["submodule", "update", "--init", "--recursive"], effectLimits.commitMs);
+      const sub = await updateSubmodules(repo, effectLimits.commitMs);
       if (sub.code !== 0)
         throw new Error(`git submodule update failed: ${tailOf(`${sub.out}\n${sub.err}`, 5)}`);
       return void (await append({

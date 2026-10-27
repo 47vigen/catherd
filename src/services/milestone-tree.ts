@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { milestoneBranch, planSetup } from "../domain/branch.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { availableMemoryMb } from "../infra/memory.ts";
-import { currentBranch, fetchBase, git, gitRun } from "../infra/git.ts";
+import { currentBranch, fetchBase, git, gitRun, updateSubmodules } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { ensurePrivateDir } from "../infra/store.ts";
 import { checkBase } from "./milestone-check.ts";
@@ -75,7 +75,7 @@ async function setUp(deps: Deps, run: Run, tree: string): Promise<void> {
   const env = await checkEnvFor(run.meta.repo);
   await withHeavySlot(heavySlots(runProfile(deps, run).heavy), async (_slot, tmp) => {
     if (submodules) {
-      const r = await gitRun(tree, ["submodule", "update", "--init", "--recursive"], treeLimits.setupMs);
+      const r = await updateSubmodules(tree, treeLimits.setupMs);
       if (r.code !== 0)
         throw tree_(
           `git submodule update failed in ${tree}: ${r.timedOut ? "timed out" : tail(`${r.out}${r.err}`)}`,
