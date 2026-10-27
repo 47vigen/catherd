@@ -295,8 +295,10 @@ Options:
   with no `rung`, the daemon takes the first rung on the reviewer ladder whose model family differs from the
   author's (Cognition: same-family judges share errors). One reviewer per call; a second only when the architect
   asks for one ([dupes]). Other tasks keep running while it reviews.
-- **ui-reviewer** only for a task whose diff touches the screens the architect names in the call ([barrier]: 17 of
-  26 ui-reviews found no bug, and it was the slow side of every pair).
+- **The ui-reviewer folds into the reviewer** (Anthropic, "When to fold subagents into your main agent loop",
+  2026-10: a separate loop must earn its context; [barrier]: 17 of 26 ui-reviews found no bug, and it was the slow
+  side of every pair). A UI pass is a reviewer call whose brief names the screens to open; the reviewer's ladder
+  needs an image-capable rung for it. The `ui-reviewer` role and its ladder are dropped from profiles (D16).
 - **Verifier.** Once, on the integrated product, before `land {final}`. It runs the acceptance commands that the
   full check does not cover and reads the full check's result for the rest; its verdict carries the commands it ran
   (the existing `RAN:` lines), and a verdict with no command run on a runnable acceptance line is not a PASS. Plan 45
@@ -603,7 +605,8 @@ rather than starting a 3.0. The changesets are `minor`, as plan 45's is, while t
   `next` build with the old event schema: it imports it read-only once it has finished (D13) for `status`, `result`
   and the panel, and tells the owner to finish it with the build that started it (`npx catherd-cli@<that version>`).
   1.5 runs keep 2.0's rule (finish them on `catherd-cli@1`).
-- **Profiles** stay files (D13). `ProfileService` migrates them on first read, schema-versioned as today: drop `judge` and its rungs, drop
+- **Profiles** stay files (D13). `ProfileService` migrates them on first read, schema-versioned as today: drop `judge` and its rungs, drop `ui-reviewer` and its rungs (an image-capable one is appended to the reviewer's
+  ladder when the reviewer has none), drop
   `decision` and `bars`; each role's rungs become its ladder in their current intelligence order; give the architect
   `workspace-write`; add `caps` with D10's defaults and the standing-role cap, and an empty `memory` block (memory off until
   configured, D14). `profile validate` names every dropped
@@ -632,6 +635,10 @@ Metrics per run, as queries over the D13 database (the scorecard's existing fiel
 
 Pass bar for `latest`: no quality metric worse than the baseline; wall time and idle % better; zero process-audit
 FAILs; zero landing parks.
+
+How a stage is compared (the same guide's fold method): the same tasks, each run at least twice, compared **per task**
+and not only in aggregate (a regression can show in one of two runs); every stage's eval covers each role the stage
+changed. A stage whose per-task results are worse on a task is not kept until that task is understood.
 
 After stage 4, the experiments below are switched on one at a time, each measured on its own metric.
 
