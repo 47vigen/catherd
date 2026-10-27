@@ -47,7 +47,7 @@ dispatch's model and effort ("rungs", written `backend:model#effort`). npm packa
   `next` dist-tag (the `beta` branch is retired). CONTRIBUTING.md, "Releases" and "Next channel", has the flow.
   `1.x` gets bug fixes only (CONTRIBUTING.md, "Maintenance line (1.x)"); `latest` moves only through the "chore:
   release catherd" PR, after the scorecard passes on the `@next` build and the owner says so.
-- Cursor stays; Grok Build and Antigravity were removed in 2.0 (git keeps them).
+- Cursor was retired on 2026-10-27 (plan 45), as Grok Build and Antigravity were in 2.0; git keeps them.
 
 ## Autopilot: executing plans end to end
 

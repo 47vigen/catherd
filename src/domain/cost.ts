@@ -12,7 +12,6 @@ export const DEFAULT_BILLING: Record<BillingKey, BillingMode> = {
   "claude-code": "claude-plan",
   "opencode-go": "subscription",
   opencode: "metered",
-  cursor: "metered",
 };
 
 /**

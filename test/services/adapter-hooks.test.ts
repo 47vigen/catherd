@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter, Outcome } from "../../src/adapters/backend.ts";
-import { cursorAdapter } from "../../src/adapters/cursor/index.ts";
+import { opencodeAdapter } from "../../src/adapters/opencode/index.ts";
 import { adapterFor, registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
 import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
@@ -34,8 +34,8 @@ import { deadProcess, fakeDeps, fakeDispatch, freshRun, makeRecord, testView, wa
 
 afterEach(snapshotEnv());
 afterEach(() => {
-  // the fake adapter stands under Cursor's id: put the real one back
-  registerAdapter(cursorAdapter);
+  // the fake adapter stands under opencode's id: put the real one back
+  registerAdapter(opencodeAdapter);
   claimSeams.beforeTakeover = async () => {};
   settleLimits.timeoutMs = 20_000;
   settleLimits.claimMarginMs = 10_000;
@@ -54,10 +54,10 @@ const OK: Outcome = {
   reply: "streamed\nSTATUS: complete — from the stream",
 };
 
-/** A stand-in backend: "cursor" has no real adapter until 1.1, so the test owns the id. */
+/** A stand-in backend under the "opencode" id; afterEach puts the real adapter back. */
 function fake(over: Partial<BackendAdapter> = {}): BackendAdapter {
   const a: BackendAdapter = {
-    id: "cursor",
+    id: "opencode",
     minVersion: "0.0.0",
     probe: async () => ({ installed: true, version: "1.0.0", versionOk: true, loggedIn: true, problems: [] }),
     listModels: async () => [],
@@ -80,7 +80,7 @@ const input = (over: Partial<AdmitInput> = {}): AdmitInput => ({
   role: "worker",
   name: "worker-1",
   brief: "b",
-  rung: "cursor:go-m1#default",
+  rung: "opencode:go-m1#default",
   thread: null,
   lane: null,
   failoverFrom: null,
@@ -99,24 +99,24 @@ async function refusal(p: Promise<unknown>): Promise<string> {
 function setup(failover: Record<string, string> = {}) {
   const { run } = freshRun();
   const view = testView({ failover });
-  view.roles.worker = { enabled: true, access: "workspace-write", rungs: ["cursor:go-m1#default"] };
+  view.roles.worker = { enabled: true, access: "workspace-write", rungs: ["opencode:go-m1#default"] };
   return { run, deps: fakeDeps({ view }) };
 }
 
 describe("the adapter's default stand-in (spec §4.5)", () => {
   it("is the profile's stand-in when there is one, else the adapter's, else none", () => {
     fake();
-    expect(standInFor({}, "cursor:go-m1#high")).toBe("cursor:zen-m1#high");
-    expect(standInFor({ "cursor:go-m1#high": "codex:gpt-6-sol#high" }, "cursor:go-m1#high")).toBe(
+    expect(standInFor({}, "opencode:go-m1#high")).toBe("opencode:zen-m1#high");
+    expect(standInFor({ "opencode:go-m1#high": "codex:gpt-6-sol#high" }, "opencode:go-m1#high")).toBe(
       "codex:gpt-6-sol#high",
     );
-    expect(standInFor({}, "cursor:zen-m1#high")).toBeNull();
+    expect(standInFor({}, "opencode:zen-m1#high")).toBeNull();
     expect(standInFor({}, "not a rung")).toBeNull();
   });
 
   it("takes the profile's stand-in, else the adapter's, and pairs nothing", () => {
-    expect(standInFor({}, "cursor:grok-4.7#high")).toBeNull();
-    expect(standInFor({}, "cursor:gemini-3.8-flash#high")).toBeNull();
+    expect(standInFor({}, "opencode:grok-4.7#high")).toBeNull();
+    expect(standInFor({}, "opencode:gemini-3.8-flash#high")).toBeNull();
   });
 
   it("passes admission for a ladder rung, and no other rung of that backend does", async () => {
@@ -124,18 +124,18 @@ describe("the adapter's default stand-in (spec §4.5)", () => {
     const { run, deps } = setup();
     expect(
       await refusal(
-        admit(deps, run, input({ rung: "cursor:zen-m1#default", failoverFrom: "cursor:go-m1#default" })),
+        admit(deps, run, input({ rung: "opencode:zen-m1#default", failoverFrom: "opencode:go-m1#default" })),
       ),
     ).toBe("admitted");
-    expect(await refusal(admit(deps, run, input({ name: "w2", rung: "cursor:zen-m9#default" })))).toBe(
+    expect(await refusal(admit(deps, run, input({ name: "w2", rung: "opencode:zen-m9#default" })))).toBe(
       "E_ADMIT_RUNG",
     );
   });
 
   it("gives way to the profile's own stand-in", async () => {
     fake();
-    const { run, deps } = setup({ "cursor:go-m1#default": "codex:gpt-6-sol#high" });
-    expect(await refusal(admit(deps, run, input({ rung: "cursor:zen-m1#default" })))).toBe("E_ADMIT_RUNG");
+    const { run, deps } = setup({ "opencode:go-m1#default": "codex:gpt-6-sol#high" });
+    expect(await refusal(admit(deps, run, input({ rung: "opencode:zen-m1#default" })))).toBe("E_ADMIT_RUNG");
   });
 });
 
@@ -152,7 +152,7 @@ describe("prepare", () => {
     expect(await refusal(admit(deps, run, input()))).toBe("E_BACKEND_MODEL_UNKNOWN");
     expect(seen).toEqual([
       {
-        rung: { backend: "cursor", model: "go-m1", effort: "default" },
+        rung: { backend: "opencode", model: "go-m1", effort: "default" },
         access: "workspace-write",
         isolated: false,
         repo: run.meta.repo,
@@ -175,8 +175,8 @@ describe("prepare", () => {
       run,
       makeRecord({
         dispatchId: "D0",
-        backend: "cursor",
-        rung: "cursor:go-m1#default",
+        backend: "opencode",
+        rung: "opencode:go-m1#default",
         thread: "th-7",
         isolated: true,
       }),
@@ -189,8 +189,8 @@ describe("prepare", () => {
       earlier,
       makeRecord({
         dispatchId: "E0",
-        backend: "cursor",
-        rung: "cursor:go-m1#default",
+        backend: "opencode",
+        rung: "opencode:go-m1#default",
         thread: "th-8",
         isolated: true,
       }),
@@ -208,7 +208,7 @@ describe("prepare", () => {
     expect(isCatherdError(err) && err.toJSON()).toMatchObject({
       code: "E_IO_UNEXPECTED",
       message: expect.stringContaining("50 ms"),
-      fix: expect.stringContaining("cursor"),
+      fix: expect.stringContaining("opencode"),
     });
     expect(existsSync(roleDir(run, "worker-1"))).toBe(false);
   });
@@ -232,7 +232,7 @@ describe("a backend that cannot run or is logged out (spec 1.3 §3.3)", () => {
           throw execFormat(how);
         },
       });
-      const p = await probeBackend(adapterFor("cursor") as BackendAdapter);
+      const p = await probeBackend(adapterFor("opencode") as BackendAdapter);
       expect(p).toEqual({
         installed: true,
         version: null,
@@ -241,13 +241,13 @@ describe("a backend that cannot run or is logged out (spec 1.3 §3.3)", () => {
         problems: [
           {
             code: "E_BACKEND_CANNOT_RUN",
-            message: `cursor is installed but cannot run on this OS: ${how === "code" ? "/home/u/.grok/bin/grok" : "exec format error"}`,
+            message: `opencode is installed but cannot run on this OS: ${how === "code" ? "/home/u/.grok/bin/grok" : "exec format error"}`,
             fix: "curl -fsSL https://example.invalid/install.sh | bash",
           },
         ],
       });
       let err: unknown;
-      await readyAdapter("cursor").catch((e: unknown) => (err = e));
+      await readyAdapter("opencode").catch((e: unknown) => (err = e));
       expect(isCatherdError(err) && err.code).toBe("E_BACKEND_CANNOT_RUN");
     }
     // any other failure of a probe is not this one
@@ -256,7 +256,7 @@ describe("a backend that cannot run or is logged out (spec 1.3 §3.3)", () => {
         throw new Error("boom");
       },
     });
-    expect(probeBackend(adapterFor("cursor") as BackendAdapter)).rejects.toThrow("boom");
+    expect(probeBackend(adapterFor("opencode") as BackendAdapter)).rejects.toThrow("boom");
   });
 
   it("shows it in doctor's backend row as cannot run, with the reinstall command", async () => {
@@ -267,10 +267,10 @@ describe("a backend that cannot run or is logged out (spec 1.3 §3.3)", () => {
       },
     });
     const rows = await backendChecks(new Map(), []);
-    expect(rows.find((r) => r.id === "backend:cursor")).toMatchObject({
+    expect(rows.find((r) => r.id === "backend:opencode")).toMatchObject({
       state: "skip",
       word: "cannot run",
-      fix: "reinstall cursor for this OS",
+      fix: "reinstall opencode for this OS",
     });
   });
 
@@ -285,7 +285,7 @@ describe("a backend that cannot run or is logged out (spec 1.3 §3.3)", () => {
           versionOk: true,
           loggedIn: false,
           problems: [
-            { code: "E_BACKEND_NOT_LOGGED_IN", message: "cursor is not logged in", fix: "cursor login" },
+            { code: "E_BACKEND_NOT_LOGGED_IN", message: "opencode is not logged in", fix: "opencode login" },
           ],
         };
       },
@@ -301,20 +301,24 @@ describe("a backend that cannot run or is logged out (spec 1.3 §3.3)", () => {
 
 describe("doctor's access probes on a new backend (spec 1.3 §3.4)", () => {
   const onIt = [
-    resolveProfile({ schema: 1, roles: { worker: { rungs: ["cursor:go-m1#default"] } } }, "p", "claude-code"),
+    resolveProfile(
+      { schema: 1, roles: { worker: { rungs: ["opencode:go-m1#default"] } } },
+      "p",
+      "claude-code",
+    ),
   ];
 
   it("says a backend with no sandbox runner is not tested, and why, without spending a model turn", async () => {
     fake();
-    const rows = await accessChecks(onIt, new Set(["cursor"]));
-    expect(rows.filter((r) => r.id === "access:cursor")).toEqual([
+    const rows = await accessChecks(onIt, new Set(["opencode"]));
+    expect(rows.filter((r) => r.id === "access:opencode")).toEqual([
       {
-        id: "access:cursor",
-        label: "cursor worker access",
+        id: "access:opencode",
+        label: "opencode worker access",
         state: "skip",
         word: "not tested",
         detail:
-          "no way to run a shell in cursor's sandbox without a model turn; the live kit (docs/dev/live-verification.md) runs the five probes as one worker turn",
+          "no way to run a shell in opencode's sandbox without a model turn; the live kit (docs/dev/live-verification.md) runs the five probes as one worker turn",
       },
     ]);
   });
@@ -324,38 +328,42 @@ describe("doctor's access probes on a new backend (spec 1.3 §3.4)", () => {
     process.env.CATHERD_PROBE_DOCKER = "catherd-no-docker-here";
     fake({
       accessShell: async () => ({
-        how: "cursor's sandbox",
+        how: "opencode's sandbox",
         run: async (_script, args) =>
           args[0] === locksDir()
             ? { ok: false, out: "", err: "touch: Operation not permitted" }
             : { ok: true, out: "", err: "" },
         close: () => {},
-        fixes: { lock: "add it to additionalReadwritePaths in ~/.cursor/sandbox.json" },
+        fixes: { lock: "add it to additionalReadwritePaths in ~/.opencode/sandbox.json" },
       }),
     });
-    const row = (await accessChecks(onIt, new Set(["cursor"]))).find((r) => r.id === "access:cursor");
+    const row = (await accessChecks(onIt, new Set(["opencode"]))).find((r) => r.id === "access:opencode");
     expect(row).toMatchObject({
-      id: "access:cursor",
+      id: "access:opencode",
       state: "warn",
       word: "blocked",
-      detail: "in cursor's sandbox, a worker cannot: lock-dir write (touch: Operation not permitted)",
-      fix: "lock-dir write: add it to additionalReadwritePaths in ~/.cursor/sandbox.json",
+      detail: "in opencode's sandbox, a worker cannot: lock-dir write (touch: Operation not permitted)",
+      fix: "lock-dir write: add it to additionalReadwritePaths in ~/.opencode/sandbox.json",
     });
   });
 });
 
 describe("an isolated backend's API key (spec 1.3 §8)", () => {
-  const isolated = resolveProfile({ schema: 1, harness: { cursor: { isolated: true } } }, "p", "claude-code");
+  const isolated = resolveProfile(
+    { schema: 1, harness: { opencode: { isolated: true } } },
+    "p",
+    "claude-code",
+  );
   const MISSING = {
-    path: "harness.cursor.isolated",
-    message: "an isolated cursor run needs CURSOR_API_KEY, which catherd's environment does not have",
-    fix: "export CURSOR_API_KEY=<key>, or catherd profile set harness.cursor.isolated false",
+    path: "harness.opencode.isolated",
+    message: "an isolated opencode run needs FAKE_API_KEY, which catherd's environment does not have",
+    fix: "export FAKE_API_KEY=<key>, or catherd profile set harness.opencode.isolated false",
   };
 
   it("is an error while an isolated backend's key is not set, and nothing once it is or while native", () => {
-    fake({ isolationKey: "CURSOR_API_KEY" });
+    fake({ isolationKey: "FAKE_API_KEY" });
     expect(isolationKeyErrors(isolated, {})).toEqual([MISSING]);
-    expect(isolationKeyErrors(isolated, { CURSOR_API_KEY: "k" })).toEqual([]);
+    expect(isolationKeyErrors(isolated, { FAKE_API_KEY: "k" })).toEqual([]);
     expect(isolationKeyErrors(resolveProfile({ schema: 1 }, "p", "claude-code"), {})).toEqual([]);
     // a backend that isolates without a key of its own
     fake();
@@ -364,20 +372,20 @@ describe("an isolated backend's API key (spec 1.3 §8)", () => {
 
   it("refuses a save that isolates the backend with no key, naming the export", () => {
     withHome();
-    fake({ isolationKey: "CURSOR_API_KEY" });
-    delete process.env.CURSOR_API_KEY;
-    const r = patchProfile("default", { harness: { cursor: { isolated: true } } }, { host: "claude-code" });
+    fake({ isolationKey: "FAKE_API_KEY" });
+    delete process.env.FAKE_API_KEY;
+    const r = patchProfile("default", { harness: { opencode: { isolated: true } } }, { host: "claude-code" });
     expect(r.saved).toBe(false);
     expect(r.errors).toContainEqual(MISSING);
-    process.env.CURSOR_API_KEY = "key-for-test";
+    process.env.FAKE_API_KEY = "key-for-test";
     expect(
-      patchProfile("default", { harness: { cursor: { isolated: true } } }, { host: "claude-code" }).saved,
+      patchProfile("default", { harness: { opencode: { isolated: true } } }, { host: "claude-code" }).saved,
     ).toBe(true);
   });
 });
 
 describe("a dollar budget a backend cannot see (spec §4.6)", () => {
-  const GO = "cursor:go-m1#default";
+  const GO = "opencode:go-m1#default";
   const blind = (b: string, roles: string) => ({
     path: "budget.usd",
     message: `budget.usd will not see ${b}'s spend: ${b} reports no dollar cost (${roles} run on it)`,
@@ -405,10 +413,10 @@ describe("a dollar budget a backend cannot see (spec §4.6)", () => {
 
   it("warns once per backend that reports no cost, naming the enabled roles on it", () => {
     fake();
-    expect(budgetUsdWarnings(onFake({ usd: 5 }))).toEqual([blind("cursor", "worker, reviewer")]);
+    expect(budgetUsdWarnings(onFake({ usd: 5 }))).toEqual([blind("opencode", "worker, reviewer")]);
     // codex, the real adapter, reports no dollars either
     expect(budgetUsdWarnings(onFake({ usd: 5 }, true))).toEqual([
-      blind("cursor", "worker, reviewer"),
+      blind("opencode", "worker, reviewer"),
       blind("codex", "ui-reviewer, artist, writer, researcher"),
     ]);
   });
@@ -425,7 +433,7 @@ describe("a dollar budget a backend cannot see (spec §4.6)", () => {
       "claude-code",
     );
     expect(budgetUsdWarnings(off).map((w) => w.message)).not.toContainEqual(
-      expect.stringContaining("cursor"),
+      expect.stringContaining("opencode"),
     );
   });
 
@@ -448,7 +456,7 @@ describe("a dollar budget a backend cannot see (spec §4.6)", () => {
       "p",
       "claude-code",
     );
-    expect(budgetUsdWarnings(standIn)).toEqual([blind("cursor", "worker")]);
+    expect(budgetUsdWarnings(standIn)).toEqual([blind("opencode", "worker")]);
   });
 
   it("never blocks a save, and the save carries the warning", () => {
@@ -470,7 +478,10 @@ describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", 
     resolveProfile(
       {
         schema: 1,
-        roles: { reviewer: { rungs: ["codex:gpt-6-sol#high"] }, writer: { rungs: ["cursor:go-m1#default"] } },
+        roles: {
+          reviewer: { rungs: ["codex:gpt-6-sol#high"] },
+          writer: { rungs: ["opencode:go-m1#default"] },
+        },
         harness,
         failover,
       },
@@ -479,24 +490,24 @@ describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", 
     );
   const NATIVE = {
     path: "failover.codex:gpt-6-sol#high",
-    message: "cursor:go-m1#default: native cursor cannot hold the reviewer role to read-only",
-    fix: "isolate cursor (catherd profile set harness.cursor.isolated true), or put this role on another backend",
+    message: "opencode:go-m1#default: native opencode cannot hold the reviewer role to read-only",
+    fix: "isolate opencode (catherd profile set harness.opencode.isolated true), or put this role on another backend",
   };
 
   it("is an error for a role at that access on the native harness, a failover stand-in's included", () => {
     fake({ isolatedOnly: ["read-only"] });
     // the writer (workspace-write) runs natively as it likes; the reviewer fails over onto the backend
     expect(isolatedOnlyErrors(reviewerOn({}))).toEqual([]);
-    expect(isolatedOnlyErrors(reviewerOn({}, { "codex:gpt-6-sol#high": "cursor:go-m1#default" }))).toEqual([
+    expect(isolatedOnlyErrors(reviewerOn({}, { "codex:gpt-6-sol#high": "opencode:go-m1#default" }))).toEqual([
       NATIVE,
     ]);
     expect(
       isolatedOnlyErrors(
-        reviewerOn({ cursor: { isolated: true } }, { "codex:gpt-6-sol#high": "cursor:go-m1#default" }),
+        reviewerOn({ opencode: { isolated: true } }, { "codex:gpt-6-sol#high": "opencode:go-m1#default" }),
       ),
     ).toEqual([]);
     const onIt = resolveProfile(
-      { schema: 1, roles: { reviewer: { rungs: ["cursor:go-m1#default"] } } },
+      { schema: 1, roles: { reviewer: { rungs: ["opencode:go-m1#default"] } } },
       "p",
       "claude-code",
     );
@@ -510,7 +521,7 @@ describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", 
     fake({ isolatedOnly: ["read-only"] });
     const r = patchProfile(
       "default",
-      { roles: { reviewer: { rungs: ["cursor:go-m1#default"] } } },
+      { roles: { reviewer: { rungs: ["opencode:go-m1#default"] } } },
       { host: "claude-code" },
     );
     expect(r.saved).toBe(false);
@@ -527,23 +538,23 @@ describe("doctor's quota row (spec 1.3 §6.6)", () => {
       return "Weekly quota: 62% left";
     };
     fake({ quota });
-    expect((await backendChecks(new Map(), [])).find((r) => r.id === "quota:cursor")).toEqual({
-      id: "quota:cursor",
-      label: "cursor quota",
+    expect((await backendChecks(new Map(), [])).find((r) => r.id === "quota:opencode")).toEqual({
+      id: "quota:opencode",
+      label: "opencode quota",
       state: "info",
       word: "quota",
       detail: "Weekly quota: 62% left",
     });
     const loggedOut = { installed: true, version: "1.0.0", versionOk: true, loggedIn: false, problems: [] };
     fake({ quota, probe: async () => loggedOut });
-    expect((await backendChecks(new Map(), [])).some((r) => r.id === "quota:cursor")).toBe(false);
+    expect((await backendChecks(new Map(), [])).some((r) => r.id === "quota:opencode")).toBe(false);
     expect(asked).toBe(1);
     fake({
       quota: async () => {
         throw new Error("no answer");
       },
     });
-    expect((await backendChecks(new Map(), [])).some((r) => r.id === "quota:cursor")).toBe(false);
+    expect((await backendChecks(new Map(), [])).some((r) => r.id === "quota:opencode")).toBe(false);
   });
 });
 
@@ -554,10 +565,10 @@ describe("a backend that keeps a thread's access (spec 1.3 §3.2)", () => {
     const seen: unknown[] = [];
     fake({ resume: KEEPS, prepare: async (r) => void seen.push(r) });
     const { run, deps } = setup();
-    deps.view.roles.reviewer = { enabled: true, access: "read-only", rungs: ["cursor:go-m1#default"] };
+    deps.view.roles.reviewer = { enabled: true, access: "read-only", rungs: ["opencode:go-m1#default"] };
     await appendRecord(
       run,
-      makeRecord({ dispatchId: "D0", backend: "cursor", rung: "cursor:go-m1#default", thread: "th-7" }),
+      makeRecord({ dispatchId: "D0", backend: "opencode", rung: "opencode:go-m1#default", thread: "th-7" }),
     );
     let err: unknown;
     await admit(deps, run, input({ role: "reviewer", name: "reviewer-1", thread: "th-7" })).catch(
@@ -566,7 +577,7 @@ describe("a backend that keeps a thread's access (spec 1.3 §3.2)", () => {
     expect(isCatherdError(err) && err.toJSON()).toEqual({
       code: "E_ADMIT_THREAD",
       message:
-        "cursor keeps the access a thread started with: th-7 ran workspace-write, and the reviewer role runs read-only",
+        "opencode keeps the access a thread started with: th-7 ran workspace-write, and the reviewer role runs read-only",
       fix: "dispatch a fresh thread (omit `thread`)",
     });
     expect(seen).toEqual([]);
@@ -581,14 +592,14 @@ describe("a backend that keeps a thread's access (spec 1.3 §3.2)", () => {
     fake({ resume: KEEPS, prepare: async (r) => void seen.push(r) });
     const { run, deps } = setup();
     deps.view.roles.worker = { ...deps.view.roles.worker!, network: false };
-    const on = { backend: "cursor", rung: "cursor:go-m1#default" };
+    const on = { backend: "opencode", rung: "opencode:go-m1#default" };
     await appendRecord(run, makeRecord({ ...on, dispatchId: "D0", thread: "th-7", network: true }));
     let err: unknown;
     await admit(deps, run, input({ thread: "th-7" })).catch((e: unknown) => (err = e));
     expect(isCatherdError(err) && err.toJSON()).toEqual({
       code: "E_ADMIT_THREAD",
       message:
-        "cursor keeps the network grant a thread started with: th-7 ran with the network, and the worker role runs without it",
+        "opencode keeps the network grant a thread started with: th-7 ran with the network, and the worker role runs without it",
       fix: "dispatch a fresh thread (omit `thread`)",
     });
     expect(seen).toEqual([]);
@@ -615,18 +626,18 @@ describe("a backend that keeps a thread's access (spec 1.3 §3.2)", () => {
   it("resumes under any access on a backend that applies each run's own flags", async () => {
     fake();
     const { run, deps } = setup();
-    deps.view.roles.reviewer = { enabled: true, access: "read-only", rungs: ["cursor:go-m1#default"] };
+    deps.view.roles.reviewer = { enabled: true, access: "read-only", rungs: ["opencode:go-m1#default"] };
     deps.view.roles.worker = { ...deps.view.roles.worker!, network: false };
     await appendRecord(
       run,
-      makeRecord({ dispatchId: "D0", backend: "cursor", rung: "cursor:go-m1#default", thread: "th-7" }),
+      makeRecord({ dispatchId: "D0", backend: "opencode", rung: "opencode:go-m1#default", thread: "th-7" }),
     );
     await appendRecord(
       run,
       makeRecord({
         dispatchId: "D1",
-        backend: "cursor",
-        rung: "cursor:go-m1#default",
+        backend: "opencode",
+        rung: "opencode:go-m1#default",
         thread: "th-8",
         network: true,
       }),
@@ -665,7 +676,7 @@ describe("finalize with a streamed reply and a settled session", () => {
   const dispatchOn = (run: ReturnType<typeof freshRun>["run"], thread: string | null) =>
     fakeDispatch(
       run,
-      { backend: "cursor", rung: "cursor:go-m1#default", thread, lane: null, owns: [] },
+      { backend: "opencode", rung: "opencode:go-m1#default", thread, lane: null, owns: [] },
       { proc: "dead", exit },
     );
 
@@ -831,7 +842,7 @@ describe("finalize with a streamed reply and a settled session", () => {
     fake({ settle: () => new Promise(() => {}) });
     const { run } = freshRun();
     expect((await finalizeDispatch(run, await dispatchOn(run, null))).tokens).toEqual(OK.tokens);
-    unregisterAdapter("cursor");
+    unregisterAdapter("opencode");
     fake({ settle: async () => Promise.reject(new Error("api down")) });
     expect((await finalizeDispatch(run, await dispatchOn(run, null))).tokens).toEqual(OK.tokens);
   });

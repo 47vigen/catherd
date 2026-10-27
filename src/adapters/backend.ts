@@ -18,7 +18,7 @@ export interface Probe {
   /** the billing mode that login implies, when it implies one: doctor compares it with the profiles' */
   billing?: BillingMode;
   problems: { code: ErrorCode; message: string; fix: string }[];
-  /** what doctor shows as information, nothing to fix (spec 1.3 §4.7: an `agent` on PATH that is not Cursor) */
+  /** what doctor shows as information, nothing to fix (spec 1.3 §4.7) */
   info?: { id: string; label: string; detail: string }[];
 }
 
@@ -180,7 +180,7 @@ export interface BackendAdapter {
   isolationNote?: string;
   /**
    * Spec 1.3 §8: the env variable an isolated run logs in with, when isolation moves the CLI's home away from
-   * the user's login (`CURSOR_API_KEY`); an isolated profile without it does not validate.
+   * the user's login; an isolated profile without it does not validate.
    */
   isolationKey?: string;
   /**

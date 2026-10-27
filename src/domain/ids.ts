@@ -12,7 +12,7 @@ export function assertId(kind: string, value: string): string {
 }
 
 /** The backends that run as a process through a `BackendAdapter`. */
-export const ADAPTER_IDS = ["codex", "claude-code", "opencode", "cursor"] as const;
+export const ADAPTER_IDS = ["codex", "claude-code", "opencode"] as const;
 
 /** `claude` is the native Claude Code subagent path (no process); the rest are adapters. */
 const RUNG_BACKENDS = [...ADAPTER_IDS, "claude"] as const;

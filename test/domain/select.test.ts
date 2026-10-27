@@ -205,7 +205,7 @@ describe("the effort ceiling and the coding floor (decision 22)", () => {
     expect(effortAllowed({}, "worker", "codex:gpt-6-sol#low")).toBe(false);
     expect(effortAllowed({}, "worker", "codex:gpt-6-sol#minimal")).toBe(false);
     expect(effortAllowed({}, "worker", "codex:gpt-6-sol#medium")).toBe(true);
-    expect(effortAllowed({}, "worker", "cursor:gemini-3.6-flash#default")).toBe(true);
+    expect(effortAllowed({}, "worker", "claude-code:claude-haiku-4-5-20251001#default")).toBe(true);
     expect(effortAllowed({}, "writer", "codex:gpt-6-sol#low")).toBe(true);
     expect(effortAllowed({ "codex:gpt-6-sol": "high" }, "reviewer", "nonsense")).toBe(true);
   });

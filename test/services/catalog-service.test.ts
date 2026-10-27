@@ -317,16 +317,11 @@ describe("catalogQuery", () => {
     withHome();
     const rows = (o: Parameters<typeof q>[0]) =>
       q(o).models.map((m) => `${m.backend}:${m.model} ${m.supersededBy}`);
-    expect(rows({ text: "sol" })).toEqual([
-      "cursor:gpt-6-sol null",
-      "opencode:opencode/gpt-6-sol null",
-      "codex:gpt-6.1-sol null",
-    ]);
+    expect(rows({ text: "sol" })).toEqual(["opencode:opencode/gpt-6-sol null", "codex:gpt-6.1-sol null"]);
     expect(rows({ text: "sol", older: true })).toEqual([
       "codex:gpt-5.6-sol gpt-6-sol",
       "opencode:opencode/gpt-5.6-sol gpt-6-sol",
       "codex:gpt-6-sol gpt-6.1-sol",
-      "cursor:gpt-6-sol null",
       "opencode:opencode/gpt-6-sol null",
       "codex:gpt-6.1-sol null",
     ]);
@@ -358,16 +353,16 @@ describe("catalogQuery", () => {
   it("drops a model with no indexed pair", () => {
     withHome();
     writeDiscovery(
-      "cursor",
+      "opencode",
       [
         { id: "composer-2.5", efforts: [], context: 200000, imageIn: false },
-        { id: "grok-4.7", efforts: ["low", "high"], context: 200000, imageIn: false },
+        { id: "opencode/gpt-6-sol", efforts: ["low", "high"], context: 200000, imageIn: false },
       ],
       T0,
     );
-    const models = q({ backend: "cursor" }).models.map((m) => m.model);
+    const models = q({ backend: "opencode" }).models.map((m) => m.model);
     expect(models).not.toContain("composer-2.5");
-    expect(models).toContain("grok-4.7");
+    expect(models).toContain("opencode/gpt-6-sol");
     expect(q({ text: "composer" }).total).toBe(0);
   });
 

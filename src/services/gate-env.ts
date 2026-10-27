@@ -62,7 +62,7 @@ const SECRET_NAME = /KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|AUTH/i;
 /**
  * The names catherd sets in a dispatch itself: the role's identity, dispatch id, testcontainers session, scratch
  * and working dir, the process basics, catherd's own dirs, and the homes an isolated CLI is moved to (codex,
- * cursor, opencode, claude), including their config, credential and cache settings. Moved-home names come
+ * opencode, claude), including their config, credential and cache settings. Moved-home names come
  * from movedHomeEnv so new cache settings stay reserved. A gate entry would take the role's identity or isolation.
  */
 const RESERVED = new Set([
@@ -78,8 +78,6 @@ const RESERVED = new Set([
   "CATHERD_DATA_DIR",
   "CODEX_HOME",
   "CLAUDE_CONFIG_DIR",
-  "CURSOR_CONFIG_DIR",
-  "CURSOR_DATA_DIR",
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
   ...Object.keys(movedHomeEnv("/")),

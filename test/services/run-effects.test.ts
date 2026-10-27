@@ -281,9 +281,7 @@ describe("dispatching", () => {
     await seed(run);
     const s = replayRun(run);
     const until = new Date(Date.now() + 600_000).toISOString();
-    s.holds = Object.fromEntries(
-      ["codex", "opencode-go", "opencode", "claude-code", "cursor"].map((q) => [q, until]),
-    );
+    s.holds = Object.fromEntries(["codex", "opencode-go", "opencode", "claude-code"].map((q) => [q, until]));
     s.at = new Date().toISOString();
     await fx.run(decideAction({ failoverFrom: "codex:gpt-6-luna#high" }), s);
     expect(lastOf(run, "decision.failed")).toMatchObject({ code: "E_ALL_HELD", name: "worker-M1.L1", n: 1 });
@@ -382,7 +380,7 @@ describe("dispatching", () => {
           failover("codex:gpt-6-sol#medium"),
           stateWithHolds(run, {
             codex: until(),
-            cursor: new Date(Date.now() - 600_000).toISOString(),
+            opencode: new Date(Date.now() - 600_000).toISOString(),
           }),
         );
         expect(failoverRows(run)).toEqual([expect.objectContaining({ held: ["codex"] })]);

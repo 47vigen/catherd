@@ -83,6 +83,15 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
   provenance in `routes.jsonl` changed shape: the rung's `intelligence`, the bar it was held to (`bar`), its price,
   speed and cost, and the index's `indexedAt`.
 
+### Cursor is retired (plan 45)
+
+- Cursor (`cursor:`) is retired; git keeps the adapter. This is breaking for a Cursor user, so it gets its own note.
+- A profile that names a Cursor rung still loads: each Cursor rung, failover entry, `billing.cursor`,
+  `harness.cursor` and `maxEffort` key is dropped, with a `profile.migrated` note for each.
+- A role whose only rung was Cursor's takes its default rungs.
+- `CURSOR_API_KEY` is no longer read.
+- Old runs keep their records: their `cursor:` rungs are still read, and nothing runs them.
+
 ### Grok Build and Antigravity are removed
 
 - Grok Build (`grok:`) and Antigravity (`antigravity:`) are removed. A profile that names one fails `profile

@@ -26,13 +26,7 @@ import { configFile, profilesDir, projectsFile } from "../../src/services/profil
 import { fakeFetch } from "../fake-fetch.ts";
 import { bunOnlyBin, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { type CodexScenario, withScenario } from "../sim/scenario.ts";
-import {
-  type CursorScenario,
-  type OpencodeScenario,
-  withClaudeScenario,
-  withCursorScenario,
-  withOpencodeScenario,
-} from "../sim/sim-scenarios.ts";
+import { type OpencodeScenario, withClaudeScenario, withOpencodeScenario } from "../sim/sim-scenarios.ts";
 
 afterEach(snapshotEnv());
 
@@ -67,7 +61,6 @@ function machine(
   o: {
     codex?: CodexScenario;
     opencode?: OpencodeScenario;
-    cursor?: CursorScenario;
     bins?: string[];
     agentBrowser?: boolean;
   } = {},
@@ -95,12 +88,7 @@ function machine(
       models: fx("opencode/models.json").data,
       ...o.opencode,
     }).env,
-    withCursorScenario({
-      modelsFile: join(FX, "cursor", "models.txt"),
-      ...o.cursor,
-    }).env,
   );
-  delete process.env.CURSOR_API_KEY;
   return home;
 }
 
@@ -171,7 +159,6 @@ describe("doctor", () => {
       "backend:codex": "ok ready",
       "backend:claude-code": "ok ready",
       "backend:opencode": "ok ready",
-      "backend:cursor": "skip missing",
       decision: "ok ready",
       catalog: "ok fresh",
       plugin: "ok ready",
@@ -189,48 +176,6 @@ describe("doctor", () => {
     expect(check(r, "backend:codex")?.detail).toMatch(/^0\.157\.0 · ChatGPT login · \d+ models$/);
     expect(check(r, "agents")?.detail).toBe("2 linked");
     expect(check(r, "access:full")?.detail).toBe("no sandbox for: verifier (default), ui-reviewer (default)");
-  });
-
-  it("shows Cursor's CLI with its version, login and listing, and an agent on PATH that is not Cursor as info", async () => {
-    machine({ bins: ["codex", "claude", "opencode", "cursor-agent"] });
-    installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
-    const bin = process.env.PATH?.split(":")[0] as string;
-    writeFileSync(join(bin, "agent"), "#!/bin/sh\necho 'agent 1.0 (a build agent)'\n");
-    chmodSync(join(bin, "agent"), 0o755);
-    const r = await run();
-    expect(check(r, "backend:cursor")).toMatchObject({
-      state: "ok",
-      word: "ready",
-      detail: "2026.09.28 · Cursor login · 8 models",
-    });
-    expect(check(r, "name:agent")).toMatchObject({
-      label: "agent",
-      state: "info",
-      detail: expect.stringContaining("another program than cursor-agent"),
-    });
-    expect(r.ready).toBe(true);
-  });
-
-  it("fails a logged-out Cursor a role runs on, with the login fix", async () => {
-    machine({
-      bins: ["codex", "claude", "opencode", "cursor-agent"],
-      cursor: { loggedIn: false },
-    });
-    installPlugin(VERSION);
-    // Composer is unscored: its inferred stand-ins let the role run (spec 1.3 §7.2)
-    const saved = patchProfile(
-      "default",
-      { roles: { writer: { rungs: ["cursor:gpt-6-sol#high"] } } },
-      { host: "claude-code" },
-    );
-    expect(saved.saved).toBe(true);
-    const r = await run();
-    expect(check(r, "backend:cursor")).toMatchObject({
-      state: "fail",
-      word: "not logged in",
-      fix: "cursor-agent login, or export CURSOR_API_KEY=<key>",
-    });
   });
 
   it("fails on a backend a role runs on, but only warns on one a failover stand-in alone uses", async () => {
@@ -618,29 +563,6 @@ describe("doctor", () => {
         c.some((a) => a.startsWith("sandbox_workspace_write.writable_roots=") && a.includes(locksDir())),
       ).toBe(true);
     }
-  });
-
-  it("runs the five access probes through `cursor-agent sandbox run`, which re-shells its args (spec 1.3 §4.7)", async () => {
-    machine({ bins: ["codex", "claude", "opencode", "cursor-agent"] });
-    installPlugin(VERSION);
-    const bin = process.env.PATH?.split(":")[0] as string;
-    const ran = join(bin, "docker-ran");
-    writeFileSync(join(bin, "fake-docker"), `#!/bin/sh\necho "$@" > '${ran}'\n`);
-    chmodSync(join(bin, "fake-docker"), 0o755);
-    process.env.CATHERD_PROBE_DOCKER = join(bin, "fake-docker");
-    patchProfile(
-      "default",
-      { roles: { writer: { rungs: ["cursor:gpt-6-sol#high"] } } },
-      { host: "claude-code" },
-    );
-    const r = await run();
-    expect(check(r, "access:cursor")).toMatchObject({
-      state: "ok",
-      detail:
-        "lock-dir write, temp write, loopback bind, outbound HTTPS, docker version in Cursor's sandbox (cursor-agent sandbox run)",
-    });
-    // docker really ran, not an empty `sh -c` that exits 0
-    expect(readFileSync(ran, "utf8")).toBe("version\n");
   });
 
   it("warns with a fix per probe the Codex sandbox blocks", async () => {

@@ -40,7 +40,7 @@ describe("catherd profile show", () => {
     expect(r.out).toContain("\n  codex:gpt-6-luna#high → opencode:opencode-go/gpt-6-luna#high\n");
     expect(r.out).toContain("\n  codex:gpt-6-sol#medium → opencode:opencode-go/kimi-k3#max\n");
     expect(r.out).not.toContain("borrowed");
-    expect(r.out).toContain("harness codex native · claude-code native · opencode native · cursor native\n");
+    expect(r.out).toContain("harness codex native · claude-code native · opencode native\n");
   });
 
   it("profile show prints who merges", () => {

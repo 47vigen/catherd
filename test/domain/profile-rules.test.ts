@@ -199,16 +199,15 @@ describe("validateProfile", () => {
     expect(messages(v.warnings).some((m) => m.startsWith("downgrade"))).toBe(false);
   });
 
-  it("refuses a rung on a backend catherd cannot run yet, a bad effort, and an incapable model", () => {
+  it("refuses a bad effort and an incapable model", () => {
     const e = messages(
       check({
         roles: {
-          reviewer: { rungs: ["cursor:gpt-6-sol#high", "codex:gpt-6-sol#turbo", "codex:gpt-6-sol#high"] },
+          reviewer: { rungs: ["codex:gpt-6-sol#turbo", "codex:gpt-6-sol#high"] },
           artist: { rungs: ["claude-code:claude-opus-5-5#high", "codex:gpt-6-sol#medium"] },
         },
       }).errors,
     );
-    expect(e).toContain("cursor:gpt-6-sol#high: catherd cannot run cursor yet");
     expect(e).toContain("codex:gpt-6-sol#turbo has no Slopalytics intelligence index: routing skips it");
     expect(e).toContain("claude-code:claude-opus-5-5#high cannot fill the artist role (it needs imageGen)");
   });
@@ -348,32 +347,6 @@ describe("validateProfile: failover and ladder warnings (spec 1.1 §11)", () => 
     // with Go metered, nothing else is paid from a plan: the Claude stand-in is the only one
     const metered = check({ billing: { "opencode-go": "metered" }, failover: { [LUNA]: OPUS_MAX } }).warnings;
     expect(messages(metered).some((m) => m.includes("spends Claude quota"))).toBe(false);
-  });
-
-  it("suggests a stand-in only on a backend the profile already names (1.3 follow-ups)", () => {
-    const c = catalog();
-    const validate = (patch: ProfilePatch) =>
-      validateProfile(
-        resolveProfile(applyPatch(defaultProfileDoc(), patch), "p", "claude-code"),
-        c,
-        [...BACKENDS, "cursor"],
-        undefined,
-        "claude-code",
-      );
-    // Sol 5.6 xhigh's nearest stand-in on a plan is a Cursor rung once Cursor bills a subscription; this
-    // profile names no Cursor rung, so the fix never sends the user there
-    const SOL56 = "codex:gpt-5.6-sol#xhigh";
-    const billing = { cursor: "subscription" } as const;
-    const fixes = validate({ billing, failover: { [SOL56]: KIMI } })
-      .warnings.filter((w) => w.message.startsWith("downgrade:"))
-      .map((w) => w.fix);
-    expect(fixes).toHaveLength(1);
-    expect(fixes[0]).not.toContain("cursor:");
-    // named once (here as a failover stand-in elsewhere), Cursor's rungs may be suggested
-    const named = validate({ billing, failover: { [SOL56]: KIMI, [LUNA]: "cursor:claude-opus-5-5#high" } });
-    expect(named.warnings.find((w) => w.path === `failover.${SOL56}`)?.fix).toMatch(
-      new RegExp(`^catherd profile set failover\\.${SOL56} cursor:\\S+$`),
-    );
   });
 
   it("warns that network: false does nothing on a read-only or full role (1.1 follow-ups)", () => {

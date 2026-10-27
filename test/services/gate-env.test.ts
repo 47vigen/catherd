@@ -5,7 +5,6 @@ import { movedHomeEnv } from "../../src/adapters/access.ts";
 import type { RunRequest } from "../../src/adapters/backend.ts";
 import { claudeCodeAdapter } from "../../src/adapters/claude-code/index.ts";
 import { codexAdapter } from "../../src/adapters/codex/index.ts";
-import { cursorAdapter } from "../../src/adapters/cursor/index.ts";
 import { opencodeAdapter } from "../../src/adapters/opencode/index.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { parseRung } from "../../src/domain/ids.ts";
@@ -55,7 +54,6 @@ describe("the gate environment (plan 23)", () => {
     };
     for (const [adapter, rung] of [
       [codexAdapter, "codex:gpt-6-sol#high"],
-      [cursorAdapter, "cursor:sonnet-5#default"],
       [opencodeAdapter, "opencode:anthropic/claude-sonnet-5#high"],
       [claudeCodeAdapter, "claude-code:claude-sonnet-5#high"],
     ] as const) {
@@ -113,7 +111,6 @@ describe("the gate environment (plan 23)", () => {
       "HOME",
       "CODEX_HOME",
       "CLAUDE_CONFIG_DIR",
-      "CURSOR_CONFIG_DIR",
       "XDG_CONFIG_HOME",
       "CATHERD_DATA_DIR",
     ]) {

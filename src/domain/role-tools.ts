@@ -12,7 +12,6 @@ export const ROLE_SERVER_BACKENDS: readonly string[] = ["codex", "claude-code"];
 
 /**
  * Spec 1.5 plan 21: the backends whose sandbox catherd grants the role's scratch, so they get it as TMPDIR.
- * Cursor writes their grants once per isolated home, not per dispatch: it keeps the inherited one.
  */
 export const SCRATCH_BACKENDS: readonly string[] = ["codex", "claude-code", "opencode"];
 

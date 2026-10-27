@@ -141,9 +141,10 @@ describe("catalogPairs", () => {
     // a model with no effort has one rung, #default, when the index files it so
     expect(all).toContain("opencode:opencode/claude-haiku-4-5#default");
     expect(all).not.toContain("claude-code:claude-haiku-4-5-20251001#default");
-    expect(all).not.toContain("cursor:composer-2.5#default");
     expect(all).not.toContain("opencode:opencode-go/glm-5.3#high");
-    expect(all.some((r) => r.startsWith("grok:") || r.startsWith("antigravity:"))).toBe(false);
+    expect(
+      all.some((r) => r.startsWith("grok:") || r.startsWith("antigravity:") || r.startsWith("cursor:")),
+    ).toBe(false);
     expect(all).toEqual([...new Set(all)].sort());
   });
 });

@@ -3,7 +3,7 @@ import { replyContract } from "../../src/domain/role-prompts.ts";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cursorAdapter } from "../../src/adapters/cursor/index.ts";
+import { opencodeAdapter } from "../../src/adapters/opencode/index.ts";
 import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
@@ -41,7 +41,7 @@ const OC_MODELS = JSON.parse(
 
 afterEach(snapshotEnv());
 // a test that needs a backend with no adapter unregisters a real one (plan 17 Ruling X2)
-afterEach(() => registerAdapter(cursorAdapter));
+afterEach(() => registerAdapter(opencodeAdapter));
 beforeEach(() => {
   resetReadiness();
 });
@@ -385,10 +385,10 @@ describe("admission", () => {
       view: testView({ failover: { "codex:gpt-6-sol#high": "codex:gpt-6-astra#high" } }),
     });
     expect(await refusal(admit(deps, run, input({ rung: "codex:gpt-6-astra#high" })))).toBe("admitted");
-    unregisterAdapter("cursor");
-    deps.view.roles.worker?.rungs.push("cursor:auto#default");
+    unregisterAdapter("opencode");
+    deps.view.roles.worker?.rungs.push("opencode:auto#default");
     expect(
-      await refusal(admit(deps, run, input({ name: "w2", lane: null, rung: "cursor:auto#default" }))),
+      await refusal(admit(deps, run, input({ name: "w2", lane: null, rung: "opencode:auto#default" }))),
     ).toBe("E_BACKEND_MISSING");
   });
 

@@ -234,7 +234,6 @@ export const DEFAULT_MAX_EFFORT: Readonly<Record<string, EffortWord>> = {
   "claude:claude-opus-5-5": "high",
   "claude-code:claude-opus-5-5": "high",
   "opencode:opencode/claude-opus-5-5": "high",
-  "cursor:claude-opus-5-5": "high",
   "claude:claude-sonnet-5-5": "high",
   "claude-code:claude-sonnet-5-5": "high",
   "opencode:opencode/claude-sonnet-5-5": "high",
@@ -465,7 +464,37 @@ export function migrateProfileDoc(doc: ProfileDoc, hadKey: boolean): { doc: Prof
   drop("bars", out, "bars");
   drop("objective", out, "objective");
   for (const [role, r] of Object.entries(out.roles ?? {})) drop(`roles.${role}.bars`, r, "bars");
+  retireCursor(out, notes);
   return { doc: out, notes };
+}
+
+/** Plan 45 R14: Cursor is retired; a profile that names it loads with each Cursor rung and key dropped. */
+function retireCursor(out: ProfileDoc, notes: string[]): void {
+  const isCursor = (s: unknown) => typeof s === "string" && s.startsWith("cursor:");
+  for (const [role, r] of Object.entries(out.roles ?? {})) {
+    if (!r?.rungs?.some(isCursor)) continue;
+    const kept = r.rungs.filter((x) => !isCursor(x));
+    if (kept.length === 0) {
+      delete r.rungs;
+      notes.push(`dropped roles.${role}.rungs: its only rung was Cursor's, so the role takes the default`);
+      continue;
+    }
+    for (const x of r.rungs.filter(isCursor))
+      notes.push(`dropped ${x} from roles.${role}.rungs: Cursor is retired`);
+    r.rungs = kept;
+  }
+  const dropKeys = (map: string, owner: unknown, hit: (k: string, v: unknown) => boolean) => {
+    if (!isPlain(owner)) return;
+    for (const [k, v] of Object.entries(owner))
+      if (hit(k, v)) {
+        delete owner[k];
+        notes.push(`dropped ${map}.${k}: Cursor is retired`);
+      }
+  };
+  dropKeys("failover", out.failover, (k, v) => isCursor(k) || isCursor(v));
+  dropKeys("billing", out.billing, (k) => k === "cursor");
+  dropKeys("harness", out.harness, (k) => k === "cursor");
+  dropKeys("maxEffort", out.maxEffort, (k) => isCursor(k));
 }
 
 /** RFC 7396 merge: objects merge key by key, `null` deletes, anything else (arrays too) replaces. */

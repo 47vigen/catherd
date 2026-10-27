@@ -111,8 +111,8 @@ export function toolchainCaches(
 }
 
 /**
- * Spec 1.3 §4.4: the env of an isolated worker whose CLI is isolated by a HOME of catherd's (Cursor reads
- * `~/.claude` whatever its own config dir says). catherd's own config and data stay put, so a `catherd lock`
+ * Spec 1.3 §4.4: the env of an isolated worker whose CLI is isolated by a HOME of catherd's:
+ * catherd's own config and data stay put, so a `catherd lock`
  * in the worker takes the same lock dir, and so do the toolchain caches `writableRoots` grants, which would
  * otherwise start cold under the new HOME, where no sandbox lets the worker write.
  * ponytail: only these caches follow; other dotfiles (~/.npmrc, ~/.gitconfig, ~/.cargo) stay behind.

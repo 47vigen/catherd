@@ -119,7 +119,7 @@ export async function backendChecks(
     if (!a) continue;
     const found: Probe = await probe(a).catch((e: unknown) => failedProbe(id, e));
     if (found.installed) installed?.add(id);
-    // spec 1.3 §4.7: what the probe found worth knowing, nothing to fix (an `agent` on PATH that is not Cursor)
+    // spec 1.3 §4.7: what the probe found worth knowing, nothing to fix
     for (const i of found.info ?? [])
       checks.push({ id: i.id, label: i.label, state: "info", word: "info", detail: i.detail });
     const problem = found.problems[0];
