@@ -205,7 +205,10 @@ Options:
   home locations; the measured 30–88 min checks came from a rule that moved GOCACHE into the tree ([judge]). New
   trees reuse the main checkout's `node_modules` by hardlink copy where the package manager allows it (the agora
   worktree script already does this), else install with the shared cache. Tree setup keeps its 15-minute limit
-  (`treeLimits.setupMs`).
+  (`treeLimits.setupMs`). Submodules borrow objects from the main checkout's copy (`--reference --dissociate`:
+  61 s → 5 s for credit's platform). LayerFS itself (a FUSE overlay with instant forks) is not adopted: it mounts
+  per tool call, which needs the harness to call it, and roles run in each vendor CLI as configured (native harness); it needs Linux FUSE and is
+  not yet crash-safe. Copy-on-write clones are not available either: the box's ext4 has no reflink (measured).
 - **Merges are the daemon's, conflicts are the writer's** (Cursor: workers resolve their own conflicts; an
   integrator role made more bottlenecks than it solved). `merge` first merges the integration branch into the task
   branch inside the task's tree; a clean merge runs the fast check there and fast-forwards the integration branch.
@@ -214,6 +217,15 @@ Options:
 - **A completed merge posts a notice** to every running writer: "task T merged: files …, sha …" (the completed-change
   notice that recovered 82% of constructed conflicts). A writer that needs that work runs `git merge integration` in
   its own tree; nobody waits on a sibling's symbols ([walls]: P6 M50.L3).
+- **Regenerable files never conflict** (LayerFS's `.lww` rule). The profile or the repo lists paths that are
+  rebuilt rather than written by hand: lockfiles, generated API clients, build output. A merge conflict confined to
+  them takes the integration side and reruns the repo's regenerate command (the install for a lockfile) in the task's
+  tree; only a conflict in any other file goes back to the writer.
+- **Every dispatch leaves a checkpoint** (LayerFS's per-step checkpoints, on git). When a writer's dispatch ends,
+  committed or not, the daemon records the tree as `refs/catherd/<run>/<task>/<n>` (`git stash create -u`, then
+  `git update-ref`; the object store dedupes it). `delegate_task {from}` may start a new writer from any checkpoint,
+  so a retry on another rung starts from before the failed attempt, a race (E1) forks from one point, and a
+  reviewer reads exactly one dispatch's diff. Run cleanup deletes the refs.
 - **The writer cap stays memory-bound** (plan 35's milestone memory, applied to writers instead of milestones). The
   box is not assumed slow: contention was measured at 3–5% of wall ([box]).
 - **Read-only roles get no tree.** Reviewers, the verifier and the researcher read a ref (`git worktree` only when
