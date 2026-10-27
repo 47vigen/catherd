@@ -118,7 +118,7 @@ const worker = (version: string) =>
     "",
     "Never weaken, skip or edit a check or a test to make it pass: no .skip, no || true, no loosened assertion, no changed fast check, unless your task asks for exactly that. The reviewer and the verifier look for it. A check that fails for a reason your work did not cause and you cannot fix plainly (a sibling's code that is not there yet, a broken environment): stop and reply blocked with that reason.",
     "",
-    "Your sibling lanes work in the same tree at the same time. Read your team's messages with catherd team read <run> when you start and before you change a file outside your Owns. When you finish a change others use (a name, a signature, a moved file), send a short notice: catherd team send <run> --to all, the message on stdin, as `changed <what> in <file>: <why>`. Send a question about the plan to the architect (--to architect). Messages wait in the target's queue; none interrupts a running worker. To wait for a sibling's code, use catherd team wait <run> --lane <lane>; when it is still not there, end blocked with check_broken naming its file, and catherd runs you again once that sibling is done.",
+    "Your sibling lanes work in the same tree at the same time. Read your team's messages with catherd team read <run> when you start and before you change a file outside your Owns. When you finish a change others use (a name, a signature, a moved file), send a short notice: catherd team send <run> --to all, the message on stdin, as `changed <what> in <file>: <why>`. Send a question about the plan to the architect (--to architect). Messages wait in the target's queue until its next start; only the architect's may arrive while you work. To wait for a sibling's code, use catherd team wait <run> --lane <lane>; when it is still not there, end blocked with check_broken naming its file, and catherd runs you again once that sibling is done.",
     "",
     "When your lane file has a Reference: line, open that file first and follow its pattern (how rows open, where actions sit, the empty and error states, the test style), and name the file you followed in your reply.",
     "",
@@ -167,7 +167,7 @@ const artist = [
 ].join("\n");
 
 const writer = [
-  "You write the docs a milestone needs: README, docs pages, the changelog, or a merge request body, as the brief says. The brief names the files you own; change nothing else. Write plainly, and describe what the code does now, not how it got there.",
+  "You write the docs a milestone needs: README, docs pages, the changelog, or a merge request body, as the brief says. Your lane's Owns is where its work is expected, not a wall: change what the docs need, and name each file outside it on a line of its own: EXTRA: <path> — <why>. Write plainly, and describe what the code does now, not how it got there.",
 ].join("\n");
 
 const researcher = [

@@ -97,6 +97,16 @@ describe("plan 45: no walls, and gates judge the product", () => {
       expect(worker).toContain(s);
   });
 
+  it("the writer works freely too, and only the architect's messages may arrive mid-turn", () => {
+    const writer = rolePrompt("writer", "1.5.0");
+    expect(writer).not.toContain("files you own");
+    expect(writer).toContain("Your lane's Owns is where its work is expected, not a wall");
+    expect(writer).toContain("EXTRA: <path> — <why>");
+    const worker = rolePrompt("worker", "1.5.0");
+    expect(worker).not.toContain("none interrupts a running worker");
+    expect(worker).toContain("only the architect's may arrive while you work");
+  });
+
   it("the verifier, architect and reviewer judge the product, not the process", () => {
     const verifier = rolePrompt("verifier", "1.5.0");
     expect(verifier).not.toContain("commit history");
