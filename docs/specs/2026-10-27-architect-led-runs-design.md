@@ -203,10 +203,12 @@ Options:
 
 - **Caches are shared, never per tree.** Go's build and module cache, Bun's and npm's global caches stay in their
   home locations; the measured 30–88 min checks came from a rule that moved GOCACHE into the tree ([judge]). New
-  trees reuse the main checkout's `node_modules` by hardlink copy where the package manager allows it (the agora
-  worktree script already does this), else install with the shared cache. Tree setup keeps its 15-minute limit
-  (`treeLimits.setupMs`). Submodules borrow objects from the main checkout's copy (`--reference --dissociate`:
-  61 s → 5 s for credit's platform). LayerFS itself (a FUSE overlay with instant forks) is not adopted: it mounts
+  trees run the package manager's install against its shared cache, never a `cp -al` of the main checkout's
+  `node_modules` (it saves ~3 s, and a write through a hardlink edits the main checkout). Measured on the box
+  (2026-10-28, median of 3): worktree add 0.2–0.6 s, `bun install --frozen-lockfile` 6–7 s and ~50 MB of real new
+  disk (bun hardlinks from its cache), Go build in a new tree 12 s with the shared GOCACHE, so a writer's tree is
+  ready in 7–15 s. Tree setup keeps its 15-minute limit (`treeLimits.setupMs`). Submodules borrow objects from the
+  main checkout's copy (`--reference --dissociate`): 6.5 → 5.7 s on the box, 61 → 5 s over a slow link. LayerFS itself (a FUSE overlay with instant forks) is not adopted: it mounts
   per tool call, which needs the harness to call it, and roles run in each vendor CLI as configured (native harness); no published plugin gives a
   native CLI a workspace except by running the CLI inside LayerFS's Docker sandbox; and v1.1.0 is not durable
   (`synchronous=OFF`, no fsync), has no garbage collection (issue #411), and shipped with its Linux FUSE gate not run. Copy-on-write clones are not available either: the box's ext4 has no reflink (measured).
@@ -652,6 +654,9 @@ blocked 35 min twice)
   should have covered. Kept only if escapes stay at or below 1 per 10 merged tasks.
 
 **E4. Warm tree pool.** (targets dispatch start latency: tree ready → preflight took 89 min in sum over 42 trees)
+
+Measured first (2026-10-28): a fresh tree is ready in 7–15 s, so the pool can save at most that per writer; the
+89 min above was preflight, not tree setup. Run E4 only if dispatch start latency is still high after stage 4.
 
 - catherd keeps one or two prepared worktrees per repo (dependencies installed, shared caches primed, the gitignored
   `.env*` files copied), parked on the integration head.
