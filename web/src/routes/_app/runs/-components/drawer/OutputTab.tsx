@@ -6,7 +6,13 @@ import { Markdown } from "../../../../../components/markdown/Markdown";
 import { Term } from "../../../../../components/term/Term";
 import { Empty, type DispatchQuery, WithDispatch } from "./parts";
 
-const FINDING_COLOR = { BLOCKER: "danger", BUG: "warning", NIT: "default" } as const;
+const FINDING_COLOR = {
+  IMPORTANT: "danger",
+  BLOCKER: "danger",
+  BUG: "warning",
+  NIT: "default",
+  "PRE-EXISTING": "default",
+} as const;
 
 function Findings({ findings }: { findings: DispatchDetail["findings"] }) {
   return (
@@ -18,6 +24,7 @@ function Findings({ findings }: { findings: DispatchDetail["findings"] }) {
             <Chip size="sm" variant="soft" color={FINDING_COLOR[f.label]} className="mt-0.5 shrink-0">
               <Chip.Label className="text-[10px]">{f.label}</Chip.Label>
             </Chip>
+            {f.class ? <span className="text-muted shrink-0 text-xs">{f.class}</span> : null}
             <span className="min-w-0 flex-1 break-words">
               {f.text}
               {f.file ? <span className="text-muted ms-2 font-mono text-xs">{f.file}</span> : null}

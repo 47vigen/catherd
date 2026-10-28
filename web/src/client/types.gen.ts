@@ -258,9 +258,10 @@ export type DispatchDetail = {
     reply: string | null;
     stderr: string | null;
     findings: Array<{
-        label: 'BLOCKER' | 'BUG' | 'NIT';
+        label: 'IMPORTANT' | 'NIT' | 'PRE-EXISTING' | 'BLOCKER' | 'BUG';
         text: string;
         file: string | null;
+        class?: string;
     }>;
     aLines: Array<{
         id: string;

@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
-import { join } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { isAbsolute, join } from "node:path";
 import { parsePorcelainZ, type Snapshot } from "../domain/changes.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { scrubSecrets } from "./env.ts";
@@ -20,14 +30,19 @@ export const gitLimits = { timeoutMs: 15_000 };
  * which would fail a worker's own git command running at the same moment. On a timeout git is killed
  * and its stdout is not awaited, since a grandchild may still hold the pipe open.
  */
-export async function git(repo: string, args: string[], timeoutMs = gitLimits.timeoutMs): Promise<GitResult> {
+export async function git(
+  repo: string,
+  args: string[],
+  timeoutMs = gitLimits.timeoutMs,
+  env: Record<string, string> = {},
+): Promise<GitResult> {
   let p: Bun.Subprocess<"ignore", "pipe", "ignore">;
   try {
     p = Bun.spawn(["git", "-C", repo, ...args], {
       stdin: "ignore",
       stdout: "pipe",
       stderr: "ignore",
-      env: { ...scrubSecrets(process.env), GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" },
+      env: { ...scrubSecrets(process.env), GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C", ...env },
     });
   } catch {
     return { kind: "failed", exit: null };
@@ -260,4 +275,39 @@ export async function currentBranch(repo: string): Promise<string | null> {
   const r = await git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const name = r.kind === "ok" ? r.out.trim() : "";
   return name && name !== "HEAD" ? name : null;
+}
+
+/**
+ * Spec D5's checkpoint recipe, used by plan 51's reviews: the tree as it is, committed or not, untracked files in, as a
+ * commit on HEAD that no ref holds. A throwaway index keeps the owner's index and files untouched. Null on a failure.
+ */
+export async function snapshotTree(dir: string): Promise<string | null> {
+  const index = join(
+    tmpdir(),
+    `catherd-snapshot-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  const env = { GIT_INDEX_FILE: index };
+  const step = async (args: string[]) => {
+    const r = await git(dir, args, 60_000, env);
+    return r.kind === "ok" ? r.out.trim() : null;
+  };
+  try {
+    // a copy of the real index keeps git's stat cache, so only changed files are hashed again
+    // without GIT_INDEX_FILE, which --git-path would echo back
+    const r = await git(dir, ["rev-parse", "--git-path", "index"]);
+    const real = r.kind === "ok" ? r.out.trim() : null;
+    try {
+      if (!real) throw new Error("no index");
+      copyFileSync(isAbsolute(real) ? real : join(dir, real), index);
+    } catch {
+      if ((await step(["read-tree", "HEAD"])) === null) return null;
+    }
+    if ((await step(["add", "-A"])) === null) return null;
+    const tree = await step(["write-tree"]);
+    if (!tree) return null;
+    const id = ["-c", "user.name=catherd", "-c", "user.email=catherd@catherd.invalid"];
+    return (await step([...id, "commit-tree", tree, "-p", "HEAD", "-m", "catherd: review snapshot"])) || null;
+  } finally {
+    rmSync(index, { force: true });
+  }
 }

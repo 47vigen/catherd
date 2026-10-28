@@ -38,6 +38,7 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     ).toEqual({
       taskId: "T1",
       rung: "codex:gpt-6-luna#high",
+      sameFamily: false,
       thread: null,
       reportPath: null,
     });

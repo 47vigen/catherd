@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { isStanding, STANDING_CAP, taskAttempts, WRITER_CAP } from "../domain/architect-state.ts";
+import {
+  type ArchTask,
+  isStanding,
+  lastReview,
+  STANDING_CAP,
+  taskAttempts,
+  WRITER_CAP,
+} from "../domain/architect-state.ts";
 import type { BriefParts } from "../domain/brief.ts";
 import { ledgerView } from "../domain/ledger.ts";
 import { planInputNames } from "../domain/plan-doc.ts";
@@ -82,6 +89,29 @@ export function wakeBrief(run: Run, s: RunState, a: DispatchAction): Pick<BriefP
   return { unit, round };
 }
 
+/**
+ * Spec D8: what a review reads. Its snapshot is the tree when it was called; on a ledger task reviewed before, only
+ * the diff since the last review's snapshot, and that review's findings, which it must not report again.
+ */
+function reviewLines(s: RunState, t: ArchTask): string[] {
+  if (t.snapshot === null) return [];
+  const sha = t.snapshot;
+  const prev = t.ledgerTask === null ? undefined : lastReview(s.arch, t.ledgerTask);
+  if (!prev?.snapshot)
+    return [
+      `The tree you review is commit ${sha}, taken when you were called: git diff ${sha}^ ${sha} is everything not yet committed then.`,
+    ];
+  const earlier = prev.findings.map(
+    (f, n) => `- ${n + 1}. ${f.text}${prev.handled[n + 1] ? ` [${prev.handled[n + 1]}]` : ""}`,
+  );
+  return [
+    `This is a re-review of ledger task ${t.ledgerTask}. ${prev.taskId} reviewed it as commit ${prev.snapshot}; you review commit ${sha}. Read only git diff ${prev.snapshot} ${sha} and the code it touches.`,
+    earlier.length
+      ? `${prev.taskId}'s findings, which you never report again (judge only whether the diff fixed them):\n${earlier.join("\n")}`
+      : `${prev.taskId} found nothing.`,
+  ];
+}
+
 /** Spec D3, D12: a delegated task's brief is only what its caller wrote, with where its result goes. */
 export function taskBrief(run: Run, s: RunState, a: DispatchAction): Pick<BriefParts, "unit" | "round"> {
   const t = s.arch?.tasks[a.name];
@@ -95,6 +125,7 @@ export function taskBrief(run: Run, s: RunState, a: DispatchAction): Pick<BriefP
     round: [
       `You are task ${a.name}${t ? `, a ${t.role} delegated by ${t.by}` : ""}. You have no lane file: this task is your whole brief.`,
       text || "(the task's brief is missing: reply STATUS: blocked — needs_user: no brief)",
+      ...(t?.role === "reviewer" ? reviewLines(s, t) : []),
       where,
     ],
   };

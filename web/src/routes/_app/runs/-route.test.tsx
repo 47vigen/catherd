@@ -174,6 +174,7 @@ const detail = (over: object = {}) => ({
   stderr: null,
   findings: [
     { label: "BLOCKER", text: "Missing await", file: "src/wallet.ts" },
+    { label: "IMPORTANT", text: "Loses the refund", file: null, class: "a dropped write" },
     { label: "NIT", text: "Rename x", file: null },
   ],
   aLines: [
@@ -456,6 +457,7 @@ test("the drawer shows the prompt, the log, the output with findings and A-lines
   const findings = await within(dialog).findByRole("list", { name: "Findings" });
   expect(within(findings).getByText("BLOCKER")).toBeInTheDocument();
   expect(within(findings).getByText("Missing await")).toBeInTheDocument();
+  expect(within(findings).getByText("a dropped write")).toBeInTheDocument();
   const lines = within(dialog).getByRole("list", { name: "A-lines" });
   expect(within(lines).getByText("PASS")).toBeInTheDocument();
   expect(within(lines).getByText("FAIL")).toBeInTheDocument();

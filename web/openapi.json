@@ -2859,9 +2859,11 @@
                 "label": {
                   "type": "string",
                   "enum": [
+                    "IMPORTANT",
+                    "NIT",
+                    "PRE-EXISTING",
                     "BLOCKER",
-                    "BUG",
-                    "NIT"
+                    "BUG"
                   ]
                 },
                 "text": {
@@ -2872,6 +2874,9 @@
                     "string",
                     "null"
                   ]
+                },
+                "class": {
+                  "type": "string"
                 }
               },
               "required": [

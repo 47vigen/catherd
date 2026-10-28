@@ -1,5 +1,10 @@
 import type { BlockedReason } from "../../src/domain/blocked.ts";
-import { EVENTS_SCHEMA, type RunEvent, type RunEventType } from "../../src/domain/run-events.ts";
+import {
+  EVENTS_SCHEMA,
+  type Finding,
+  type RunEvent,
+  type RunEventType,
+} from "../../src/domain/run-events.ts";
 import { type RunState, replay } from "../../src/domain/run-state.ts";
 
 type Fields<T extends RunEventType> = Omit<Extract<RunEvent, { type: T }>, "v" | "seq" | "at" | "type">;
@@ -78,7 +83,7 @@ export function endDispatch(
     replyStatus?: "complete" | "partial" | "blocked" | "refused" | "flaky" | null;
     thread?: string | null;
     verdict?: "pass" | "fail" | "blocked" | null;
-    findings?: { label: "BLOCKER" | "BUG" | "NIT"; text: string; file: string | null }[];
+    findings?: Finding[];
     why?: string;
     environment?: string | null;
     reason?: BlockedReason | null;

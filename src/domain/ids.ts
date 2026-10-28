@@ -78,6 +78,20 @@ export const formatRung = (r: Rung): string => `${r.backend}:${r.model}#${r.effo
 export const headlessRung = (rung: string): string =>
   rung.startsWith("claude:") ? `claude-code:${rung.slice("claude:".length)}` : rung;
 
+/**
+ * Spec D8: a rung's model family, the model's first name part with its provider dropped (`gpt`, `claude`, `kimi`);
+ * the backend does not count. Null when the rung does not parse.
+ */
+export function modelFamily(rung: string): string | null {
+  // shortcut: one lab under two name prefixes reads as two families; upgrade to the catalog's lab when one does
+  const name = tryParseRung(rung)
+    ?.model.split("/")
+    .at(-1)
+    ?.split(/[-.\d]/)[0]
+    ?.toLowerCase();
+  return name || null;
+}
+
 const B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 let lastTime = -1;
