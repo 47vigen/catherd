@@ -237,8 +237,12 @@ export async function startMcpServer(
           adoptOwned(context);
           return void active.scan();
         }
-        for (const w of importLegacyRuns().skipped)
-          console.error(`catherd: not imported ${w.id}: ${w.reason}`);
+        try {
+          for (const w of importLegacyRuns().skipped)
+            console.error(`catherd: not imported ${w.id}: ${w.reason}`);
+        } catch (e) {
+          console.error(`catherd: legacy import failed: ${errorMessage(e)}`);
+        }
         const r = await reconcileAll(context);
         if (epoch !== generation) return;
         const shown = r.warnings.length;

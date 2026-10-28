@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { readdirSync, statSync } from "node:fs";
+import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { backupDb, db, dbFile, MIGRATIONS, openDb } from "../../src/infra/db.ts";
 import { dataDir } from "../../src/infra/paths.ts";
@@ -49,5 +49,15 @@ describe("the database (plan 46, spec D13)", () => {
       days.slice(2).map((d) => `catherd-${d.toISOString().slice(0, 10)}.db`),
     );
     expect(openDb(file).query("SELECT id FROM runs").all()).toEqual([{ id: "r1" }]);
+  });
+
+  it("removes the temp files a crashed backup left", () => {
+    withHome();
+    const dir = join(dataDir(), "backups");
+    mkdirSync(dir, { recursive: true });
+    const stale = join(dir, "catherd-2026-10-20.db.2000000000.tmp");
+    writeFileSync(stale, "half");
+    backupDb(new Date(Date.UTC(2026, 9, 28)));
+    expect(readdirSync(dir)).toEqual(["catherd-2026-10-28.db"]);
   });
 });

@@ -70,10 +70,25 @@ describe("importing earlier runs (plan 46, spec D13)", () => {
     const bad = join(runsDir(repo), "20260101-000000-bad");
     mkdirSync(bad);
     writeFileSync(join(bad, "meta.json"), "{ not json");
+    writeFileSync(join(bad, "events.jsonl"), "");
     const r = importLegacyRuns();
     expect(r.imported).toEqual([]);
     expect(r.skipped.map((s) => s.id).sort()).toEqual(["20260101-000000-bad", run.id].sort());
     expect(r.skipped.find((s) => s.id === run.id)?.reason).toContain("is corrupt");
+    expect(db().query("SELECT count(*) AS n FROM runs").get()).toEqual({ n: 0 });
+  });
+
+  it("does not report a corrupt folder of a run this build started, and skips a run with corrupt records", () => {
+    const { repo, run } = freshRun();
+    earlier(run, true);
+    writeFileSync(runPaths(run.dir).runs, `{"schema":1,"kind":"runs"}\n{"schema":1,"name":"no fields"}\n`);
+    const mine = join(runsDir(repo), "20260101-000000-mine");
+    mkdirSync(mine);
+    writeFileSync(join(mine, "meta.json"), "{ not json");
+    const r = importLegacyRuns();
+    expect(r.imported).toEqual([]);
+    expect(r.skipped.map((s) => s.id)).toEqual([run.id]);
+    expect(r.skipped[0]?.reason).toContain("corrupt");
     expect(db().query("SELECT count(*) AS n FROM runs").get()).toEqual({ n: 0 });
   });
 });

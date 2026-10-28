@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { errorMessage } from "../domain/errors.ts";
 import { db, ensureRunRow, insertDispatch, insertEvent, insertMessage } from "../infra/db.ts";
 import { eventsFile, hasRunEnded, readEvents } from "./run-events-store.ts";
@@ -14,15 +15,19 @@ export function importLegacyRuns(): { imported: string[]; skipped: { id: string;
   const d = db();
   const known = new Set((d.query("SELECT id FROM runs").all() as { id: string }[]).map((r) => r.id));
   const listing = listRuns();
+  // a corrupt meta.json of a run without an events.jsonl is no earlier run's: not ours to report at every boot
   const out = {
     imported: [] as string[],
-    skipped: listing.corrupt.map((c) => ({ id: c.id, reason: c.reason })),
+    skipped: listing.corrupt
+      .filter((c) => existsSync(join(c.dir, "events.jsonl")))
+      .map((c) => ({ id: c.id, reason: c.reason })),
   };
   for (const run of listing.runs) {
     if (known.has(run.id) || !existsSync(eventsFile(run)) || !hasRunEnded(run)) continue;
     try {
       const events = readEvents(run);
-      const { records } = readRecords(run);
+      const { records, corrupt } = readRecords(run);
+      if (corrupt > 0) throw new Error(`runs.jsonl has ${corrupt} corrupt row(s)`);
       const messages = teamMessages(run);
       d.transaction(() => {
         ensureRunRow(d, run, true);

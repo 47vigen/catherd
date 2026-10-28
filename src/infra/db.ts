@@ -5,6 +5,7 @@ import { CatherdError, UPGRADE } from "../domain/errors.ts";
 import type { RunRecord } from "../domain/record.ts";
 import type { RunEvent } from "../domain/run-events.ts";
 import { dataDir } from "./paths.ts";
+import { isAlive } from "./proc.ts";
 import { ensurePrivateDir, PRIVATE_FILE } from "./store.ts";
 
 /**
@@ -166,9 +167,14 @@ export function backupDb(now: Date = new Date()): string {
   db().query("VACUUM INTO ?").run(tmp);
   chmodSync(tmp, PRIVATE_FILE);
   renameSync(tmp, file);
-  const all = readdirSync(dir)
-    .filter((f) => /^catherd-\d{4}-\d{2}-\d{2}\.db$/.test(f))
-    .sort();
+  const names = readdirSync(dir);
+  const all = names.filter((f) => /^catherd-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort();
   for (const f of all.slice(0, -BACKUPS_KEPT)) rmSync(join(dir, f), { force: true });
+  // a VACUUM INTO that crashed left its temp file; one a live process is still writing stays
+  for (const f of names) {
+    const pid = /^catherd-\d{4}-\d{2}-\d{2}\.db\.(\d+)\.tmp$/.exec(f)?.[1];
+    if (pid !== undefined && (Number(pid) === process.pid || !isAlive(Number(pid), null)))
+      rmSync(join(dir, f), { force: true });
+  }
   return file;
 }
