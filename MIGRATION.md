@@ -113,6 +113,18 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
   its files. A folder that cannot be read is named on stderr (`catherd: not imported <id>: <reason>`) and skipped.
 - Each run's end copies the whole database to `<data dir>/backups/catherd-<date>.db`; the last 7 are kept.
 
+### The architect loop, behind a switch (plan 47)
+
+- A profile may set `engine: architect` (`catherd profile set engine architect`). A run started afterwards is driven
+  by the architect: catherd wakes it when a task, a check or the owner has news, it acts through its tools
+  (`delegate_task`, `task_status`, `check`, `ledger`, `ask_owner`, `finish` and the rest) and keeps a ledger
+  (`ledger/tasks.json`, `ledger/progress.md` in the run folder). Every other profile, the default included, runs the
+  2.0 pipeline as before.
+- On this engine the architect runs `workspace-write` when its profile says `read-only`, the run takes no `base`
+  yet, and the owner's plan files are input the architect may edit, not an approval.
+- A role whose backend has no role server calls the same tools with `catherd call <run> <tool>`, the arguments as
+  JSON on stdin.
+
 ### Grok Build and Antigravity are removed
 
 - Grok Build (`grok:`) and Antigravity (`antigravity:`) are removed. A profile that names one fails `profile

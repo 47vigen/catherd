@@ -16,6 +16,22 @@ judge on the role's exact brief (plan 44). Since 2.0 the daemon runs all of it (
 
 ## 2.0 follow-ups
 
+### From plan 47 (the architect loop)
+
+Left out of plan 47 on purpose:
+
+- **The 70% context threshold.** A fresh thread starts after a failed turn, a daemon restart, a rung change or a spent
+  thread (`threadHeavy`, past 8M input tokens). Starting one at 70% of the model's window needs the window in the
+  catalog (spec D1).
+- **A fixed writer cap.** Four writers and four standing-role tasks at once (`WRITER_CAP`, `STANDING_CAP`); the
+  memory-bound writer cap comes with per-writer trees (spec D5, stage 2).
+- **The run's checkout only.** A check runs on the repository as it stands and a base run is refused; the integration
+  tree, per-writer trees, `check {ref}` and landing come with plans 50 and 52 (spec D5, D11).
+- **Messages do not wake the architect.** A worker's question rides the next digest; the turn that ends the worker's
+  task wakes it. Make a `question` message a wake event if runs show workers idling on an answer.
+- **A researcher may write any research file.** `write_run_file` takes `research/<id>.md` for every role that has it,
+  not only the task's own path (spec D12).
+
 ### From plan 46 (the run-state database)
 
 Left out of plan 46 on purpose:
