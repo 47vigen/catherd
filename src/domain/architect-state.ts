@@ -161,7 +161,8 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       if (e.role === "architect") {
         a.turns += 1;
         a.turn = e.dispatchId;
-        const upTo = e.upTo ?? e.seq;
+        // an adopted turn (the daemon died before its event) has no upTo: deliver twice rather than lose an item
+        const upTo = e.upTo ?? 0;
         a.inbox = a.inbox.filter((i) => i.seq > upTo);
         a.fresh = null;
       } else {

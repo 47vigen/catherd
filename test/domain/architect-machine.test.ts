@@ -156,6 +156,27 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     expect(names(after(log))).toEqual(["T2", "T3", "T4", "T5"]);
   });
 
+  it("an adopted turn carries no upTo and drops nothing from the digest", () => {
+    const log = architectRun();
+    const a1 = turn(log, 1);
+    delegate(log, "T1");
+    const t1 = startDispatch(log, { name: "T1", unit: "T1", lane: null, rung: RUNG });
+    endDispatch(log, a1, { name: "architect-1", unit: "run", thread: "th-a" });
+    endDispatch(log, t1, { name: "T1", unit: "T1" });
+    log.add("dispatch.started", {
+      dispatchId: newId(),
+      name: "architect-2",
+      role: "architect",
+      unit: "run",
+      lane: null,
+      rung: "claude-code:claude-opus-5-5#high",
+      thread: "th-a",
+    });
+    expect(log.state().arch?.inbox.map((i) => i.text)).toEqual([
+      expect.stringContaining("T1 (worker) ended"),
+    ]);
+  });
+
   it("starts a fresh thread after a failed turn or a daemon restart, and stops after three failed turns", () => {
     const log = architectRun();
     endDispatch(log, turn(log, 1), { name: "architect-1", unit: "run", status: "timeout", thread: "th-a" });
