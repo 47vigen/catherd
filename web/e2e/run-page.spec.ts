@@ -9,8 +9,8 @@ test("the graph advances live", async ({ page }) => {
   await signIn(page);
   const { live } = state();
   await page.goto(`/runs/${live.id}`);
-  const lane = page.getByRole("button", { name: /^M1\.L1 worker\. / });
-  await expect(lane).toHaveAccessibleName(/^M1\.L1 worker\. Running/);
+  const lane = page.getByRole("button", { name: /^T1 worker\. / });
+  await expect(lane).toHaveAccessibleName(/^T1 worker\. Running/);
   // the socket's start is fixed once it is open: append after that
   await expect(page.locator('output[data-connected="true"]')).toBeVisible();
 
@@ -34,8 +34,8 @@ test("the graph advances live", async ({ page }) => {
   await appendEvent(live.events, {
     type: "dispatch.ended",
     dispatchId: "D0101",
-    name: "worker-M1.L1",
-    unit: "M1.L1",
+    name: "T1",
+    unit: "T1",
     status: "ok",
     replyStatus: "complete",
     reason: null,
@@ -45,9 +45,9 @@ test("the graph advances live", async ({ page }) => {
     environment: null,
     verdict: null,
     findings: [],
-    replyPath: "roles/worker-M1.L1/D0101/reply.md",
+    replyPath: "roles/T1/D0101/reply.md",
   });
-  await expect(lane).toHaveAccessibleName(/^M1\.L1 worker\. Done/);
+  await expect(lane).toHaveAccessibleName(/^T1 worker\. Done/);
   expect(errors).toEqual([]);
 });
 
