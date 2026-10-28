@@ -662,3 +662,13 @@ Needs a throwaway repository on a forge you can push to, with `gh` or `glab` sig
 4. **Final land asks once.** `land {final}` without a verifier PASS is refused with its reason. After a full check and
    a verifier PASS on the pushed commit, the run parks one question, merge?; any answer ends the run `done`, and
    catherd never merges.
+
+## 24. Converging reviews (2.0, plan 51)
+
+1. **Another family reviews.** With a reviewer ladder of a gpt and a Claude rung and gpt workers, ask the architect for
+   a review of a ledger task: `task.delegated` in the timeline names the Claude rung; with a gpt-only ladder it says
+   "(same-family review)".
+2. **A re-review reads the diff.** After a fix, a second review of the same task: its brief
+   (`<run>/tasks/<id>/brief.md` plus the rendered round) names `git diff <a> <b>` and the first review's findings.
+3. **Three rounds, then a replan.** A fourth review of the task is refused until the architect edits it.
+4. **Metrics.** The run page's Metrics tile and `catherd runs metrics <id>` agree on idle %, rounds and climbs.

@@ -68,6 +68,15 @@ stand-in ended ok), and the four tasks' summed wall-clock is no worse than the b
 (`WALL_TOLERANCE`). Per-task deltas are shown, not gated: one run per task cannot tell 5 % from noise. Quota, review
 rounds and the first try are reported, never gated.
 
+## Stage comparison
+
+`catherd scorecard stage <label> --baseline <label>` compares two stages of the architect-led runs (spec D17), task
+by task and never only in total. `record` keeps every run of a task under its label (a run recorded again replaces
+itself), so record each task at least twice. A task fails when it has fewer than two runs, when one of its runs did
+not finish, or when its median wall time is more than 10 % over the baseline's median for that task. The medians of
+idle %, concurrency, blocked minutes, check share, review rounds and climbs are printed beside it and never gated.
+A results file written before plan 51 reads as one run per task.
+
 ## Operator rules
 
 - One task at a time. Parallel tasks share quota and the machine; a measurement takes up to 16 hours.
