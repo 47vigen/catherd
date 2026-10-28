@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parsePorcelainZ, type Snapshot } from "../domain/changes.ts";
 import { CatherdError } from "../domain/errors.ts";
@@ -68,9 +68,18 @@ export async function gitHead(repo: string, timeoutMs?: number): Promise<string 
   return (r.kind === "ok" && r.out.trim()) || null;
 }
 
+/** A clean submodule's HEAD, "empty" for one not initialized, null for a dirty one or when git cannot say. */
+async function submoduleIdentity(dir: string, timeoutMs?: number): Promise<string | null> {
+  if (readdirSync(dir).length === 0) return "empty";
+  const status = await git(dir, ["status", "--porcelain", "--untracked-files=all"], timeoutMs);
+  if (status.kind !== "ok" || status.out.trim() !== "") return null;
+  const head = await git(dir, ["rev-parse", "HEAD"], timeoutMs);
+  return head.kind === "ok" ? head.out.trim() : null;
+}
+
 /**
  * A content identity of HEAD, tracked changes and non-ignored untracked files, staged or not.
- * Null when git cannot say, a listed file cannot be read, or a submodule makes contents uncertain.
+ * Null when git cannot say, a listed file cannot be read, or a submodule is dirty.
  */
 export async function worktreeIdentity(repo: string, timeoutMs?: number): Promise<string | null> {
   const head = await git(repo, ["rev-parse", "HEAD"], timeoutMs);
@@ -98,7 +107,14 @@ export async function worktreeIdentity(repo: string, timeoutMs?: number): Promis
         hash.update(path).update("\0deleted\0");
         continue;
       }
-      // Direct bytes catch normalization and mode changes Git's diff can hide. Directories include submodules.
+      // a submodule (a tracked directory) is its recorded commit, and only while its own tree is clean
+      if (stat.isDirectory() && trackedPaths.has(path)) {
+        const sub = await submoduleIdentity(fullPath, timeoutMs);
+        if (sub === null) return null;
+        hash.update(path).update("\0submodule\0").update(sub).update("\0");
+        continue;
+      }
+      // Direct bytes catch normalization and mode changes Git's diff can hide.
       if (!stat.isFile() && !stat.isSymbolicLink()) return null;
       const type = stat.isSymbolicLink() ? "link" : "file";
       const content = stat.isSymbolicLink()
