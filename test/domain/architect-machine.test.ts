@@ -3,6 +3,7 @@ import { architectNext } from "../../src/domain/architect-machine.ts";
 import { STANDING_CAP, WRITER_CAP } from "../../src/domain/architect-state.ts";
 import type { Role } from "../../src/domain/roles.ts";
 import type { Action } from "../../src/domain/run-machine.ts";
+import { HOLD_MS } from "../../src/domain/run-state.ts";
 import { endDispatch, type Log, makeLog, newId, startDispatch, startedFields } from "./run-fixtures.ts";
 
 const RUNG = "codex:gpt-6-sol#high";
@@ -175,6 +176,17 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     expect(log.state().arch?.inbox.map((i) => i.text)).toEqual([
       expect.stringContaining("T1 (worker) ended"),
     ]);
+  });
+
+  it("holds the wake while the architect's quota is held, and a held refusal is not a failed turn", () => {
+    const log = architectRun();
+    const end = endDispatch(log, turn(log, 1), { name: "architect-1", unit: "run", status: "limit" });
+    expect(wakeOf(after(log))).toBeUndefined();
+    expect(log.state().wakeAt).not.toBeNull();
+    log.add("dispatch.refused", { name: "architect-2", unit: "run", code: "E_RUNG_HELD", message: "held" });
+    expect(log.state().arch?.failedTurns).toBe(1);
+    log.add("tick", {}, new Date(Date.parse(end.at) + HOLD_MS + 1000).toISOString());
+    expect(wakeOf(after(log))).toMatchObject({ name: "architect-2" });
   });
 
   it("starts a fresh thread after a failed turn or a daemon restart, and stops after three failed turns", () => {

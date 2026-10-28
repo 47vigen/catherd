@@ -188,7 +188,8 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
           byArchitect(t.by),
           t.taskId,
         );
-      } else if (e.unit === RUN_UNIT) {
+      } else if (e.unit === RUN_UNIT && e.code !== "E_RUNG_HELD") {
+        // a held quota is the wake's wait, not the architect's failure
         failTurn(a, `your turn could not start: ${e.code}`);
         push(a, e, `your last turn could not start: ${e.code} ${e.message}`);
       }

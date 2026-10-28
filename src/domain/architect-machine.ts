@@ -1,4 +1,6 @@
 import { type ArchState, architectName, isStanding, STANDING_CAP, WRITER_CAP } from "./architect-state.ts";
+import { quotaOf } from "./failover.ts";
+import { tryParseRung } from "./ids.ts";
 import { RUN_UNIT, type RunEvent } from "./run-events.ts";
 import { type Action, type DispatchAction, owedActions } from "./run-machine.ts";
 import { liveDispatches, type RunState } from "./run-state.ts";
@@ -82,6 +84,9 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
       decision: null,
     });
   }
-  if (a.turn === null && a.inbox.some((i) => i.wakes)) out.push(wake(a));
+  // a turn that ended on a quota limit waits for the hold: recomputeWake ticks when it lapses
+  const rung = tryParseRung(a.rung);
+  const held = rung !== null && (s.holds[quotaOf(rung)] ?? "") > s.at;
+  if (a.turn === null && !held && a.inbox.some((i) => i.wakes)) out.push(wake(a));
   return out;
 }
