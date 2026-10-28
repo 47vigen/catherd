@@ -13,6 +13,7 @@ import { unitMilestone } from "../domain/branch.ts";
 import type { Role } from "../domain/roles.ts";
 import { integrateName, lanesOf, type MilestoneState, type RunState } from "../domain/run-state.ts";
 import { VERSION } from "../infra/version.ts";
+import { taskBrief, wakeBrief } from "./architect-run.ts";
 import { capText, FINDING_MAX, issueTitle } from "./brief-cap.ts";
 import { landedCommits } from "./milestones.ts";
 import { readChecks } from "./milestone-check.ts";
@@ -480,9 +481,11 @@ function briefBody(run: Run, s: RunState, a: DispatchAction): Pick<BriefParts, "
     case "verify":
       return verifyBrief(run, s, a);
     case "judge":
-    case "wake":
-    case "task":
       return { unit: [], round: [] };
+    case "wake":
+      return wakeBrief(run, s, a);
+    case "task":
+      return taskBrief(run, s, a);
   }
 }
 
@@ -593,6 +596,7 @@ export async function renderBrief(
       version: VERSION,
       resumed,
       lane: lane !== null && laneText && resumed ? { id: lane, text: laneText } : null,
+      engine: s.engine,
     },
   );
 }

@@ -1,3 +1,4 @@
+import type { Engine } from "../domain/profile.ts";
 import { closeSync, existsSync, fstatSync, ftruncateSync, openSync, readFileSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError, UPGRADE } from "../domain/errors.ts";
@@ -103,6 +104,17 @@ export function lastEventSeq(run: Run): number {
     seq: number | null;
   };
   return r.seq ?? 0;
+}
+
+/** Plan 47: the engine `run.started` named; an earlier build's run (on files) and a run not started yet are 2.0. */
+export function runEngine(run: Run): Engine {
+  if (onFile(run)) return "2.0";
+  const r = db()
+    .query(
+      "SELECT json_extract(body, '$.engine') AS engine FROM events WHERE run_id = ? AND type = 'run.started' LIMIT 1",
+    )
+    .get(run.id) as { engine: string | null } | null;
+  return r?.engine === "architect" ? "architect" : "2.0";
 }
 
 /** Whether the run's events say it ended (`run.ended`). */

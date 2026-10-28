@@ -1,3 +1,4 @@
+import { runEngine } from "./run-events-store.ts";
 import type { KnownHost } from "../domain/host.ts";
 import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -185,7 +186,15 @@ export async function admit(
   const rung = parseRung(i.rung);
   // spec 1.5: the run's pinned profile, access and isolation, whatever the repo runs on now
   const profile = runProfile(deps, run);
-  const rc = profile.roles[i.role];
+  const configured = profile.roles[i.role];
+  // plan 47, spec D3: on the architect engine the architect may change the repository itself; a `full` profile keeps full
+  const rc =
+    configured &&
+    i.role === "architect" &&
+    configured.access === "read-only" &&
+    runEngine(run) === "architect"
+      ? { ...configured, access: "workspace-write" as const }
+      : configured;
   if (!rc?.enabled)
     throw new CatherdError("E_ADMIT_RUNG", `the ${i.role} role is off in profile ${profile.name}`, {
       fix: "skip the role, or turn it on with profile_set",

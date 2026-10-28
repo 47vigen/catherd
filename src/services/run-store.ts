@@ -473,8 +473,11 @@ export function supersededBy(run: Run): Superseded | null {
   }
 }
 
-/** What a role may write (spec 2.0): its plan, its dossier and its lane files; every other run file is catherd's. */
-const ROLE_WRITABLE = /^(plan\.md|dossier\.md|lanes\/[^/]+\.md)$/;
+/**
+ * What a role may write (spec 2.0): its plan, its dossier and its lane files, and (plan 47, spec D12) a research
+ * answer; every other run file, the ledger's renders included, is catherd's.
+ */
+const ROLE_WRITABLE = /^(plan\.md|dossier\.md|lanes\/[^/]+\.md|research\/[^/]+\.md)$/;
 
 const present = (p: string) => {
   try {

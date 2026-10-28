@@ -88,6 +88,13 @@ describe("a role's writes into the run", () => {
     expect(writeRunFile({ run: run.id, path: "plan.md", content: "x" }).bytes).toBe(1);
   });
 
+  it("takes a research answer, and refuses the ledger's renders (plan 47)", () => {
+    const { run } = freshRun();
+    expect(writeRunFile({ run: run.id, path: "research/T3.md", content: "x" }).bytes).toBe(1);
+    for (const path of ["ledger/tasks.json", "ledger/progress.md", "research/a/b.md"])
+      expect(() => writeRunFile({ run: run.id, path, content: "x" })).toThrow("is written by catherd itself");
+  });
+
   it("refuses those writes under another letter case, as a case-insensitive disk would take them", () => {
     const { run } = freshRun();
     for (const path of ["Plan-Input/p.md", "PLAN-APPROVED.md"])
