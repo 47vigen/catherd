@@ -81,8 +81,10 @@ export interface ArchState {
   finishing: { verdict: FinishVerdict; why: string } | null;
   /** spec D10: how far the wall cap is spent: `warned` at 80%, `capped` at 100% (no new task starts) */
   wall: "ok" | "warned" | "capped";
-  /** the last event that brought new information for a retry: a ledger edit, an owner answer, a check result */
+  /** the last owner answer or check result: news for every ledger task */
   newsSeq: number;
+  /** the last ledger edit that named each ledger task: news for that task only */
+  ledgerNews: Record<string, number>;
 }
 
 export function emptyArch(): ArchState {
@@ -100,6 +102,7 @@ export function emptyArch(): ArchState {
     finishing: null,
     wall: "ok",
     newsSeq: 0,
+    ledgerNews: {},
   };
 }
 
@@ -157,13 +160,14 @@ export const attemptsOn = (a: ArchState, ledgerTask: string): ArchTask[] =>
   );
 
 /**
- * Spec D10's stall: the ledger task's last attempt ended short of complete, nothing new came in since (no ledger edit,
+ * Spec D10's stall: the ledger task's last attempt ended short of complete, nothing new came in since (no edit of that ledger task,
  * owner answer or check result), and the next would run on the same rung. Returns that attempt, else null.
  */
 export function stalled(s: RunState, ledgerTask: string, rung: string): ArchTask | null {
   const last = attemptsOn(s.arch, ledgerTask).findLast((t) => t.state === "ended");
   if (!last || last.endedSeq === null || last.outcome === "ok/complete") return null;
-  return last.rung === rung && s.arch.newsSeq < last.endedSeq ? last : null;
+  const news = Math.max(s.arch.newsSeq, s.arch.ledgerNews[ledgerTask] ?? 0);
+  return last.rung === rung && news < last.endedSeq ? last : null;
 }
 
 /** The dispatches that worked a ledger task, for `ledger/tasks.json`. */
@@ -390,8 +394,8 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       return true;
     }
     case "ledger.changed":
-      a.newsSeq = e.seq;
-      // writing progress is not work: the architect does it every turn
+      // writing progress names no task and is not news: the architect does it every turn
+      for (const id of e.tasks) a.ledgerNews[id] = e.seq;
       return true;
     case "thread.sent":
       return true;

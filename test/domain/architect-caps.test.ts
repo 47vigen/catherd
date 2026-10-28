@@ -91,6 +91,18 @@ describe("spec D10: stall and impossible", () => {
     expect(stalled(log.state(), "L1", RUNG)).toBeNull();
   });
 
+  it("only a ledger edit of that task lifts its stall: progress and another task's edit do not", () => {
+    const log = capped(720);
+    delegate(log, "T1", "L1");
+    const id = startDispatch(log, { name: "T1", unit: "T1" });
+    endDispatch(log, id, { name: "T1", unit: "T1", replyStatus: "blocked", why: "loops" });
+    log.add("ledger.changed", { tasks: [], progress: true, by: "architect-2", why: "progress" });
+    log.add("ledger.changed", { tasks: ["L2"], progress: false, by: "architect-2", why: "other task" });
+    expect(stalled(log.state(), "L1", RUNG)?.taskId).toBe("T1");
+    log.add("ledger.changed", { tasks: ["L1"], progress: false, by: "architect-2", why: "split it" });
+    expect(stalled(log.state(), "L1", RUNG)).toBeNull();
+  });
+
   it("a clean end never stalls, and each end names its attempt against the cap", () => {
     const log = capped(720);
     delegate(log, "T1", "L1");
