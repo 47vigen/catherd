@@ -40,11 +40,13 @@ export function planSetup(planText: string): string | null {
 export const landSubject = (title: string): string =>
   `chore: ${title.replace(/\s+/g, " ").trim() || "catherd run"}`.toLowerCase().slice(0, 100);
 
+const quoted = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+
 /** Spec D11: the command that opens a run's MR on the origin's host, for the owner when catherd could not: gh on github.com, else glab. */
 export function mrCommand(o: { originUrl: string; base: string; branch: string; body: string }): string {
   return isGithub(o.originUrl)
-    ? `gh pr create --base ${o.base} --head ${o.branch} --body-file ${o.body}`
-    : `glab mr create --source-branch ${o.branch} --target-branch ${o.base} --description "$(cat ${o.body})"`;
+    ? `gh pr create --base ${o.base} --head ${o.branch} --body-file ${quoted(o.body)}`
+    : `glab mr create --source-branch ${o.branch} --target-branch ${o.base} --description "$(cat ${quoted(o.body)})"`;
 }
 
 /** Whether an origin URL is on github.com (gh), else a GitLab host (glab). */

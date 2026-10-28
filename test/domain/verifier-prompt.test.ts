@@ -8,7 +8,7 @@ describe("the one verifier's prompt (plan 50, spec D8)", () => {
     for (const s of [
       "The full check is catherd's",
       "Do not run it again.",
-      "each heavy command in `catherd lock -- <command>`",
+      "each heavy command wrapped as your brief says: `bunx catherd-cli@<version> lock -- <command>`",
       "git diff <base>...HEAD",
       "A VERDICT: PASS with no RAN line is read as a FAIL",
       "run it on HEAD and name both exit codes",

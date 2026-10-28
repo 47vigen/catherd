@@ -33,9 +33,12 @@ describe("branch names", () => {
   it("names the MR command for the origin's host", () => {
     expect(
       mrCommand({ originUrl: "git@github.com:o/r.git", base: "main", branch: "t-m1", body: "/d.md" }),
-    ).toBe("gh pr create --base main --head t-m1 --body-file /d.md");
+    ).toBe("gh pr create --base main --head t-m1 --body-file '/d.md'");
     expect(
       mrCommand({ originUrl: "git@git.example.com:o/r.git", base: "main", branch: "t-m1", body: "/d.md" }),
-    ).toBe('glab mr create --source-branch t-m1 --target-branch main --description "$(cat /d.md)"');
+    ).toBe(`glab mr create --source-branch t-m1 --target-branch main --description "$(cat '/d.md')"`);
+    expect(
+      mrCommand({ originUrl: "git@github.com:o/r.git", base: "main", branch: "t", body: "/my dir/it's.md" }),
+    ).toBe("gh pr create --base main --head t --body-file '/my dir/it'\\''s.md'");
   });
 });
