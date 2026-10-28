@@ -7,6 +7,7 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -851,6 +852,26 @@ describe("1.5 profiles", () => {
       "workspace-write",
     ]);
     expect(migrateProfiles()).toEqual([]);
+  });
+
+  it("a migration that drops the ui-reviewer prunes its stale agent link", () => {
+    withHome();
+    mkdirSync(profilesDir(), { recursive: true });
+    const stale = "catherd-default-ui-reviewer-claude-opus-5-5-medium";
+    const target = join(agentsRoot(), "default", `${stale}.md`);
+    mkdirSync(join(agentsRoot(), "default"), { recursive: true });
+    mkdirSync(claudeAgentsDir(), { recursive: true });
+    writeFileSync(target, "old agent\n");
+    symlinkSync(target, join(claudeAgentsDir(), `${stale}.md`));
+    writeFileSync(
+      file("default"),
+      JSON.stringify({
+        schema: 1,
+        roles: { "ui-reviewer": { enabled: true, rungs: ["claude:claude-opus-5-5#medium"] } },
+      }),
+    );
+    expect(migrateProfiles().map((d) => d.profile)).toEqual(["default"]);
+    expect(links()).toEqual(DEFAULT_AGENTS.map((n) => `${n}.md`));
   });
 
   it("a patch over an old profile saves", () => {
