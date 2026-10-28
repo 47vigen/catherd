@@ -18,6 +18,7 @@ import { log } from "../../infra/log.ts";
 import { currentSession } from "../../services/sessions.ts";
 import { startNotifier } from "../../services/notifier.ts";
 import type { Deps } from "../../services/ports.ts";
+import { importLegacyRuns } from "../../services/legacy-import.ts";
 import { adoptOwned, reconcileAll } from "../../services/reconcile.ts";
 import { refreshIndex } from "../../services/catalog-service.ts";
 import { defaultDeps } from "../deps.ts";
@@ -236,6 +237,8 @@ export async function startMcpServer(
           adoptOwned(context);
           return void active.scan();
         }
+        for (const w of importLegacyRuns().skipped)
+          console.error(`catherd: not imported ${w.id}: ${w.reason}`);
         const r = await reconcileAll(context);
         if (epoch !== generation) return;
         const shown = r.warnings.length;
