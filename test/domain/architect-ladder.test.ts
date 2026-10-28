@@ -138,4 +138,10 @@ describe("spec D7: the ladder's default, climbed on observed failure", () => {
     attempt(log, "T2", MID, { status: "failed", replyStatus: null }, "researcher");
     expect(next(log)).toBe(LOW);
   });
+
+  it("never climbs for a lost dispatch (a daemon restart), which no stronger rung would fix", () => {
+    const log = run();
+    attempt(log, "T1", MID, { status: "failed", replyStatus: null, lost: true });
+    expect(next(log)).toBe(MID);
+  });
 });

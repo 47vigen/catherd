@@ -141,6 +141,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     replyPath: z.string(),
     /** a verifier's ok reply whose first line is no verdict: its `fail` is catherd's reading, not the verifier's */
     noVerdict: z.literal(true).optional(),
+    /** plan 49: catherd lost the dispatch (a daemon restart, no adapter), so no rung is to blame and none climbs */
+    lost: z.literal(true).optional(),
   }),
   /** `why`: the architect's reason for an ask_owner (plan 47); other parks have none */
   ev("question.parked", { unit: z.string(), question: z.string(), reason, why: z.string().optional() }),

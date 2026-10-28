@@ -83,12 +83,14 @@ export function endDispatch(
     environment?: string | null;
     reason?: BlockedReason | null;
     head?: string | null;
+    lost?: true;
     at?: string;
   },
 ) {
   return log.add(
     "dispatch.ended",
     {
+      ...(o.lost ? { lost: true as const } : {}),
       dispatchId,
       name: o.name,
       unit: o.unit,

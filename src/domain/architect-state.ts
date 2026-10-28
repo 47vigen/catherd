@@ -362,7 +362,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       t.state = "ended";
       t.outcome = `${e.status}/${e.replyStatus ?? "none"}`;
       t.endedSeq = e.seq;
-      t.climbs = e.status === "failed" || e.status === "timeout" || e.reason === "too_hard";
+      t.climbs = !e.lost && (e.status === "failed" || e.status === "timeout" || e.reason === "too_hard");
       t.blocks = REVIEW_ROLES.includes(t.role) && e.findings.some((f) => f.label === "BLOCKER");
       const mine = byArchitect(t.by);
       const notes = [
