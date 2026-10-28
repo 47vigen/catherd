@@ -3,6 +3,7 @@ import { BLOCKED_REASONS } from "./blocked.ts";
 import { DECISION_SOURCES } from "./decision.ts";
 import { FAILURE_CLASSES } from "./harness.ts";
 import { JUDGE_KINDS, JudgeDecisionSchema } from "./judge.ts";
+import { ENGINES } from "./profile.ts";
 import { REPLY_STATUSES, RUN_STATUSES } from "./record.ts";
 import { ROLES } from "./roles.ts";
 
@@ -27,6 +28,8 @@ export const PARK_REASONS = [
   "effect",
   "push",
   "decision",
+  /** plan 47: the architect's ask_owner, within spec O6's stop classes */
+  "owner",
 ] as const;
 export type ParkReason = (typeof PARK_REASONS)[number];
 
@@ -121,7 +124,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     aLines: strings,
     plan: strings,
     base: z.string().nullable(),
-    engine: z.literal("2.0"),
+    /** plan 47: "architect" runs the architect loop instead of the 2.0 pipeline */
+    engine: z.enum(ENGINES),
     /** the roles the run's profile turns off, so the machine never waits on one (absent before 2.0.x) */
     rolesOff: z.array(role).optional(),
     /** plan 43: `land.autoMerge` as the profile had it at the start; catherd merges the run's landed milestones (absent before) */
@@ -153,6 +157,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     judgeKind: z.enum(JUDGE_KINDS).nullable().optional(),
     /** the last team message number when its brief was rendered; older lines have none (their startedAt is used) */
     teamSeen: z.number().int().min(0).optional(),
+    /** plan 47: an architect turn's digest covers the events up to this seq */
+    upTo: z.number().int().min(0).optional(),
   }),
   ev("dispatch.refused", {
     name: z.string(),
@@ -274,7 +280,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     dispatchId: z.string(),
   }),
   ev("judge.failed", { id: z.string(), unit: z.string(), why: z.string() }),
-  ev("question.parked", { unit: z.string(), question: z.string(), reason }),
+  /** `why`: the architect's reason for an ask_owner (plan 47); other parks have none */
+  ev("question.parked", { unit: z.string(), question: z.string(), reason, why: z.string().optional() }),
   ev("question.reminded", { unit: z.string(), n: z.number().int().min(1) }),
   ev("question.answered", { unit: z.string(), answer: z.string(), by: z.enum(["owner", "judge"]) }),
   ev("milestone.landed", {
@@ -340,6 +347,52 @@ export const RunEventSchema = z.discriminatedUnion("type", [
   }),
   ev("report.posted", { kind: z.enum(REPORT_KINDS), unit: z.string(), text: z.string() }),
   ev("tick", {}),
+  /** plan 47, the architect engine: what its tools asked for, each with the caller's one-line `why` (spec D3) */
+  ev("task.delegated", {
+    taskId: z.string(),
+    role,
+    rung: z.string(),
+    thread: z.string().nullable(),
+    ledgerTask: z.string().nullable(),
+    by: z.string(),
+    why: z.string(),
+  }),
+  ev("task.cancelled", { taskId: z.string(), by: z.string(), why: z.string() }),
+  /** the architect read a finished task with task_status: its digest line is delivered */
+  ev("task.read", { taskId: z.string() }),
+  ev("check.requested", {
+    checkId: z.string(),
+    command: z.string(),
+    scope: z.enum(["fast", "full"]),
+    base: z.boolean(),
+    fresh: z.boolean(),
+    by: z.string(),
+    why: z.string(),
+  }),
+  ev("check.done", {
+    checkId: z.string(),
+    exit: z.number().int().nullable(),
+    failures: strings,
+    /** failing lines the base's own check of the same command also had */
+    preExisting: strings,
+    /** a pass recorded on the same tree, reused instead of run again */
+    cached: z.boolean(),
+    minutes: z.number(),
+    logPath: z.string(),
+  }),
+  ev("ledger.changed", { tasks: strings, progress: z.boolean(), by: z.string(), why: z.string() }),
+  ev("thread.sent", {
+    to: z.string(),
+    n: z.number().int(),
+    delivery: z.enum(["steered", "queued", "resumed"]),
+    by: z.string(),
+    why: z.string(),
+  }),
+  ev("run.finishing", {
+    verdict: z.enum(["done", "impossible", "stopped"]),
+    by: z.string(),
+    why: z.string(),
+  }),
   ev("run.ended", { outcome, reportPath: z.string().nullable() }),
 ]);
 export type RunEvent = z.infer<typeof RunEventSchema>;
@@ -456,6 +509,22 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
       return `report (${e.kind}) on ${e.unit}`;
     case "tick":
       return "tick";
+    case "task.delegated":
+      return `${e.by} delegated ${e.taskId} to the ${e.role} on ${e.rung}: ${one(e.why)}`;
+    case "task.cancelled":
+      return `${e.by} cancelled ${e.taskId}: ${one(e.why)}`;
+    case "task.read":
+      return `${e.taskId} read`;
+    case "check.requested":
+      return `${e.by} asked for check ${e.checkId} (${e.scope}${e.base ? ", base" : ""}): ${one(e.why)}`;
+    case "check.done":
+      return `check ${e.checkId} ${e.exit === 0 ? "passed" : `failed (exit ${e.exit ?? "timeout"})`}${e.cached ? " (cached)" : ""}`;
+    case "ledger.changed":
+      return `${e.by} changed the ledger${e.tasks.length ? ` (${e.tasks.join(", ")})` : ""}: ${one(e.why)}`;
+    case "thread.sent":
+      return `${e.by} sent #${e.n} to ${e.to} (${e.delivery}): ${one(e.why)}`;
+    case "run.finishing":
+      return `${e.by} finishes the run ${e.verdict}: ${one(e.why)}`;
     case "run.ended":
       return `run ended ${e.outcome}`;
   }

@@ -385,6 +385,7 @@ function viewOf(p: Profile): ProfileView {
     heavy: p.lock.heavy,
     notify: p.notify,
     limits: { memory: pickMemory(memoryLimitsOf(p)) },
+    engine: p.engine,
   };
 }
 

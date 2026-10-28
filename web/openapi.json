@@ -2152,7 +2152,8 @@
                       "judge",
                       "effect",
                       "push",
-                      "decision"
+                      "decision",
+                      "owner"
                     ]
                   },
                   "question": {
@@ -3547,7 +3548,8 @@
               "judge",
               "effect",
               "push",
-              "decision"
+              "decision",
+              "owner"
             ]
           },
           "at": {
@@ -3942,6 +3944,13 @@
                 "blocked"
               ]
             }
+          },
+          "engine": {
+            "type": "string",
+            "enum": [
+              "2.0",
+              "architect"
+            ]
           },
           "limits": {
             "type": "object",
@@ -4433,7 +4442,8 @@
               "judge",
               "effect",
               "push",
-              "decision"
+              "decision",
+              "owner"
             ]
           },
           "at": {

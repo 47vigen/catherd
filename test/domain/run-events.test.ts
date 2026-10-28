@@ -328,4 +328,53 @@ describe("plan 43 events", () => {
     for (const e of [named, decideFailed]) expect(RunEventSchema.parse(e)).toEqual(e);
     expect(RunEventSchema.safeParse({ ...failed, action: "teleport" }).success).toBe(false);
   });
+
+  it("parses and describes the architect engine's events, each with its why (plan 47)", () => {
+    const log = makeLog();
+    const why = "the wallet needs a test first";
+    const events = [
+      log.add("run.started", { ...startedFields, engine: "architect" }),
+      log.add("task.delegated", {
+        taskId: "T1",
+        role: "worker",
+        rung: "codex:gpt-6-sol#high",
+        thread: null,
+        ledgerTask: "L1",
+        by: "architect-1",
+        why,
+      }),
+      log.add("task.cancelled", { taskId: "T1", by: "architect-1", why }),
+      log.add("task.read", { taskId: "T1" }),
+      log.add("check.requested", {
+        checkId: "C1",
+        command: "bun test",
+        scope: "full",
+        base: false,
+        fresh: false,
+        by: "architect-1",
+        why,
+      }),
+      log.add("check.done", {
+        checkId: "C1",
+        exit: 1,
+        failures: ["(fail) a"],
+        preExisting: [],
+        cached: false,
+        minutes: 1,
+        logPath: "checks/C1.log",
+      }),
+      log.add("ledger.changed", { tasks: ["L1"], progress: true, by: "architect-1", why }),
+      log.add("thread.sent", { to: "T1", n: 3, delivery: "queued", by: "architect-1", why }),
+      log.add("run.finishing", { verdict: "done", by: "architect-1", why }),
+      log.add("question.parked", { unit: "run", question: "deploy?", reason: "owner", why }),
+    ];
+    for (const e of events) {
+      expect(RunEventSchema.parse(e)).toEqual(e);
+      expect(describeEvent(e)).not.toBe("");
+    }
+    expect(describeEvent(events[1] as RunEvent)).toBe(
+      `architect-1 delegated T1 to the worker on codex:gpt-6-sol#high: ${why}`,
+    );
+    expect(RunEventSchema.safeParse({ ...events[0], engine: "3.0" }).success).toBe(false);
+  });
 });

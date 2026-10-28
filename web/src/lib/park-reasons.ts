@@ -23,6 +23,7 @@ export const REASON_TEXT: Record<Reason, string> = {
   effect: "A step would change something outside the repository, so it waits for you.",
   push: "The branch is ready. Push it, or tell catherd it has been merged.",
   decision: "The decision model gave no usable answer. Answer with one of the listed rungs, or retry.",
+  owner: "The architect asks you about production, a secret, an action that cannot be undone, or a stuck run.",
 };
 
 export interface QuickAnswer {
