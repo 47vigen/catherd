@@ -37,6 +37,14 @@ Left out of plan 48 on purpose:
 - **The events lock stays.** `withEventsLock` still guards `answer` and `delegate_task`, which check state and append
   in one step (plan 46's R4).
 - **Rounds and approvals in the scorecard read 0** for a run this build starts; plan 51's metric views replace them.
+- **"attempt n of N" counts later attempts** when a ledger task's attempts run in parallel; the end line should use the
+  task's position in its attempts instead of how many exist when it ends.
+- **`stalled()` picks the last-ended attempt by insertion order,** not by `endedSeq`; with parallel attempts the one
+  that ended last is not always the last one inserted.
+- **A cap stop leaves the architect's own `workspace-write` turn running.** The stop cancels the tasks, not the turn;
+  it ends by itself, but it can still write to the tree after the run is called stopped.
+- **The D16 refusal falls back to `<its version>`** (`run-client.ts:46`) when the run has no `daemon.started` to name
+  the build that owns it.
 
 ### From plan 47 (the architect loop)
 
