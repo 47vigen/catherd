@@ -118,7 +118,14 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
 
   // a stored profile in this build's shape first (plan 44 D25, plan 49); a file that cannot be read has its own row below
   try {
-    migrateProfiles();
+    for (const m of migrateProfiles())
+      checks.push({
+        id: `migrated:${m.profile}`,
+        label: `profile ${m.profile}`,
+        state: "ok",
+        word: "migrated",
+        detail: m.notes.join("; "),
+      });
   } catch (e) {
     // the file has its own row below; the log names it too
     log("warn", "doctor", { migrate: errText(e) });

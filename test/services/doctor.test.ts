@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { realTmpdir } from "../../src/adapters/access.ts";
-import { claudeAgentsDir, indexPath, locksDir } from "../../src/infra/paths.ts";
+import { claudeAgentsDir, configDir, indexPath, locksDir } from "../../src/infra/paths.ts";
 import { readIndexFile, writeIndexFile } from "../../src/infra/slopalytics.ts";
 import { runProbes } from "../../src/services/doctor-access.ts";
 import { VERSION } from "../../src/infra/version.ts";
@@ -126,6 +126,19 @@ function ready(): string {
 }
 
 describe("doctor", () => {
+  it("shows what it migrated in a stored profile", async () => {
+    ready();
+    const file = join(configDir(), "profiles", "old.json");
+    writeFileSync(file, JSON.stringify({ schema: 1, jev: {}, roles: {} }));
+    const r = await run();
+    expect(check(r, "migrated:old")).toMatchObject({
+      state: "ok",
+      word: "migrated",
+      detail: expect.stringContaining("dropped jev"),
+    });
+    expect((await run()).checks.some((c) => c.id.startsWith("migrated:"))).toBe(false);
+  });
+
   it("is ready when everything the active profile needs works, warning only on what is optional", async () => {
     ready();
     const r = await run();
