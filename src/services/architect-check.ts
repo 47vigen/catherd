@@ -9,7 +9,7 @@ import { git, worktreeIdentity } from "../infra/git.ts";
 import { heavySlots, LOCK_HELD_ENV, type LockWait, withHeavySlot } from "../infra/heavy-lock.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import type { Deps } from "./ports.ts";
-import { checkEnvFor, runCheck } from "./preflight.ts";
+import { checkEnvFor, runCheck } from "./check-command.ts";
 import { runProfile } from "./run-pin.ts";
 import type { Run } from "./run-store.ts";
 

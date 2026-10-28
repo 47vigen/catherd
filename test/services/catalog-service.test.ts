@@ -13,7 +13,8 @@ import {
   startIndex,
   writeRunIndex,
 } from "../../src/services/catalog-service.ts";
-import { appendRoute } from "../../src/services/run-store.ts";
+import { appendRecord } from "../../src/services/run-store.ts";
+import { makeRecord } from "../domain/make-record.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { freshRun } from "./helpers.ts";
 
@@ -206,21 +207,9 @@ describe("catalogQuery", () => {
     expect(rows({ backend: "codex", text: "gpt-6-sol" })).toEqual(["codex:gpt-6-sol null"]);
   });
 
-  it("says a rung's run evidence (spec 1.2 §8)", () => {
+  it("says a rung's run evidence (spec 1.2 §8)", async () => {
     const { run } = freshRun();
-    appendRoute(run, {
-      at: "2026-09-28T10:00:00.000Z",
-      lane: "M1.L1",
-      role: "worker",
-      rung: "codex:gpt-6-luna#high",
-      ladder: ["codex:gpt-6-luna#high"],
-      source: "route",
-      decidedBy: "lane",
-      from: null,
-      reason: null,
-      kind: "repo_code",
-      difficulty: "build",
-    });
+    await appendRecord(run, makeRecord({ runId: run.id, rung: "codex:gpt-6-luna#high" }));
     const luna = q({ backend: "codex", text: "gpt-6-luna" }).models[0];
     expect(luna?.rungs.find((r) => r.rung === "codex:gpt-6-luna#high")?.evidence).toBe("1 lane");
     expect(luna?.rungs.find((r) => r.rung === "codex:gpt-6-luna#max")?.evidence).toBeNull();

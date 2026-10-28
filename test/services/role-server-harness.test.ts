@@ -46,9 +46,7 @@ describe("the role server in every harness (spec 1.5 plan 21, #42 findings 1, 2)
     const { args } = spec(specPath);
     expect(args).toContain("--ignore-user-config");
     expect(args).toContain("mcp_servers.catherd_role.enabled=true");
-    expect(args).toContain(
-      'mcp_servers.catherd_role.enabled_tools=["read_run_file","read_knowledge","gate_check","gate_pass","gate_run"]',
-    );
+    expect(args).toContain('mcp_servers.catherd_role.enabled_tools=["read_run_file","read_knowledge"]');
   });
 
   it("admits an isolated Claude Code verifier, isolated piece by piece so its --mcp-config survives", async () => {
@@ -64,8 +62,8 @@ describe("the role server in every harness (spec 1.5 plan 21, #42 findings 1, 2)
       "verifier",
       run.id,
     ]);
-    expect(args[args.indexOf("--allowedTools") + 1]).toContain("mcp__catherd_role__gate_pass");
-    expect(args[args.indexOf("--allowedTools") + 1]).toContain("mcp__catherd_role__gate_run");
+    expect(args[args.indexOf("--allowedTools") + 1]).toContain("mcp__catherd_role__read_run_file");
+    expect(args[args.indexOf("--allowedTools") + 1]).not.toContain("gate_");
     expect(env.CLAUDE_CODE_DISABLE_CLAUDE_MDS).toBe("1");
   });
 

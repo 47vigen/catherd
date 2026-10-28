@@ -3,7 +3,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 import "../../adapters/all.ts";
-import { ID_PATTERN } from "../../domain/ids.ts";
 import { roleScopeFromEnv } from "../../domain/role-scope.ts";
 import {
   ARCHITECT_TOOLS,
@@ -13,8 +12,6 @@ import {
 } from "../../domain/role-tools.ts";
 import { ARCHITECT_TOOL_SPECS, callArchitectTool } from "../../services/architect-tools.ts";
 import { log } from "../../infra/log.ts";
-import { gateCheckOrList, gatePass } from "../../services/gate-service.ts";
-import { runMilestoneCheck } from "../../services/milestone-check.ts";
 import type { Deps } from "../../services/ports.ts";
 import { readKnowledge, readRunFile, writeRunFile } from "../../services/run-service.ts";
 import { findRun } from "../../services/run-store.ts";
@@ -22,7 +19,7 @@ import { teamRead, teamSend } from "../../services/team.ts";
 import { defaultDeps } from "../deps.ts";
 import { handle, sdkToolError, toolOf } from "./result.ts";
 
-/** A role can reach only its run artifacts and, for a verifier, that run's gate evidence. */
+/** A role can reach only its run artifacts, its team channel and, for the architect, its tools. */
 export function buildRoleServer(context: RoleMcpContext, deps: Deps = defaultDeps()): McpServer {
   const run = findRun(context.run);
   const server = new McpServer({ name: ROLE_MCP_SERVER, version: deps.version });
@@ -79,56 +76,6 @@ export function buildRoleServer(context: RoleMcpContext, deps: Deps = defaultDep
         annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
       },
       (a) => call("write_run_file", () => writeRunFile(a)),
-    );
-  if (tools.has("gate_check")) {
-    const gate = {
-      run: boundRun,
-      item: z.string().min(1),
-      command: z.string().min(1),
-      paths: z.array(z.string().min(1)).min(1),
-    };
-    server.registerTool(
-      "gate_check",
-      {
-        description:
-          "Check whether this run's gate item passed on unchanged content; records the current step. With only run and milestone, lists the items already checked for that milestone in this run, each with its command and whether it passed: reuse those names and re-check the failed ones first.",
-        inputSchema: {
-          run: boundRun,
-          item: gate.item.optional(),
-          command: gate.command.optional(),
-          paths: gate.paths.optional(),
-          milestone: z.string().regex(ID_PATTERN).optional(),
-        },
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-      },
-      (a) => call("gate_check", () => gateCheckOrList(deps, a)),
-    );
-    server.registerTool(
-      "gate_pass",
-      {
-        description: "Record this run's passed gate item with the evidence, command and content hash.",
-        inputSchema: { ...gate, evidence: z.string().min(1), milestone: z.string().regex(ID_PATTERN) },
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-      },
-      (a) => call("gate_pass", () => gatePass(deps, a)),
-    );
-  }
-  if (tools.has("gate_run"))
-    server.registerTool(
-      "gate_run",
-      {
-        description:
-          "The verifier's full check of a milestone, run by catherd on the committed HEAD in a detached worker under the verifier lock and a heavy slot: { running: false, record (exit, failing lines, log, secrets, rerunOf), missing, audit } once done; land reads that record. The same run, milestone, command and HEAD answers the recorded result (force: true runs it again). Refused while tracked files are uncommitted. Past 10 minutes it answers { running: true }: call it again to wait for the same run. at: a checkout of the run's base you prepared, to record the base's own failures, which then do not block.",
-        inputSchema: {
-          run: boundRun,
-          milestone: z.string().regex(ID_PATTERN),
-          command: z.string().min(1),
-          at: z.string().min(1).optional(),
-          force: z.boolean().optional(),
-        },
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-      },
-      (a) => call("gate_run", () => runMilestoneCheck(a)),
     );
   const from = () => roleScopeFromEnv(process.env, { scratch: true })?.name ?? context.role;
   if (tools.has("team_send"))

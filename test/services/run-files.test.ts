@@ -13,7 +13,7 @@ import {
   runDoc,
   runShas,
 } from "../../src/services/run-files.ts";
-import { appendRecord, appendRoute, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
+import { appendRecord, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { makeRecord } from "../domain/make-record.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { freshRun } from "./helpers.ts";
@@ -69,20 +69,6 @@ async function runWithDispatch(): Promise<Run> {
     run,
     makeRecord({ runId: run.id, dispatchId: D1, name: "worker-M1.L1", lane: "M1.L1", attempt: 2 }),
   );
-  appendRoute(run, {
-    at: at(1).toISOString(),
-    lane: "M1.L1",
-    role: "worker",
-    rung: "codex:gpt-6-sol#high",
-    ladder: ["codex:gpt-6-luna#high", "codex:gpt-6-sol#high"],
-    source: "route",
-    decidedBy: "lane",
-    from: null,
-    reason: null,
-    kind: null,
-    difficulty: null,
-    why: "the lane asked for build",
-  });
   return run;
 }
 
@@ -118,12 +104,7 @@ describe("a dispatch's files", () => {
       truncated: [],
     });
     expect(d.record).toMatchObject({ attempt: 2, failoverFrom: null, isolated: false });
-    expect(d.route).toEqual({
-      source: "route",
-      decidedBy: "lane",
-      why: "the lane asked for build",
-      ladder: ["codex:gpt-6-luna#high", "codex:gpt-6-sol#high"],
-    });
+    expect(d.route).toBeNull(); // plan 50: no route rows
     expect(d.findings).toEqual([{ label: "BUG", text: "BUG off by one", file: "src/a/x.ts" }]);
     expect(d.aLines).toEqual([
       { id: "A1", pass: true, text: "bun test" },

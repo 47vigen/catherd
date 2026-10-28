@@ -9,7 +9,6 @@ import { fitUnit } from "./plan-input.ts";
 import type { Run } from "./run-store.ts";
 import { standingRules } from "./run-service.ts";
 import { teamFor } from "./team.ts";
-import { verifierBrief } from "./verifier-brief.ts";
 
 type DispatchAction = Extract<Action, { type: "dispatch" }>;
 
@@ -18,7 +17,7 @@ const READ_RULES = "If the repo has a CLAUDE.md or AGENTS.md, read it first and 
 /** The catherd `lock` rule of the roles that run builds and suites; the others have none. */
 const LOCK_RULES: Partial<Record<Role, string>> = {
   worker: `Wrap any full build or full test suite in: bunx catherd-cli@${VERSION} lock -- <command>. Other tasks share this machine.`,
-  verifier: `Wrap every heavy command in: bunx catherd-cli@${VERSION} lock --role verifier -- <command>.`,
+  verifier: `Wrap every heavy command in: bunx catherd-cli@${VERSION} lock -- <command>. Other tasks share this machine.`,
 };
 
 /** Part 2 of a brief: the run, where its files are, the repo's own rules and the lock rule. */
@@ -52,8 +51,8 @@ export function briefFor(run: Run, s: RunState, a: DispatchAction): BriefParts {
 }
 
 /**
- * The brief a dispatch sends, composed once (plan 44 D2): the parts of `briefFor`, the repo's standing rules for the
- * role as the last of part 3, and a verifier's gate notes as the last of part 4. `resumed` renders `<this-round>`
+ * The brief a dispatch sends, composed once (plan 44 D2): the parts of `briefFor`, and the repo's standing rules for
+ * the role as the last of part 3. `resumed` renders `<this-round>`
  * only, for a thread that holds the rest.
  */
 export async function renderBrief(
@@ -70,10 +69,7 @@ export async function renderBrief(
     {
       facts: parts.facts,
       unit: resumed ? [] : fitUnit(run, [...parts.unit, ...(rules ? [rules] : [])]),
-      round:
-        role === "verifier"
-          ? [await verifierBrief(run, role, a.name, parts.round.join("\n\n"))]
-          : parts.round,
+      round: parts.round,
     },
     { run: run.id, name: a.name, role, version: VERSION, resumed, lane: null },
   );

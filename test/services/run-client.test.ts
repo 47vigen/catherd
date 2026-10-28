@@ -208,7 +208,7 @@ describe("answerUnit", () => {
     expect(launched).toEqual([run.id]);
   });
 
-  it("answers a parked milestone in questions.jsonl too", async () => {
+  it("never writes questions.jsonl: the land gate's mirror is gone (plan 50)", async () => {
     const { run } = freshRun();
     const deps = fakeDeps();
     await seed(run);
@@ -219,12 +219,11 @@ describe("answerUnit", () => {
       question: "which currency?",
       reason: "needs_user",
     });
-    expect(openQuestions(run)).toHaveLength(1);
     expect(await answerUnit(deps, { run: run.id, unit: "M1", answer: "euros" })).toEqual({
       unit: "M1",
       parked: [],
     });
-    expect(openQuestions(run)).toEqual([]);
+    expect(openQuestions(run)).toHaveLength(1);
   });
 });
 

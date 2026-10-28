@@ -47,14 +47,11 @@ describe("the brief in four parts", () => {
     expect(text).toEndWith("</this-round>\n");
   });
 
-  it("names a verifier's gate commands and has no lane file without a lane", () => {
+  it("gives a verifier no gate commands (plan 50) and no lane file without a lane", () => {
     const text = composeBrief(parts, { ...worker, name: "verifier-M1", role: "verifier", lane: null });
     expect(text).not.toContain("<lane-file");
     expect(part(text, "unit-context")).toBe("<unit-context>\nu\n</unit-context>");
-    expect(text).toContain(`catherd gate pass ${RUN} --milestone <M> --item <item>`);
-    expect(text).toContain(
-      `catherd gate run ${RUN} --milestone <M> --command <command> [--at <base checkout>]`,
-    );
+    expect(text).not.toContain("catherd gate");
     expect(text).not.toContain("mcp__");
   });
 

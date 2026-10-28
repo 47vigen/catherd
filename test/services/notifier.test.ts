@@ -9,6 +9,7 @@ import { resetReadiness } from "../../src/services/backends.ts";
 import {
   adopt,
   cancel,
+  claim,
   dispatch,
   settle,
   settledHooks,
@@ -34,7 +35,6 @@ import * as delivery from "../../src/infra/delivery.ts";
 import { readDelivery, deliveryState, writeDeliveryAttempt } from "../../src/infra/delivery.ts";
 import type { HostSessionRef } from "../../src/domain/host.ts";
 import * as codexQueue from "../../src/infra/codex-queue.ts";
-import { peek } from "../../src/services/peek.ts";
 import { reconcileAll } from "../../src/services/reconcile.ts";
 import { result } from "../../src/services/run-service.ts";
 import { createRun, readRecords, type Run } from "../../src/services/run-store.ts";
@@ -1037,7 +1037,7 @@ describe("the notifier (spec §3.4–§3.6)", () => {
       await settle(deps, run, d, await recordOf(run, d));
       n.onStall({ run, d: live, quietMs: 7 * 60_000 });
       // the run moves inside the old owner's window: the claim settles the unannounced record again for s-next
-      await peek(next, { run: run.id });
+      await claim(next, run, { background: true });
       await n.idle();
       await m.idle();
       expect(existsSync(dispatchPaths(live.dir).stallNotified)).toBe(false);
@@ -1071,7 +1071,7 @@ describe("the notifier (spec §3.4–§3.6)", () => {
       n.stop();
       // the run moves to s-next while the old owner's frame is on its way
       const moving: typeof sendToInbox = async (t, c, p) => {
-        await peek(next, { run: run.id });
+        await claim(next, run, { background: true });
         return sendToInbox(t, c, p);
       };
       const old = startNotifier(deps, { coalesceMs: 20, send: moving });
@@ -1121,7 +1121,7 @@ describe("the notifier (spec §3.4–§3.6)", () => {
       n.stop();
       // a slow send: the run moves to s-next, whose notifier flushes while this claim is still held
       const slow: typeof sendToInbox = async (t, c, p) => {
-        await peek(next, { run: run.id });
+        await claim(next, run, { background: true });
         await waitFor(() => refused.length > 0);
         return sendToInbox(t, c, p);
       };
@@ -1317,14 +1317,14 @@ describe("a claim settles what the run's earlier owner left (spec §3.3/§3.4)",
     expect([listDispatches(run).length, listDispatches(theirs).length]).toEqual([1, 1]);
     expect(inbox?.frames).toEqual([]);
     // this session takes the run over: its limit fails over now, once, and this session hears of it
-    await peek(deps, { run: run.id });
-    // a peek never waits: the claim settles the limit after it returns
+    await claim(deps, run, { background: true });
+    // a background claim never waits: it settles the limit after it returns
     expect((await waitFor(() => readFailover(d.dir)))?.standIn?.rung).toBe("codex:gpt-6-sol#high");
     const [f] = await (inbox as FakeInbox).received(1);
     expect(f?.message.content).toContain(
       "· limit on codex:gpt-6-sol#medium; failed over to codex:gpt-6-sol#high ·",
     );
-    await peek(deps, { run: run.id });
+    await claim(deps, run, { background: true });
     await reconcileAll(deps);
     expect(listDispatches(run)).toHaveLength(2);
     expect(listDispatches(theirs)).toHaveLength(1);
@@ -1387,33 +1387,6 @@ describe("a claim settles what the run's earlier owner left (spec §3.3/§3.4)",
     await watchersSettled();
   });
 
-  it("answers a peek at once while another live process holds a limit's failover lock (codex r4)", async () => {
-    scenario();
-    const { run } = freshRun("Auth plan 5 MR B");
-    writeLane(run, "M1.L1", ["src/a.ts"]);
-    const d = await limitedOnDisk(run);
-    // another server is failing this limit over: it holds the lock (a settle would wait up to 120 s on it)
-    const holder = Bun.spawn(["sleep", "60"], { stdio: ["ignore", "ignore", "ignore"], env: process.env });
-    try {
-      writeFileSync(
-        `${dispatchPaths(d.dir).failover}.lock`,
-        JSON.stringify({ pid: holder.pid, startTime: processStartTime(holder.pid) }),
-      );
-      const deps = fakeDeps({ session: await sessionWithInbox(), view: testView({ failover: FAILOVER }) });
-      const deadline = Bun.sleep(3_000).then(() => "still waiting" as const);
-      const out = await Promise.race([peek(deps, { run: run.id }), deadline]);
-      if (out === "still waiting") throw new Error("peek waited on the failover lock");
-      expect(out.runs[0]?.owner).toBe("s-me");
-      expect(out.runs[0]?.unread.map((u) => u.dispatchId)).toEqual([d.admit.dispatchId]);
-      // the lock's holder settles it: this process started no stand-in and paused nothing
-      await watchersSettled();
-      expect(readFailover(d.dir)).toBeNull();
-      expect(listDispatches(run)).toHaveLength(1);
-    } finally {
-      holder.kill("SIGKILL");
-    }
-  });
-
   it("records, settles and announces, on a peek by its owner, a role whose watcher failed to finalize it", async () => {
     const { run, deps, n } = await owned();
     const d = await fakeDispatch(
@@ -1432,7 +1405,7 @@ describe("a claim settles what the run's earlier owner left (spec §3.3/§3.4)",
     }
     expect(readRecords(run).records).toEqual([]);
     // the same session peeks: nothing about the owner changes, the finished role is still taken care of
-    await peek(deps, { run: run.id });
+    await claim(deps, run, { background: true });
     // a peek never waits: its claim records and settles the role after it returns
     await watchersSettled();
     expect(readRecords(run).records.map((r) => r.dispatchId)).toEqual([d.admit.dispatchId]);
@@ -1441,7 +1414,7 @@ describe("a claim settles what the run's earlier owner left (spec §3.3/§3.4)",
     await n.idle();
     expect(existsSync(dispatchPaths(d.dir).notified)).toBe(true);
     // a second peek finds nothing left: no second message
-    await peek(deps, { run: run.id });
+    await claim(deps, run, { background: true });
     await watchersSettled();
     await n.idle();
     expect(inbox?.frames).toHaveLength(1);

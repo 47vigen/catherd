@@ -5,7 +5,7 @@ import type { RunRecord } from "../domain/record.ts";
 import { commitExists, git } from "../infra/git.ts";
 import { nonBlankLines } from "../infra/store.ts";
 import { listDispatches } from "./dispatches.ts";
-import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
+import { readAgentRuns, readRecords, type Run, runPaths } from "./run-store.ts";
 
 // Spec 1.1 §6 and §10: what a milestone has been through, read from the run's own records. `land` gates on
 // it, and the protocol's next step is derived from it.
@@ -26,18 +26,14 @@ const inMilestone = (lane: string | null | undefined, m: string): boolean =>
   typeof lane === "string" && lane.startsWith(`${m}.`);
 
 /**
- * When the milestone's lanes started: its earliest route row or lane dispatch; null when neither exists
+ * When the milestone's lanes started: its earliest lane dispatch; null when none exists
  * (a milestone with no lanes, such as a docs pass), and every record of the run then counts.
  */
 export function milestoneStart(run: Run, m: string): string | null {
-  const times = [
-    ...readRoutes(run)
-      .filter((r) => inMilestone(r.lane, m))
-      .map((r) => r.at),
-    ...listDispatches(run)
-      .filter((d) => inMilestone(d.admit.lane, m))
-      .map((d) => d.admit.admittedAt),
-  ].filter((t) => !Number.isNaN(Date.parse(t)));
+  const times = listDispatches(run)
+    .filter((d) => inMilestone(d.admit.lane, m))
+    .map((d) => d.admit.admittedAt)
+    .filter((t) => !Number.isNaN(Date.parse(t)));
   return times.sort()[0] ?? null;
 }
 

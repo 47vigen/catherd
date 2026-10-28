@@ -6,7 +6,7 @@ import { logFile } from "../../src/infra/log.ts";
 import { daemonLauncher } from "../../src/services/daemon.ts";
 import { appendEvent, eventsFile } from "../../src/services/run-events-store.ts";
 import { RunCardSchema, runIndex, runIndexCache } from "../../src/services/run-index.ts";
-import { appendRecord, appendRoute, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
+import { appendRecord, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { interventionsOf } from "../../src/services/scorecard-metrics.ts";
 import { makeRecord } from "../domain/make-record.ts";
 import { makeLog, startedFields } from "../domain/run-fixtures.ts";
@@ -146,23 +146,9 @@ describe("the run index", () => {
     });
     await record(run, { failoverFrom: "codex:gpt-6-sol#medium" });
     await record(run, {});
-    const row = {
-      at: at(0).toISOString(),
-      lane: "M1.L1",
-      role: "worker" as const,
-      rung: "codex:gpt-6-sol#high",
-      ladder: [],
-      decidedBy: "default" as never,
-      from: null,
-      reason: null,
-      kind: null,
-      difficulty: null,
-    };
-    appendRoute(run, { ...row, source: "route" });
-    appendRoute(run, { ...row, source: "climb" });
     await appendEvent(run, { type: "question.answered", unit: "M1.L1", answer: "yes", by: "owner" }, at(0));
     const [c] = runIndex(deps());
-    expect(c?.totals).toMatchObject({ failovers: 1, climbs: 1, rounds: 0 });
+    expect(c?.totals).toMatchObject({ failovers: 1, climbs: 0, rounds: 0 });
     expect(c?.totals.interventions).toBe(interventionsOf(run, NOW, 0).total);
     expect(c?.totals.interventions).toBeGreaterThan(0);
     expect(c?.openQuestions).toBe(0);

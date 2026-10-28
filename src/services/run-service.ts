@@ -37,7 +37,6 @@ import {
   supersededBy,
   supersededFile,
 } from "./run-store.ts";
-import { protocolNext, protocolView } from "./protocol.ts";
 import { readEvents } from "./run-events-store.ts";
 import { CODING_FLOOR, type NoRungCause } from "../domain/select.ts";
 import { writePin } from "./run-pin.ts";
@@ -119,7 +118,6 @@ export async function startRun(
 ): Promise<{
   run: string;
   dir: string;
-  protocol: { next: string; checklist: string[] };
   hints?: string[];
 }> {
   const top = await gitToplevel(i.repo);
@@ -202,11 +200,9 @@ export async function startRun(
   // a failed state.md refresh never fails the start: the run exists and is usable, so a retry would orphan it
   const { hints } = await refreshState(run);
   hints.push(...(superseded.hints ?? []));
-  // spec 1.1 §10: the milestone loop, so the orchestrator starts on the protocol
   return {
     run: run.id,
     dir: run.dir,
-    protocol: await protocolView(run, []),
     ...(hints.length ? { hints } : {}),
   };
 }
@@ -278,18 +274,15 @@ export function names(text: string, token: string): boolean {
 
 /**
  * Plan 22: state.md's Next never outlives the step it names. When it names a role whose record `result` returns
- * (by its name or its lane), it moves on to the protocol's next step. A refresh that fails comes back as hints.
+ * (by its name or its lane), it says that role is done. A refresh that fails comes back as hints.
  */
 async function advanceNext(run: Run, record: RunRecord): Promise<string[]> {
   const stale = (next: string) =>
     names(next, record.name) || (record.lane !== null && names(next, record.lane));
   const notes = readNotes(run);
   if (!stale(notes.next)) return [];
-  // the change callback is sync, so the step is computed first; parked is read just before the lock and the
-  // next refresh corrects a race
-  const step = await protocolNext(run, notes.parked ?? []);
   const { hints } = await refreshState(run, (n) =>
-    stale(n.next) ? { next: `after ${record.name} (${record.status}): ${step}` } : {},
+    stale(n.next) ? { next: `after ${record.name} (${record.status})` } : {},
   );
   return hints;
 }

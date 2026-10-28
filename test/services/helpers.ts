@@ -1,12 +1,9 @@
 import type { HostContext } from "../../src/domain/host.ts";
-import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { checkItems } from "../../src/domain/fail-lines.ts";
-import { milestoneCheck } from "../../src/domain/plan-doc.ts";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { composeBrief } from "../../src/domain/brief.ts";
 import type { Role } from "../../src/domain/roles.ts";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { newDispatchId, parseRung } from "../../src/domain/ids.ts";
 import type { Access, ExitReason, RunRecord } from "../../src/domain/record.ts";
 import type { SessionEnv } from "../../src/infra/claude-session.ts";
@@ -14,31 +11,12 @@ import { db, ensureRunRow, insertEvent } from "../../src/infra/db.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
-import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { dispatch, type DispatchInput, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { type Admit, admitPath, type Dispatch, roleDir, setLatest } from "../../src/services/dispatches.ts";
 import type { Deps, ProfilePort, ProfileView, RoutingPort } from "../../src/services/ports.ts";
 import { unitContext } from "../../src/services/plan-input.ts";
-import { milestoneOfName } from "../../src/services/verifier-brief.ts";
 import { result } from "../../src/services/run-service.ts";
-import {
-  appendOutcome,
-  appendRecord,
-  appendRoute,
-  createRun,
-  findRun,
-  readRoutes,
-  type Run,
-  runPaths,
-} from "../../src/services/run-store.ts";
-import {
-  type ClimbReason,
-  currentRoute,
-  laneOutcome,
-  nextRung,
-  outcomeRouteRow,
-  type RouteRow,
-} from "../../src/domain/route.ts";
+import { appendRecord, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { makeRecord } from "../domain/make-record.ts";
 import { repoWithOrigin, tempRepo, withHome } from "../helpers.ts";
 
@@ -58,7 +36,7 @@ export function briefFor(
   const role = o.role ?? "worker";
   return composeBrief(
     // part 3 as admission composes it (plan 44 D12): the unit's context, whose unit is the lane, else the milestone
-    { facts: [], unit: unitContext(run, role, lane ?? milestoneOfName(name) ?? name), round: [text] },
+    { facts: [], unit: unitContext(run, role, lane ?? /\bM\d+\b/.exec(name)?.[0] ?? name), round: [text] },
     {
       run: run.id,
       name,
@@ -318,102 +296,6 @@ export async function fakeDispatch(
   return { dir, admit };
 }
 
-const headOf = (run: Run): string =>
-  execFileSync("git", ["rev-parse", "HEAD"], { cwd: run.meta.repo, encoding: "utf8" }).trim();
-
-/**
- * The verifier half of `land`'s gate (plan 30b): a headless record named verifier-<m> whose reply opens
- * VERDICT: PASS and ends with the HEAD it checked, and catherd's own passing check of <m> on that commit.
- */
-export async function passVerifier(
-  run: Run,
-  m: string,
-  at = new Date().toISOString(),
-  head = headOf(run),
-): Promise<void> {
-  const dispatchId = newDispatchId();
-  const replyPath = `roles/verifier-${m}/${dispatchId}/reply.md`;
-  mkdirSync(join(run.dir, dirname(replyPath)), { recursive: true });
-  writeFileSync(join(run.dir, replyPath), `VERDICT: PASS\nHEAD: ${head}\nSTATUS: complete — ok\n`);
-  await appendRecord(
-    run,
-    makeRecord({
-      runId: run.id,
-      dispatchId,
-      name: `verifier-${m}`,
-      role: "verifier",
-      lane: null,
-      rung: "claude-code:claude-opus-5-5#low",
-      backend: "claude-code",
-      startedAt: at,
-      endedAt: at,
-      tokens: { input: 0, cached: 0, output: 0 },
-      changedOwned: [],
-      access: "workspace-write",
-      replyStatus: "complete",
-      replyPath,
-      head,
-    }),
-  );
-  appendCheckRecord(run.meta.repo, {
-    at,
-    run: run.id,
-    milestone: m,
-    command: "true",
-    head,
-    exit: 0,
-    durationMs: 0,
-    fails: [],
-    log: "",
-    secrets: "clean",
-  });
-}
-
-/**
- * What `land`'s gate asks for (spec 1.1 §6, plan 30b): a reviewer record named reviewer-<m>, and the verifier
- * half (`passVerifier`). Both ok and stamped `at` (default now), which must not be before the milestone's lanes
- * started. `head` defaults to the repo's HEAD, so call it after the commit being landed.
- */
-export async function passGate(
-  run: Run,
-  m: string,
-  at = new Date().toISOString(),
-  head = headOf(run),
-): Promise<void> {
-  await appendRecord(
-    run,
-    makeRecord({
-      runId: run.id,
-      dispatchId: newDispatchId(),
-      name: `reviewer-${m}`,
-      role: "reviewer",
-      lane: null,
-      rung: "codex:gpt-6-sol#high",
-      startedAt: at,
-      endedAt: at,
-      tokens: { input: 0, cached: 0, output: 0 },
-      changedOwned: [],
-      access: "read-only",
-    }),
-  );
-  await passVerifier(run, m, at, head);
-  const plan = join(run.dir, "plan.md");
-  const command = existsSync(plan) ? milestoneCheck(readFileSync(plan, "utf8"), m) : null;
-  for (const item of command === null ? [] : checkItems(command))
-    appendCheckRecord(run.meta.repo, {
-      at,
-      run: run.id,
-      milestone: m,
-      command: item,
-      head,
-      exit: 0,
-      durationMs: 0,
-      fails: [],
-      log: "",
-      secrets: "clean",
-    });
-}
-
 /** A reviewed plan file: three tasks, each with a signature or a test. */
 export const PLAN_TEXT = [
   "# Plan P",
@@ -434,68 +316,6 @@ export const PLAN_TEXT = [
   "Test: `docs.test.ts` — links",
   "",
 ].join("\n");
-
-/**
- * A lane's route row as `dispatch` writes it for a coordinator's rung, and as every earlier catherd wrote it: the
- * lane starts on the role's first rung, the profile's rungs are its ladder. The readers of old runs (climbs,
- * outcomes, the protocol's next step) are tested on these rows.
- */
-export async function route(
-  deps: Deps,
-  i: { run: string; laneFile: string; role: Role; row?: Partial<RouteRow> },
-): Promise<{ lane: string; rung: string; ladder: string[] }> {
-  const run = findRun(i.run);
-  const lane = (i.laneFile.match(/^lanes\/(.+)\.md$/) as RegExpMatchArray)[1] as string;
-  const ladder = deps.profiles.forRepo(run.meta.repo).roles[i.role]?.rungs ?? [];
-  appendRoute(run, {
-    at: new Date(deps.now()).toISOString(),
-    lane,
-    role: i.role,
-    rung: ladder[0] as string,
-    ladder,
-    source: "route",
-    decidedBy: "default",
-    from: null,
-    reason: null,
-    kind: null,
-    difficulty: null,
-    why: "the role's first rung",
-    ...i.row,
-  });
-  return { lane, rung: ladder[0] as string, ladder };
-}
-
-/**
- * One rung up the lane's ladder, as an earlier catherd's `climb` wrote it: a `climb` row, and past the top rung
- * the lane's open outcome. Returns the rung it stands on and whether that is the top.
- */
-export function climb(
-  deps: Deps,
-  i: { run: string; lane: string; reason: ClimbReason; evidence?: string; env?: boolean },
-): { rung: string; top: boolean } {
-  const run = findRun(i.run);
-  const cur = currentRoute(readRoutes(run), i.lane) as RouteRow;
-  const next = nextRung(cur.ladder, cur.rung);
-  const at = new Date(deps.now()).toISOString();
-  appendRoute(run, {
-    ...cur,
-    at,
-    source: "climb",
-    from: cur.rung,
-    rung: next ?? cur.rung,
-    reason: i.evidence ? `${i.reason}: ${i.evidence}` : i.reason,
-    env: i.env === true,
-  });
-  if (!next) {
-    const routes = readRoutes(run);
-    const o = laneOutcome(routes, i.lane, false, at);
-    if (o) {
-      appendOutcome(run, o);
-      appendRoute(run, outcomeRouteRow(routes, o));
-    }
-  }
-  return { rung: next ?? cur.rung, top: next === null };
-}
 
 /** `run.started` as an earlier build wrote it: events version 1, the 2.0 engine (spec D16). */
 export function insertEarlier(run: Run): void {

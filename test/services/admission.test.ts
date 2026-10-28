@@ -17,7 +17,6 @@ import { appendEvent } from "../../src/services/run-events-store.ts";
 import { addKnowledge } from "../../src/services/run-service.ts";
 import * as runStore from "../../src/services/run-store.ts";
 import { appendRecord, readRecords } from "../../src/services/run-store.ts";
-import { claimTree } from "../../src/services/milestone-tree.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
@@ -78,24 +77,7 @@ async function refusal(p: Promise<unknown>): Promise<string> {
 }
 
 describe("admission in a worktree (plan 35)", () => {
-  it("admits in the given tree: the role's cwd, its before snapshot and admit.repo", async () => {
-    const { repo, run } = branchRun();
-    process.env.PATH = simPath();
-    Object.assign(process.env, withScenario({}).env, { TYPESAFE_API_KEY: "secret" });
-    writeLane(run, "M1.L1", ["src/a.ts"]);
-    const { tree } = await claimTree(fakeDeps(), run, "M1", { known: false });
-    writeFileSync(join(repo, "stray.txt"), "only in the repo");
-    const { d, specPath } = await admit(fakeDeps(), run, input({ cwd: tree }));
-    const spec = JSON.parse(readFileSync(specPath, "utf8"));
-    expect([spec.cwd, spec.env.PWD, d.admit.repo, Object.keys(d.admit.before)]).toEqual([
-      tree,
-      tree,
-      tree,
-      [],
-    ]);
-  });
-
-  it("a role's env names its tree's compose project", async () => {
+  it("a role's env names its run tree's compose project (plan 50: one per run)", async () => {
     const { repo, run } = branchRun();
     process.env.PATH = simPath();
     Object.assign(process.env, withScenario({}).env, { TYPESAFE_API_KEY: "secret" });
@@ -108,7 +90,7 @@ describe("admission in a worktree (plan 35)", () => {
     });
     const envOf = async (over: Partial<AdmitInput>) =>
       JSON.parse(readFileSync((await admit(deps, run, input(over))).specPath, "utf8")).env;
-    const name = `catherd-${run.id.slice(0, 15).replace("-", "")}-m1`;
+    const name = `catherd-${run.id.slice(0, 15).replace("-", "")}`;
     expect((await envOf({})).COMPOSE_PROJECT_NAME).toBe(name);
     await setGateEnv(repo, "COMPOSE_PROJECT_NAME", { value: "mine" });
     const verifier = {

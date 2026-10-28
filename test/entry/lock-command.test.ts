@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveSlots, roleLockOwnerOf } from "../../src/entry/lock-command.ts";
+import { resolveSlots } from "../../src/entry/lock-command.ts";
 import { tryLock } from "../../src/infra/filelock.ts";
 import { heavySlots } from "../../src/infra/heavy-lock.ts";
 import { activityDir } from "../../src/infra/lock-activity.ts";
@@ -29,37 +29,6 @@ describe("catherd lock", () => {
       }),
     ).toBe(heavySlots("cpus/2"));
     expect(() => resolveSlots("zero", () => 1)).toThrow(/slots/);
-  });
-
-  it("shares a verifier lock by run: --run, else the run in CATHERD_ROLE, else this process alone", () => {
-    expect(roleLockOwnerOf("r1", { CATHERD_ROLE: "r2/verifier-M1" })).toBe("run:r1");
-    expect(roleLockOwnerOf(undefined, { CATHERD_ROLE: "r2/verifier-M1" })).toBe("run:r2");
-    expect(roleLockOwnerOf(undefined, {})).toBe(`process:${process.pid}`);
-  });
-
-  it("runs a --role verifier command holding the verifier lock, and refuses an unknown role", () => {
-    const home = withHome();
-    const run = (args: string[], env: Record<string, string> = {}) =>
-      Bun.spawnSync([process.execPath, CLI, "lock", "--slots", "1", ...args], {
-        env: { ...process.env, CATHERD_HOME: home, ANTHROPIC_API_KEY: "", ...env },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-    const held = run([
-      "--role",
-      "verifier",
-      "--run",
-      "r1",
-      "--",
-      "sh",
-      "-c",
-      'echo "held=$CATHERD_LOCK_HELD"',
-    ]);
-    expect(held.exitCode).toBe(0);
-    expect(held.stdout.toString()).toBe("held=1\n");
-    const unknown = run(["--role", "reviewer", "--", "true"]);
-    expect(unknown.exitCode).toBe(2);
-    expect(unknown.stderr.toString()).toContain('no role lock "reviewer"');
   });
 
   it("runs a lock nested in a locked command at once, even with every slot taken", () => {

@@ -11,7 +11,6 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
-import { latestOutcomes } from "../domain/route.ts";
 import {
   assertLabel,
   SCORECARD_TASKS,
@@ -31,19 +30,10 @@ import { dataDir } from "../infra/paths.ts";
 import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import { landedMilestones, reviewRounds } from "./milestones.ts";
 import { pauseSpans } from "./pause.ts";
-import { checkEnvFor, runCheck } from "./preflight.ts";
-import { runMilestones } from "./protocol.ts";
+import { checkEnvFor, runCheck } from "./check-command.ts";
 import { openQuestions } from "./questions.ts";
-import {
-  findRun,
-  listRuns,
-  readAgentRuns,
-  readOutcomes,
-  readRecords,
-  type Run,
-  supersededBy,
-} from "./run-store.ts";
-import { failoverRecovered, interventionsOf, pausedMs, runEnd } from "./scorecard-metrics.ts";
+import { findRun, listRuns, readAgentRuns, readRecords, type Run, supersededBy } from "./run-store.ts";
+import { failoverRecovered, interventionsOf, pausedMs, runEnd, runMilestones } from "./scorecard-metrics.ts";
 import { quotaByBackend } from "./summary.ts";
 
 // Plan 28: prepare a scorecard task's reproducible starting point, score the run that ended there, store the row.
@@ -335,7 +325,6 @@ export async function scoreTask(i: {
     tail: check.tail,
   };
 
-  const outcomes = latestOutcomes(readOutcomes(run));
   const takenDir = p.limits ? join(p.limits, "taken") : null;
   return {
     task: task.id,
@@ -348,11 +337,8 @@ export async function scoreTask(i: {
     finished,
     interventions: interventionsOf(run, end, i.chat ?? 0),
     reviewRounds: milestones.reduce((n, m) => n + reviewRounds(run, m), 0),
-    lanes: {
-      total: outcomes.length,
-      landed: outcomes.filter((o) => o.landed).length,
-      climbs: outcomes.reduce((n, o) => n + o.climbs.length, 0),
-    },
+    // shortcut: outcomes.jsonl is gone (plan 50); plan 51's views count tasks and climbs from the database
+    lanes: { total: 0, landed: 0, climbs: 0 },
     wallMinutes: minutes(Math.max(0, end - start - coveredMs(start, end, pauseSpans(run)))),
     pausedMinutes: minutes(pausedMs(run, end)),
     quota: {

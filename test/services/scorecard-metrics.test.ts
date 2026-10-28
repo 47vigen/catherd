@@ -5,7 +5,7 @@ import { newDispatchId } from "../../src/domain/ids.ts";
 import { appendJsonl, ensureJsonlHeader, writeJsonAtomic } from "../../src/infra/store.ts";
 import { reviewRounds } from "../../src/services/milestones.ts";
 import { pauseMachine, resumeMachine } from "../../src/services/pause.ts";
-import { runMilestones } from "../../src/services/protocol.ts";
+import { runMilestones } from "../../src/services/scorecard-metrics.ts";
 import { answer, park, questionCounts } from "../../src/services/questions.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import {

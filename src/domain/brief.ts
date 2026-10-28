@@ -34,12 +34,6 @@ function cliForm(tool: string, run: string): string {
       return `catherd run-file write ${run} <path> (the content on stdin)`;
     case "read_knowledge":
       return "catherd knowledge show";
-    case "gate_check":
-      return `catherd gate check ${run} --milestone <M> --item <item> --command <command> --paths <path,…>`;
-    case "gate_pass":
-      return `catherd gate pass ${run} --milestone <M> --item <item> --command <command> --paths <path,…> --evidence <evidence>`;
-    case "gate_run":
-      return `catherd gate run ${run} --milestone <M> --command <command> [--at <base checkout>]`;
     case "team_send":
       return `catherd team send ${run} --to <lane|role|all> (the message on stdin)`;
     case "team_read":

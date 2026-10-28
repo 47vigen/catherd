@@ -18,7 +18,6 @@ import {
   replayRun,
   withEventsLock,
 } from "./run-events-store.ts";
-import { answer, openQuestions } from "./questions.ts";
 import { runProfile } from "./run-pin.ts";
 import { findRun, type Run } from "./run-store.ts";
 import { result, startRun } from "./run-service.ts";
@@ -136,9 +135,6 @@ export async function answerUnit(
       });
     // the owner answers when they have fixed the plan: the roles read the copies, so copy again
     if (state.plan.length) copyPlanInputs(run, state.plan);
-    // a milestone's park is in questions.jsonl too, which land's gate reads (both go in plan 50)
-    if (openQuestions(run).some((q) => q.milestone === i.unit))
-      await answer(deps, { run: run.id, milestone: i.unit, answer: i.answer });
     add({ type: "question.answered", unit: i.unit, answer: i.answer, by: "owner" }, new Date(deps.now()));
   });
   ensureDaemon(run);

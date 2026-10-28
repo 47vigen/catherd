@@ -49,7 +49,6 @@ import { laneFile, readRecords, recordsOnThread, type Run, runPaths, supersededB
 
 import { currentSession } from "./sessions.ts";
 import { composeProjectOf } from "./tree-path.ts";
-import { milestoneOfName, verifierBrief } from "./verifier-brief.ts";
 import { withRunAdmission } from "./workspace-admission.ts";
 
 export interface AdmitInput {
@@ -86,6 +85,10 @@ function roleScratch(run: Run, name: string, backend: string, isolated: boolean)
   ensurePrivateDir(dir);
   return realpathSync(dir);
 }
+
+/** The milestone a dispatch name names as a word (`verifier-M1` → M1), for a 1.x dispatch's unit context. */
+const milestoneOfName = (name: string): string | null =>
+  /(?:^|[^A-Za-z0-9])(M\d+)(?=$|[-._\s])/.exec(name)?.[1] ?? null;
 
 export function laneOwns(run: Run, lane: string): string[] {
   const file = laneFile(run, lane);
@@ -344,8 +347,8 @@ export async function admit(
     // plan 23: the verifier runs with the repo's gate environment (DOCKER_HOST, a proxy, …)
     const gate =
       i.role === "verifier" ? gateEnvParts(await readGateEnv(run.meta.repo)) : { values: {}, refs: {} };
-    // plan 43: each milestone tree its own compose project; a gate env value wins (it spreads after)
-    const compose = composeProjectOf(run, milestoneOfName(i.lane ?? i.name));
+    // plan 43: each run tree its own compose project; a gate env value wins (it spreads after)
+    const compose = composeProjectOf(run);
     const resumed = i.thread !== null;
     if (i.composed) {
       // plan 44 D2: the daemon composed this brief before the rung was known; a failover stand-in has no
@@ -370,12 +373,7 @@ export async function admit(
         resumed,
         lane: i.lane === null ? null : { id: i.lane, text: readFileSync(laneFile(run, i.lane), "utf8") },
       };
-      // a verifier's task also carries the gate's rules and the run's recorded items
-      const parts = {
-        facts: [],
-        unit: unit ? [unit] : [],
-        round: [await verifierBrief(run, i.role, i.name, i.brief)],
-      };
+      const parts = { facts: [], unit: unit ? [unit] : [], round: [i.brief] };
       writeTextAtomic(p.brief, composeBrief(parts, briefCtx));
       if (resumed)
         writeTextAtomic(fullBriefPath(p.brief), composeBrief(parts, { ...briefCtx, resumed: false }));
