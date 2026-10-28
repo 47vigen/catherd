@@ -31,6 +31,20 @@ Left out of plan 47 on purpose:
   task wakes it. Make a `question` message a wake event if runs show workers idling on an answer.
 - **A researcher may write any research file.** `write_run_file` takes `research/<id>.md` for every role that has it,
   not only the task's own path (spec D12).
+- **`ask_owner`'s `why` is missing from the report's change log.** `question.parked` has no `by`, so the log cannot
+  name who asked or why.
+- **The report never shows running or review.** `ledgerView(…, [])` in `architect-run.ts` drops the attempts, so the
+  derived `running` and `review` states do not appear.
+- **Delegated workers and verifiers still get the 2.0 contracts.** Lanes, Owns and `team wait --lane` are in their
+  briefs on the architect engine.
+- **`ROLE_WRITABLE` also accepts `research/*.md` on 2.0 runs.** The widening is global, not scoped to the architect
+  engine.
+- **Two tools take a nonsense argument.** `ask_owner` accepts a scope that names an unknown task, and `delegate_task`
+  accepts a task that is only whitespace.
+- **The owner's tasks and checks do not wake the architect.** One the owner starts leaves no waking item when it ends.
+- **`thread_wait` reads the wall clock.** It uses `Date.now()` and `Bun.sleep` instead of `deps.now()`, so a test
+  cannot drive it.
+- **The role server's `from()` falls back to `context.role`.** Workers without a role scope share the name `worker`.
 
 ### From plan 46 (the run-state database)
 
