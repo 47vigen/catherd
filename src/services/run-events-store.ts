@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { CatherdError, UPGRADE } from "../domain/errors.ts";
 import { EVENTS_SCHEMA, RunEventSchema, type RunEvent, type RunEventInput } from "../domain/run-events.ts";
 import { type RunState, replay } from "../domain/run-state.ts";
-import { db, ensureRunRow, insertEvent } from "../infra/db.ts";
+import { db, ensureRunRow, insertEvent, storeOnFile } from "../infra/db.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
 import { appendJsonlBatch } from "../infra/store.ts";
@@ -16,7 +16,7 @@ type RunRef = Pick<Run, "id" | "dir">;
 export const eventsFile = (run: RunRef): string => join(run.dir, "events.jsonl");
 
 /** Plan 46: a run keeps its events in the database (D13), unless an earlier build gave it an events.jsonl. */
-const onFile = (run: RunRef): boolean => existsSync(eventsFile(run));
+const onFile = (run: RunRef): boolean => storeOnFile(run, eventsFile(run), "events");
 
 /** A 2.0 run has events; a run without any is a 1.5 run, and the daemon never drives it. */
 export const isDaemonRun = (run: RunRef): boolean =>

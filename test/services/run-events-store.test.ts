@@ -160,6 +160,21 @@ describe("the event store", () => {
     expect(readFileSync(eventsFile(run), "utf8")).toBe(before);
   });
 
+  it("refuses a run whose rows and events.jsonl both exist, rather than reading the file alone", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { type: "tick" });
+    await appendEvent(run, { type: "tick" });
+    writeFileSync(eventsFile(run), `${line(1)}\n`);
+    for (const read of [() => readEvents(run), () => isDaemonRun(run), () => lastEventSeq(run)])
+      expect(read).toThrow(
+        expect.objectContaining({
+          code: "E_RUN_CORRUPT",
+          message: expect.stringMatching(/events\.jsonl.*catherd\.db/),
+        }),
+      );
+    await expect(appendEvent(run, { type: "tick" })).rejects.toMatchObject({ code: "E_RUN_CORRUPT" });
+  });
+
   it("finds the last seq in a file much bigger than one chunk", async () => {
     const { run } = freshRun();
     const big = "x".repeat(200_000);

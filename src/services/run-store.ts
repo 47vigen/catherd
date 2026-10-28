@@ -14,7 +14,7 @@ import type {
 } from "../domain/route.ts";
 import { isLaneId } from "../domain/lane.ts";
 import { cell, natural } from "../domain/util.ts";
-import { db, ensureRunRow, insertDispatch } from "../infra/db.ts";
+import { db, ensureRunRow, insertDispatch, storeOnFile } from "../infra/db.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { gitOrigin } from "../infra/git.ts";
 import { dataDir, originDir, repoDir, runsDir } from "../infra/paths.ts";
@@ -257,7 +257,9 @@ function dispatchRows(run: Run): { rows: unknown[]; corrupt: number } {
 /** The run's records, one per dispatch; rows that are torn, invalid or repeated are skipped and counted. */
 export function readRecords(run: Run): { records: RunRecord[]; corrupt: number } {
   const file = runPaths(run.dir).runs;
-  const { rows, corrupt } = existsSync(file) ? readJsonl<unknown>(file) : dispatchRows(run);
+  const { rows, corrupt } = storeOnFile(run, file, "dispatches")
+    ? readJsonl<unknown>(file)
+    : dispatchRows(run);
   const seen = new Set<string>();
   const records: RunRecord[] = [];
   let bad = corrupt;
@@ -282,7 +284,7 @@ export function appendRecord(run: Run, r: RunRecord): Promise<RunRecord> {
     const existing = readRecords(run).records.find((x) => x.dispatchId === r.dispatchId);
     if (existing) return existing;
     const row = RunRecordSchema.parse(r);
-    if (existsSync(file)) {
+    if (storeOnFile(run, file, "dispatches")) {
       appendJsonl(file, row);
       return r;
     }

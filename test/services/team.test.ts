@@ -59,6 +59,19 @@ describe("the team channel (plan 45)", () => {
     expect(db().query("SELECT count(*) AS n FROM messages WHERE run_id = ?").get(old.id)).toEqual({ n: 0 });
   });
 
+  it("refuses a run whose messages rows and team.jsonl both exist", async () => {
+    const run = fixture();
+    await send(run, "worker-M1.L3", "all", "first");
+    writeFileSync(
+      join(run.dir, TEAM_FILE),
+      `${JSON.stringify({ n: 1, at: "x", from: "a", to: "all", text: "stray" })}\n`,
+    );
+    expect(() => teamMessages(run)).toThrow(
+      expect.objectContaining({ code: "E_RUN_CORRUPT", message: expect.stringContaining(TEAM_FILE) }),
+    );
+    await expect(send(run, "worker-M1.L3", "all", "second")).rejects.toMatchObject({ code: "E_RUN_CORRUPT" });
+  });
+
   it("team_send numbers each message and queues it between lanes, running or not", async () => {
     const run = fixture();
     expect(await send(run, "worker-M1.L3", "M1.L4", "src/b/x.ts: I added Operator")).toEqual({

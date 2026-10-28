@@ -125,6 +125,18 @@ describe("records", () => {
     });
   });
 
+  it("refuses a run whose dispatches rows and runs.jsonl both exist", async () => {
+    const { run } = freshRun();
+    await appendRecord(run, makeRecord({ dispatchId: "D1" }));
+    writeFileSync(runPaths(run.dir).runs, `${JSON.stringify(makeRecord({ dispatchId: "D2" }))}\n`);
+    expect(() => readRecords(run)).toThrow(
+      expect.objectContaining({ code: "E_RUN_CORRUPT", message: expect.stringContaining("runs.jsonl") }),
+    );
+    await expect(appendRecord(run, makeRecord({ dispatchId: "D3" }))).rejects.toMatchObject({
+      code: "E_RUN_CORRUPT",
+    });
+  });
+
   it("drops duplicate and invalid rows another writer left in the file", () => {
     const { run } = freshRun();
     const row = JSON.stringify(makeRecord({ dispatchId: "D1" }));

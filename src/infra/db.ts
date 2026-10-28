@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { chmodSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError, UPGRADE } from "../domain/errors.ts";
 import type { RunRecord } from "../domain/record.ts";
@@ -125,6 +125,32 @@ export function insertMessage(
     m.from,
     m.to,
     m.text,
+  );
+}
+
+/**
+ * Whether a run's `table` rows live in `file`, the store an earlier build kept (R1): when the file exists. A file
+ * beside rows this build wrote (a legacy import's copy does not count) would hide them from every reader, so that
+ * is a conflict: E_RUN_CORRUPT naming both stores.
+ */
+export function storeOnFile(
+  run: { id: string; dir: string },
+  file: string,
+  table: "events" | "dispatches" | "messages",
+): boolean {
+  if (!existsSync(file)) return false;
+  const rows = db()
+    .query(
+      `SELECT 1 FROM ${table} t JOIN runs r ON r.id = t.run_id WHERE t.run_id = ? AND r.legacy = 0 LIMIT 1`,
+    )
+    .get(run.id);
+  if (rows === null) return true;
+  throw new CatherdError(
+    "E_RUN_CORRUPT",
+    `run ${run.id} keeps its ${table} in two stores: ${file} and ${dbFile()}`,
+    {
+      fix: `keep one: delete ${file} if no earlier catherd build is writing it, or copy what only it holds into the database first`,
+    },
   );
 }
 

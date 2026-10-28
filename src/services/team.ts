@@ -1,9 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { adapterFor } from "../adapters/registry.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { ID_PATTERN, tryParseRung } from "../domain/ids.ts";
-import { db, ensureRunRow, insertMessage } from "../infra/db.ts";
+import { db, ensureRunRow, insertMessage, storeOnFile } from "../infra/db.ts";
 import { withFileLockSync } from "../infra/filelock.ts";
 import { appendPrivate } from "../infra/store.ts";
 import { readThread, roleDir } from "./dispatches.ts";
@@ -41,7 +41,7 @@ const clamp = (v: number | undefined, lo: number, hi: number, d: number): number
 
 /** The run's messages, oldest first: `messages` rows (plan 46), or an earlier build's team.jsonl, torn lines skipped. */
 export function teamMessages(run: Run): TeamMessage[] {
-  if (!existsSync(teamFile(run)))
+  if (!storeOnFile(run, teamFile(run), "messages"))
     return db()
       .query('SELECT n, at, sender AS "from", target AS "to", text FROM messages WHERE run_id = ? ORDER BY n')
       .all(run.id) as TeamMessage[];
@@ -90,7 +90,7 @@ export async function teamSend(
   const n = withFileLockSync(file, () => {
     const n = (teamMessages(run).at(-1)?.n ?? 0) + 1;
     const m: TeamMessage = { n, at: new Date().toISOString(), from: i.from, to: i.to, text };
-    if (existsSync(file)) appendPrivate(file, `${JSON.stringify(m)}\n`);
+    if (storeOnFile(run, file, "messages")) appendPrivate(file, `${JSON.stringify(m)}\n`);
     else {
       const d = db();
       d.transaction(() => {
