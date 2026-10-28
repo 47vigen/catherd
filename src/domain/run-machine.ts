@@ -108,7 +108,13 @@ export type Action =
   | { type: "cancel"; dispatchIds: string[] }
   | { type: "report"; kind: ReportKind; unit: string; text: string }
   | { type: "notify"; unit: string; moment: NotifyMoment }
-  | { type: "finish"; outcome: "done" | "cancelled" | "failed"; proposals?: RuleChange[] }
+  | {
+      type: "finish";
+      outcome: "done" | "cancelled" | "failed";
+      proposals?: RuleChange[];
+      /** the architect engine's finish that failed MAX_TRIES times: the run ends with no report */
+      bare?: true;
+    }
   | { type: "runCheck"; checkId: string };
 
 // every action type is one `effect.failed` can name, and the other way round

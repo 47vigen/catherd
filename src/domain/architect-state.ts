@@ -319,6 +319,10 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       return true;
     case "effect.failed": {
       if (e.action === "report" || e.action === "notify" || e.action === "remind") return true;
+      if (e.action === "finish" || e.action === "cancel") {
+        const key = `${e.action}@${e.unit}`;
+        s.failedEffects[key] = (s.failedEffects[key] ?? 0) + 1;
+      }
       if (e.action === "runCheck") {
         const c = a.checks[e.unit];
         if (c) c.state = "done";

@@ -3,10 +3,13 @@ import { quotaOf } from "./failover.ts";
 import { tryParseRung } from "./ids.ts";
 import { RUN_UNIT, type RunEvent } from "./run-events.ts";
 import { type Action, type DispatchAction, owedActions } from "./run-machine.ts";
-import { liveDispatches, type RunState } from "./run-state.ts";
+import { liveDispatches, MAX_TRIES, type RunState } from "./run-state.ts";
 
 /** Spec D10's verdicts as the run's outcome: only `done` is done. */
 const OUTCOME = { done: "done", impossible: "failed", stopped: "failed" } as const;
+
+const failed = (s: RunState, action: "cancel" | "finish"): boolean =>
+  (s.failedEffects[`${action}@${RUN_UNIT}`] ?? 0) >= MAX_TRIES;
 
 /** The architect's next turn: its thread resumed unless `fresh` says why not, the digest up to the last item. */
 function wake(a: ArchState): DispatchAction {
@@ -40,21 +43,27 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
       : []),
     ...owedActions(s),
   ];
+  const finish = (outcome: "done" | "cancelled" | "failed"): Action =>
+    failed(s, "finish") ? { type: "finish", outcome, bare: true } : { type: "finish", outcome };
   if (s.cancelling)
     return [
       ...out,
-      live.length
-        ? { type: "cancel", dispatchIds: live.map((d) => d.dispatchId) }
-        : { type: "finish", outcome: "cancelled" },
+      ...(live.length
+        ? failed(s, "cancel")
+          ? []
+          : [{ type: "cancel" as const, dispatchIds: live.map((d) => d.dispatchId) }]
+        : [finish("cancelled")]),
     ];
   if (a.finishing) {
     // the architect's own turn ends by itself; every task it left running is stopped
     const tasks = live.filter((d) => d.role !== "architect");
     return [
       ...out,
-      tasks.length
-        ? { type: "cancel", dispatchIds: tasks.map((d) => d.dispatchId) }
-        : { type: "finish", outcome: OUTCOME[a.finishing.verdict] },
+      ...(tasks.length
+        ? failed(s, "cancel")
+          ? []
+          : [{ type: "cancel" as const, dispatchIds: tasks.map((d) => d.dispatchId) }]
+        : [finish(OUTCOME[a.finishing.verdict])]),
     ];
   }
   const strays = live.filter((d) => a.tasks[d.name]?.state === "cancelled");
@@ -85,7 +94,7 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
     });
   }
   // a turn that ended on a quota limit waits for the hold: recomputeWake ticks when it lapses
-  const rung = tryParseRung(a.rung);
+  const rung = a.rung === null ? null : tryParseRung(a.rung);
   const held = rung !== null && (s.holds[quotaOf(rung)] ?? "") > s.at;
   if (a.turn === null && !held && a.inbox.some((i) => i.wakes)) out.push(wake(a));
   return out;

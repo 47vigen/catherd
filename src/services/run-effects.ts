@@ -1467,9 +1467,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
           const g = await machineGate(run, m.id, m.commit).catch(() => null);
           if (g?.audit.length) audits[m.id] = g.audit;
         }
-        const reportPath = s.arch
-          ? writeArchitectReport(run, s, readEvents(run))
-          : writeRunReport(run, s, readEvents(run), audits, a.proposals);
+        const reportPath = a.bare
+          ? null
+          : s.arch
+            ? writeArchitectReport(run, s, readEvents(run))
+            : writeRunReport(run, s, readEvents(run), audits, a.proposals);
         await append({ type: "run.ended", outcome: a.outcome, reportPath });
         await refreshState(run, { next: outcomeNext(a.outcome), parked: [] });
         try {

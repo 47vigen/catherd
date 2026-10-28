@@ -189,6 +189,24 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     expect(wakeOf(after(log))).toMatchObject({ name: "architect-2" });
   });
 
+  it("a finish that keeps failing ends the run without its report, a cancel that keeps failing gives up", () => {
+    const fail = (log: Log, action: "finish" | "cancel") =>
+      log.add("effect.failed", { action, unit: "run", message: "boom" });
+    const log = architectRun();
+    log.add("run.finishing", { verdict: "done", by: "architect-1", why: "shipped" });
+    fail(log, "finish");
+    expect(after(log)).toContainEqual({ type: "finish", outcome: "done" });
+    fail(log, "finish");
+    expect(after(log)).toContainEqual({ type: "finish", outcome: "done", bare: true });
+    const c = architectRun();
+    const a1 = turn(c, 1);
+    c.add("cancel.requested", { by: "owner" });
+    fail(c, "cancel");
+    expect(after(c)).toContainEqual({ type: "cancel", dispatchIds: [a1] });
+    fail(c, "cancel");
+    expect(after(c).filter((x) => x.type === "cancel")).toEqual([]);
+  });
+
   it("starts a fresh thread after a failed turn or a daemon restart, and stops after three failed turns", () => {
     const log = architectRun();
     endDispatch(log, turn(log, 1), { name: "architect-1", unit: "run", status: "timeout", thread: "th-a" });
