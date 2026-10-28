@@ -57,6 +57,16 @@ async function committedHead(tree: string): Promise<string | null> {
 }
 
 /**
+ * The tree's content identity and its committed HEAD, taken together: the head counts only when it is the same
+ * before and after the identity, so a result never names a commit the identity does not describe.
+ */
+async function treeState(tree: string): Promise<{ id: string | null; head: string | null }> {
+  const first = await committedHead(tree);
+  const id = await worktreeIdentity(tree);
+  return { id, head: first !== null && first === (await committedHead(tree)) ? first : null };
+}
+
+/**
  * Plan 47, spec D6: a check the architect asked for. It runs on the run's checkout as it stands, or with `base` on a
  * detached tree at the run's start commit, under a heavy slot; a pass on an unchanged tree is reused unless `fresh`.
  * Nothing reruns on its own. The result is a `checks` row and the `check.done` event the caller appends; a failing
@@ -75,14 +85,16 @@ export async function runArchitectCheck(
     throw new CatherdError("E_INPUT_INVALID", `run ${run.id} recorded no start commit to check the base on`, {
       fix: "check without base",
     });
-  const key = c.base ? sha : await worktreeIdentity(repo);
+  const state = c.base ? null : await treeState(repo);
+  const key = c.base ? sha : (state?.id ?? null);
   const at = new Date(deps.now()).toISOString();
   const hit = cachedRow(run, c, key);
   let exit: number | null;
   let failures: string[];
   let minutes = 0;
-  let before: string | null = null;
+  let before: { id: string | null; head: string | null } | null = null;
   let tree = key;
+  let head = state?.head ?? null;
   if (hit) {
     exit = hit.exit;
     failures = JSON.parse(hit.failures) as string[];
@@ -107,7 +119,7 @@ export async function runArchitectCheck(
         heavySlots(runProfile(deps, run).heavy),
         async (_slot, tmp) => {
           // the tree as the check starts, after the wait for its slot
-          if (!c.base) before = await worktreeIdentity(repo);
+          if (!c.base) before = await treeState(repo);
           return runCheck(cwd, c.command, o.timeoutMs, {
             ...env,
             TMPDIR: tmp,
@@ -118,8 +130,13 @@ export async function runArchitectCheck(
         o.onWait ? { onWait: o.onWait } : {},
       );
       minutes = (Date.now() - started) / 60_000;
-      // a tree that changed while the check waited or ran is not the tree it passed on
-      if (!c.base && (before === null || before !== (await worktreeIdentity(repo)))) tree = null;
+      // a tree that changed while the check waited or ran is not the tree it passed on; the head is the one the
+      // identity was taken with, never a later read
+      if (!c.base) {
+        const b = before as { id: string | null; head: string | null } | null;
+        tree = b?.id && b.id === (await worktreeIdentity(repo)) ? b.id : null;
+        head = tree !== null ? (b?.head ?? null) : null;
+      }
       const text = (r.lines.length ? r.lines : r.tail).join("\n");
       writeTextAtomic(join(run.dir, logPath), `${text}\n`);
       exit = r.code;
@@ -130,7 +147,6 @@ export async function runArchitectCheck(
   }
   const base = c.base ? null : baseFailures(run, c.command);
   // a check on a committed tree names its commit, which land reads (spec D11); else "worktree"
-  const head = !c.base && tree !== null ? await committedHead(repo) : null;
   const fresh = newFails(failures, base);
   const d = db();
   d.transaction(() => {
@@ -138,7 +154,7 @@ export async function runArchitectCheck(
     insertCheck(d, run.id, {
       checkId: c.checkId,
       scope: c.scope,
-      ref: c.base ? (sha as string) : (head ?? "worktree"),
+      ref: c.base ? (sha as string) : tree !== null && head ? head : "worktree",
       tree: c.base ? null : tree,
       command: c.command,
       base: c.base,

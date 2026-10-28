@@ -108,4 +108,26 @@ describe("a check the architect asks for (plan 47, spec D6)", () => {
       expect(existsSync(join(r.dir, done.logPath))).toBe(true);
     }
   });
+
+  it("names the commit it ran on, and not a commit the check itself made", async () => {
+    const r = await run();
+    const deps = fakeDeps();
+    const head = async () => {
+      const h = await git(r.meta.repo, ["rev-parse", "HEAD"]);
+      return h.kind === "ok" ? h.out.trim() : "";
+    };
+    const ref = (id: string) =>
+      (db().query("SELECT ref FROM checks WHERE check_id = ?").get(id) as { ref: string }).ref;
+    const start = await head();
+    await runArchitectCheck(deps, r, check("C1", "true"), opts);
+    expect(ref("C1")).toBe(start);
+    await runArchitectCheck(
+      deps,
+      r,
+      check("C2", "git -c user.name=t -c user.email=t@t commit -q --allow-empty -m made", { fresh: true }),
+      opts,
+    );
+    expect(await head()).not.toBe(start);
+    expect(ref("C2")).toBe("worktree");
+  });
 });
