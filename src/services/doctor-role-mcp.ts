@@ -29,7 +29,7 @@ export function roleMcpChecks(profile: Profile | null, start?: RoleServerStart):
     });
     if (!roles.length) continue;
     const base = { id: `role-mcp:${profile.name}:${backend}`, label: `${profile.name} ${backend} role MCP` };
-    const tools = [...new Set(roles.flatMap(roleMcpTools))];
+    const tools = [...new Set(roles.flatMap((r) => roleMcpTools(r)))];
     const configured = `${roles.join(", ")}: scoped catherd_role exposes ${tools.join(", ")}; ${backend === "codex" ? "per-tool approval_mode=approve" : "exact MCP tool allowlist"}. Model invocation not tested; managed policy may still deny tools.`;
     const limit = ROLE_MCP_STARTUP_SEC * 1000;
     if (start && !start.ok) {

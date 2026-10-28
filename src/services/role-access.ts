@@ -2,6 +2,7 @@ import { CatherdError } from "../domain/errors.ts";
 import type { RoleScope } from "../domain/role-scope.ts";
 import { roleMcpTools } from "../domain/role-tools.ts";
 import { latestDispatch } from "./dispatches.ts";
+import { runEngine } from "./run-events-store.ts";
 import { findRun } from "./run-store.ts";
 
 /**
@@ -17,8 +18,9 @@ export function assertRoleMay(scope: RoleScope | null, run: string, tool: string
       `this process runs ${scope.name} of run ${scope.run}, not of run ${run}`,
       { fix: `use run ${scope.run}` },
     );
-  const role = latestDispatch(findRun(run), scope.name)?.admit.role;
-  if (!role || !roleMcpTools(role).includes(tool))
+  const r = findRun(run);
+  const role = latestDispatch(r, scope.name)?.admit.role;
+  if (!role || !roleMcpTools(role, runEngine(r)).includes(tool))
     throw new CatherdError(
       "E_ROLE_SCOPE",
       `${scope.name} ${role ? `is a ${role}, which has no ${tool}` : `is no dispatch of run ${run}`}`,

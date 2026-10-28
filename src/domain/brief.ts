@@ -1,5 +1,6 @@
+import type { Engine } from "./profile.ts";
 import { roleContract } from "./role-prompts.ts";
-import { roleMcpTools } from "./role-tools.ts";
+import { ARCHITECT_TOOLS, roleMcpTools } from "./role-tools.ts";
 import type { Role } from "./roles.ts";
 
 /** The tags of a brief's four parts, in order (plan 44 D1). Part 1 is the role's; the daemon supplies the other three. */
@@ -23,6 +24,8 @@ export interface BriefContext {
   resumed: boolean;
   /** the lane file as it stands, header and body */
   lane: { id: string; text: string } | null;
+  /** plan 47: the run's engine; absent is 2.0 */
+  engine?: Engine;
 }
 
 /** The CLI form of each role server tool, which any role can run from its shell. */
@@ -47,7 +50,10 @@ function cliForm(tool: string, run: string): string {
     case "team_wait":
       return `catherd team wait ${run} --lane <lane> [--timeout-ms <ms>]`;
     default:
-      return tool;
+      // plan 47: the architect engine's tools, one command for all of them
+      return (ARCHITECT_TOOLS as readonly string[]).includes(tool)
+        ? `catherd call ${run} ${tool} (its arguments as JSON on stdin)`
+        : tool;
   }
 }
 
@@ -68,8 +74,8 @@ export function laneBlock(id: string, text: string): string {
 }
 
 /** Who the role is, where its temp files go, and how it reaches its run's files and gate: the CLI forms, on any backend. */
-export function roleNotes(c: Pick<BriefContext, "run" | "name" | "role">): string {
-  const cli = roleMcpTools(c.role)
+export function roleNotes(c: Pick<BriefContext, "run" | "name" | "role" | "engine">): string {
+  const cli = roleMcpTools(c.role, c.engine)
     .map((t) => cliForm(t, c.run))
     .join("; ");
   return [
@@ -96,7 +102,7 @@ export function composeBrief(parts: BriefParts, c: BriefContext): string {
     return `${tag("this-round", [...parts.round, pointer])}\n`;
   }
   return `${[
-    tag("role-contract", [roleContract(c.role, c.version)]),
+    tag("role-contract", [roleContract(c.role, c.version, c.engine)]),
     tag("run-facts", [...parts.facts, roleNotes(c)]),
     tag("unit-context", [...parts.unit, c.lane ? laneBlock(c.lane.id, c.lane.text) : ""]),
     tag("this-round", parts.round),

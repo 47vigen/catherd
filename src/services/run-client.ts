@@ -67,6 +67,12 @@ export async function runStart(
   const top = await gitToplevel(i.repo);
   // a repo outside git is startRun's refusal
   const plan = top ? resolvePlanInputs(top, [...(i.plan ?? []), ...planInputPaths(i.aLines)]) : [];
+  const engine = top ? (deps.profiles.forRepo(top).engine ?? "2.0") : "2.0";
+  // plan 47: the architect loop works in the repository's checkout; a branch and its MR come with landing (plan 50)
+  if (engine === "architect" && i.base)
+    throw new CatherdError("E_INPUT_INVALID", "the architect engine does not take a base yet", {
+      fix: "start without base, or set the profile's engine to 2.0 for a branch run",
+    });
   // a base run's branch must exist on origin before any run folder does
   if (i.base && top) await assertBase(top, i.base);
   const started = await startRun(deps, { repo: i.repo, title: i.title, aLines: i.aLines, base: i.base });
@@ -81,13 +87,15 @@ export async function runStart(
       aLines: i.aLines,
       plan,
       base: i.base ?? null,
-      engine: "2.0",
+      engine,
       autoMerge: runProfile(deps, run).land.autoMerge,
       rolesOff: ROLES.filter((r) => !runProfile(deps, run).roles[r]?.enabled),
     },
     new Date(deps.now()),
   );
-  if (plan.length) await appendEvent(run, { type: "plan.approved", by: "input" }, new Date(deps.now()));
+  // the architect reads the owner's plan files as input it may edit; nothing approves them (spec D2)
+  if (plan.length && engine === "2.0")
+    await appendEvent(run, { type: "plan.approved", by: "input" }, new Date(deps.now()));
   const notifyUrl = deps.profiles.notifyUrl();
   let daemon: "revived" | "alive" | "failed";
   let warning: string | undefined;
@@ -104,9 +112,12 @@ export async function runStart(
     ...(warning === undefined ? {} : { warning }),
     notifyUrl,
     plan,
-    next: plan.length
-      ? `the run implements ${plan.length} plan file${plan.length === 1 ? "" : "s"} as written: status(run) shows it; parked questions reach ${notifyUrl} and this session`
-      : `the architect writes a plan first, and the run waits for your approval (answer approve): status(run) shows it; parked questions reach ${notifyUrl} and this session`,
+    next:
+      engine === "architect"
+        ? `the architect drives the run from its ledger and asks you only what it must: status(run) shows it; questions reach ${notifyUrl} and this session`
+        : plan.length
+          ? `the run implements ${plan.length} plan file${plan.length === 1 ? "" : "s"} as written: status(run) shows it; parked questions reach ${notifyUrl} and this session`
+          : `the architect writes a plan first, and the run waits for your approval (answer approve): status(run) shows it; parked questions reach ${notifyUrl} and this session`,
   };
 }
 

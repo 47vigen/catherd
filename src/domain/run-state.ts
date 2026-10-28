@@ -1,3 +1,5 @@
+import { applyArchitect, type ArchState, emptyArch } from "./architect-state.ts";
+import type { Engine } from "./profile.ts";
 import type { BlockedReason } from "./blocked.ts";
 import { quotaOf } from "./failover.ts";
 import type { DecisionSource } from "./decision.ts";
@@ -252,6 +254,10 @@ export interface OwedReport {
 
 export interface RunState {
   v: 1;
+  /** plan 47: the machine that drives the run, from `run.started` */
+  engine: Engine;
+  /** plan 47: an architect run's state; null on the 2.0 engine */
+  arch: ArchState | null;
   run: string;
   seq: number;
   at: string;
@@ -326,6 +332,8 @@ export interface MadeDecision {
 export function emptyState(run: string): RunState {
   return {
     v: 1,
+    engine: "2.0",
+    arch: null,
     run,
     seq: 0,
     at: "1970-01-01T00:00:00.000Z",
@@ -501,7 +509,7 @@ const hasJudge = (s: RunState, unit: string): boolean => Object.values(s.judges)
 
 const isoPlus = (at: string, ms: number): string => new Date(Date.parse(at) + ms).toISOString();
 
-function recomputeWake(s: RunState): void {
+export function recomputeWake(s: RunState): void {
   const merges = s.milestones.flatMap((m) => (m.status === "landed" && m.mergeDue ? [m.mergeDue] : []));
   const claims = s.milestones.flatMap((m) => (m.claimAfter ? [m.claimAfter] : []));
   // Due reminders are owed actions; their pending effects must not keep the timer expired.
@@ -1578,6 +1586,8 @@ function allHeld(s: RunState, name: string, unit: string, at: string): void {
 function apply(s: RunState, e: RunEvent): void {
   s.seq = e.seq;
   s.at = e.at;
+  // plan 47: an architect run's own events, and its dispatches, never reach the 2.0 pipeline's bookkeeping
+  if (applyArchitect(s, e)) return;
   const ok = (key: string) => delete s.failedEffects[key];
   switch (e.type) {
     case "run.started":
@@ -1587,6 +1597,12 @@ function apply(s: RunState, e: RunEvent): void {
       s.plan = e.plan;
       s.rolesOff = e.rolesOff ?? [];
       s.autoMerge = e.autoMerge ?? false;
+      s.engine = e.engine;
+      if (e.engine === "architect") {
+        s.arch = emptyArch();
+        s.phase = "running";
+        s.arch.inbox.push({ seq: e.seq, text: `the run started: ${e.title}`, wakes: true });
+      }
       return;
     case "plan.ready":
       mergePlan(s, e.milestones);

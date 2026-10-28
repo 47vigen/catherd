@@ -131,7 +131,7 @@ export type RunNode = {
     endedAt: string | null;
     question: {
         unit: string;
-        reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision';
+        reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision' | 'owner';
         question: string;
     } | null;
     decision: NodeDecision | null;
@@ -382,7 +382,7 @@ export type QuestionView = {
     runTitle: string;
     unit: string;
     question: string;
-    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision';
+    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision' | 'owner';
     at: string;
     command: string;
     context: QuestionContext;
@@ -451,6 +451,7 @@ export type ProfilePatch = {
         heavy: number | 'cpus/2';
     };
     notify?: Array<'milestone' | 'finish' | 'blocked'>;
+    engine?: '2.0' | 'architect';
     limits?: {
         memory?: {
             reserveMb?: number | null;
@@ -564,7 +565,7 @@ export type ParkedView = {
     runTitle: string;
     unit: string;
     question: string;
-    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision';
+    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision' | 'owner';
     at: string;
     command: string;
 };

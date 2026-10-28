@@ -12,6 +12,7 @@ import { readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import type { Deps } from "./ports.ts";
 import type { RunEvent } from "../domain/run-events.ts";
 import { type Action, actionKey, confirms, failKey, next } from "../domain/run-machine.ts";
+import { architectNext } from "../domain/architect-machine.ts";
 import { reduce, replay, type RunState } from "../domain/run-state.ts";
 import { type Effects, realEffects } from "./run-effects.ts";
 import { appendEvent, hasRunEnded, isDaemonRun, readEvents } from "./run-events-store.ts";
@@ -196,7 +197,8 @@ export async function runDaemon(
       state = reduce(state, e);
       for (const k of confirms(e))
         for (const [key, fk] of issued) if (key === k || fk === k) issued.delete(key);
-      for (const a of next(state, e)) issue(a);
+      // plan 47: an architect run's machine only runs what the architect asked for and wakes it
+      for (const a of (state.arch ? architectNext : next)(state, e)) issue(a);
     };
     let beatAt = clock.now();
     while (!o.until?.()) {

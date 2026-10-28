@@ -8,6 +8,10 @@ import { runMilestoneCheck } from "../services/milestone-check.ts";
 import { assertRoleMay } from "../services/role-access.ts";
 import { readRunFile, writeRunFile } from "../services/run-service.ts";
 import { teamRead, teamSend, teamWait } from "../services/team.ts";
+import { ARCHITECT_TOOLS } from "../domain/role-tools.ts";
+import { callArchitectTool } from "../services/architect-tools.ts";
+import { latestDispatch } from "../services/dispatches.ts";
+import { findRun } from "../services/run-store.ts";
 import "../adapters/all.ts";
 import { printJson } from "./cli-kit.ts";
 import { defaultDeps } from "./deps.ts";
@@ -228,4 +232,42 @@ const teamWaitCmd = defineCommand({
 export const teamCommand = defineCommand({
   meta: { name: "team", description: "The run's team channel: send, read, wait" },
   subCommands: { send: teamSendCmd, read: teamReadCmd, wait: teamWaitCmd },
+});
+
+/**
+ * Plan 47: the architect engine's tools as one command, `catherd call <run> <tool>`, the arguments as JSON on stdin,
+ * for a role whose harness has no role server. In a role it is bound to its own run and its role's tools; outside a
+ * role (the owner's terminal) it acts with the architect's tools, as the owner.
+ */
+export const callCommand = defineCommand({
+  meta: {
+    name: "call",
+    description: "Call an architect-engine tool of a run; its arguments as JSON on stdin",
+  },
+  args: {
+    run: { type: "positional", required: true, description: "the run id" },
+    tool: { type: "positional", required: true, description: `one of ${ARCHITECT_TOOLS.join(", ")}` },
+  },
+  async run({ args }) {
+    const tool = ARCHITECT_TOOLS.find((t) => t === args.tool);
+    if (!tool)
+      throw new CatherdError("E_INPUT_INVALID", `no tool ${args.tool}`, {
+        fix: `use one of ${ARCHITECT_TOOLS.join(", ")}`,
+      });
+    const s = scope();
+    assertRoleMay(s, args.run, tool);
+    const run = findRun(args.run);
+    const text = (await Bun.stdin.text()).trim();
+    let input: unknown = {};
+    try {
+      input = text ? JSON.parse(text) : {};
+    } catch {
+      throw new CatherdError("E_INPUT_INVALID", "stdin is not JSON", {
+        fix: `echo '{"why": "..."}' | catherd call ${args.run} ${tool}`,
+      });
+    }
+    const role = s ? latestDispatch(run, s.name)?.admit.role : undefined;
+    const caller = s && role ? { name: s.name, role } : { name: "owner", role: "architect" as const };
+    printJson(await callArchitectTool({ deps: defaultDeps(), run, caller }, tool, input));
+  },
 });

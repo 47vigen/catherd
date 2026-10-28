@@ -1,7 +1,7 @@
 import { QUICK_ANSWERS, REASON_TEXT } from "./park-reasons";
 
 test("every park reason has a plain explanation", () => {
-  expect(Object.keys(REASON_TEXT)).toHaveLength(19);
+  expect(Object.keys(REASON_TEXT)).toHaveLength(20);
   for (const [reason, text] of Object.entries(REASON_TEXT)) {
     expect(text.length, reason).toBeGreaterThan(20);
     expect(text, reason).not.toContain("_");

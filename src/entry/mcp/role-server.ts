@@ -5,7 +5,14 @@ import { z } from "zod";
 import "../../adapters/all.ts";
 import { ID_PATTERN } from "../../domain/ids.ts";
 import { roleScopeFromEnv } from "../../domain/role-scope.ts";
-import { ROLE_MCP_SERVER, type RoleMcpContext, roleMcpTools } from "../../domain/role-tools.ts";
+import {
+  ARCHITECT_TOOLS,
+  ROLE_MCP_SERVER,
+  type RoleMcpContext,
+  roleMcpTools,
+} from "../../domain/role-tools.ts";
+import { ARCHITECT_TOOL_SPECS, callArchitectTool } from "../../services/architect-tools.ts";
+import { runEngine } from "../../services/run-events-store.ts";
 import { log } from "../../infra/log.ts";
 import { gateCheckOrList, gatePass } from "../../services/gate-service.ts";
 import { runMilestoneCheck } from "../../services/milestone-check.ts";
@@ -20,7 +27,8 @@ import { handle, sdkToolError, toolOf } from "./result.ts";
 export function buildRoleServer(context: RoleMcpContext, deps: Deps = defaultDeps()): McpServer {
   const run = findRun(context.run);
   const server = new McpServer({ name: ROLE_MCP_SERVER, version: deps.version });
-  const tools = new Set(roleMcpTools(context.role));
+  const engine = runEngine(run);
+  const tools = new Set(roleMcpTools(context.role, engine));
   const boundRun = z.literal(run.id);
   const runFile = { run: boundRun, path: z.string().min(1) };
   const call = async (tool: string, f: () => unknown) => {
@@ -168,6 +176,23 @@ export function buildRoleServer(context: RoleMcpContext, deps: Deps = defaultDep
       },
       (a) => call("team_wait", () => teamWait(a)),
     );
+  // plan 47: the architect engine's tools, from the same specs `catherd call` runs
+  for (const tool of ARCHITECT_TOOLS) {
+    if (!tools.has(tool)) continue;
+    const spec = ARCHITECT_TOOL_SPECS[tool];
+    server.registerTool(
+      tool,
+      {
+        description: spec.description,
+        inputSchema: spec.shape,
+        annotations: { readOnlyHint: spec.readOnly, destructiveHint: false, openWorldHint: false },
+      },
+      (a: unknown) =>
+        call(tool, () =>
+          callArchitectTool({ deps, run, caller: { name: from(), role: context.role } }, tool, a),
+        ),
+    );
+  }
   return server;
 }
 

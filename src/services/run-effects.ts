@@ -23,7 +23,15 @@ import type { RunRecord } from "../domain/record.ts";
 import { natural } from "../domain/util.ts";
 import type { Role } from "../domain/roles.ts";
 import { type Finding, type MilestonePlan, RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
-import { type Action, type DecideAction, type Decided, decidedName, unitOf } from "../domain/run-machine.ts";
+import {
+  type Action,
+  type DecideAction,
+  type Decided,
+  type DispatchAction,
+  decidedName,
+  unitOf,
+} from "../domain/run-machine.ts";
+import { taskAttempts } from "../domain/architect-state.ts";
 import { quotaUsage } from "../domain/select.ts";
 import { laneSlack } from "../domain/slack.ts";
 import { lanesOf, milestoneOf, ownerOfFile, type RunState } from "../domain/run-state.ts";
@@ -66,6 +74,9 @@ import { deliveredALines, deliveredALineTexts, planProblems, uncoveredALines } f
 import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
 import { park } from "./questions.ts";
+import { runArchitectCheck } from "./architect-check.ts";
+import { writeArchitectReport } from "./architect-run.ts";
+import { renderLedger } from "./ledger-store.ts";
 import { renderBrief } from "./run-briefs.ts";
 import { appendEvent, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { writeRunReport } from "./run-report.ts";
@@ -633,6 +644,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       thread: string | null;
       failoverFrom: string | null;
       decision: Decided | null;
+      upTo?: number;
     },
     // the brief as it is now: a resumed thread gets its `<this-round>` only (plan 44 R3)
     render: (resumed: boolean) => Promise<string>,
@@ -705,11 +717,17 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const { d, specPath } = admitted;
     // a cancel that landed while this start was in flight: the role must not start after the run is cancelled
     const now = replayRun(run);
-    if (now.cancelling || now.phase === "ended") {
+    const taskCancelled = now.arch?.tasks[a.name]?.state === "cancelled";
+    if (now.cancelling || now.phase === "ended" || taskCancelled) {
       requestCancel(d.dir);
       await finalizeDispatch(run, d);
       if (await tryCollect(d.dir)) endCollect(d.dir);
-      return void (await refuse("E_RUN_CANCELLED", "the run was cancelled before the role started"));
+      return void (await refuse(
+        "E_RUN_CANCELLED",
+        taskCancelled
+          ? "the task was cancelled before it started"
+          : "the run was cancelled before the role started",
+      ));
     }
     try {
       launcher.launch(d, specPath);
@@ -732,6 +750,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       thread: a.thread,
       ...(judge ? { judgeKind: judge.kind } : {}),
       ...(teamSeen === undefined ? {} : { teamSeen }),
+      ...(a.upTo === undefined ? {} : { upTo: a.upTo }),
     });
     await settle(d, a.unit, judge);
   }
@@ -1303,10 +1322,46 @@ export function realEffects(deps: Deps, run: Run): Effects {
     });
   }
 
+  /**
+   * Plan 47, spec D1: an architect turn, on the profile's architect rung. Its thread is resumed unless the machine
+   * asked for a fresh one, the last turn's thread is spent, or the rung changed; the ledger is rendered first.
+   */
+  async function wake(a: DispatchAction, s: RunState): Promise<void> {
+    const rc = runProfile(deps, run).roles.architect;
+    const want = rc?.defaultRung ?? rc?.rungs[0];
+    if (!want) throw new Error("the profile's architect has no rung");
+    const rung = headlessRung(want);
+    const last = readRecords(run)
+      .records.filter((r) => r.role === "architect")
+      .at(-1);
+    const why = [
+      ...a.notes,
+      ...(a.thread !== null && last?.threadHeavy ? ["your last thread is spent"] : []),
+      ...(a.thread !== null && a.rung !== null && headlessRung(a.rung) !== rung
+        ? ["the architect's rung changed"]
+        : []),
+    ];
+    const thread = why.length > a.notes.length ? null : a.thread;
+    const turn: DispatchAction = { ...a, rung, thread, notes: why };
+    if (s.arch) renderLedger(run, taskAttempts(s.arch));
+    return start(turn, (resumed) => renderBrief(run, s, turn, resumed), s, null);
+  }
+
   async function perform(a: Action, s: RunState): Promise<void> {
     switch (a.type) {
       case "dispatch":
+        if (a.brief === "wake") return wake(a, s);
         return start(a, (resumed) => renderBrief(run, s, a, resumed), s, null);
+      case "runCheck": {
+        const c = s.arch?.checks[a.checkId];
+        if (!c) throw new Error(`no check ${a.checkId} was asked for`);
+        return void (await append(
+          await runArchitectCheck(deps, run, c, {
+            timeoutMs: effectLimits.checkMs,
+            onWait: waitingOnce(a.checkId),
+          }),
+        ));
+      }
       case "judge":
         return start(
           {
@@ -1412,7 +1467,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
           const g = await machineGate(run, m.id, m.commit).catch(() => null);
           if (g?.audit.length) audits[m.id] = g.audit;
         }
-        const reportPath = writeRunReport(run, s, readEvents(run), audits, a.proposals);
+        const reportPath = a.bare
+          ? null
+          : s.arch
+            ? writeArchitectReport(run, s, readEvents(run))
+            : writeRunReport(run, s, readEvents(run), audits, a.proposals);
         await append({ type: "run.ended", outcome: a.outcome, reportPath });
         await refreshState(run, { next: outcomeNext(a.outcome), parked: [] });
         try {

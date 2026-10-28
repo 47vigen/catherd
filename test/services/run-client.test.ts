@@ -78,6 +78,33 @@ describe("runStart", () => {
     expect(readEvents(findRun(off.run))[0]).toMatchObject({ autoMerge: false });
   });
 
+  it("starts an architect run when the profile says so: its plan files are input, not an approval (plan 47)", async () => {
+    withHome();
+    const repo = tempRepo();
+    writeFileSync(join(repo, "PLAN.md"), PLAN_TEXT);
+    const r = await runStart(fakeDeps({ view: testView({ engine: "architect" }) }), {
+      repo,
+      title: "w",
+      aLines: ["A1 x"],
+      plan: ["PLAN.md"],
+    });
+    expect(readEvents(findRun(r.run)).map((e) => e.type)).toEqual(["run.started"]);
+    expect(readEvents(findRun(r.run))[0]).toMatchObject({
+      engine: "architect",
+      plan: [expect.stringMatching(/PLAN\.md$/)],
+    });
+    expect(r.next).toContain("architect drives the run");
+  });
+
+  it("refuses a base on the architect engine, creating no run (plan 47)", async () => {
+    withHome();
+    const { repo } = repoWithOrigin();
+    const before = listRuns().runs.length;
+    const deps = fakeDeps({ view: testView({ engine: "architect" }) });
+    const e = await refusal(runStart(deps, { repo, title: "w", aLines: ["A1 x"], base: "main" }));
+    expect([e.code, listRuns().runs.length]).toEqual(["E_INPUT_INVALID", before]);
+  });
+
   it("records base in meta and run.started, after fetching it", async () => {
     withHome();
     const { repo, origin } = repoWithOrigin();

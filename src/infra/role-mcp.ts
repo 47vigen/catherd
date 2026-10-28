@@ -64,8 +64,10 @@ export function codexRoleMcpArgs(context: RoleMcpContext): string[] {
     `${prefix}.startup_timeout_sec=${ROLE_MCP_STARTUP_SEC}`,
     // team_wait holds its tool call up to 300 s; Codex's default tool timeout (60 s) would cut it off
     `${prefix}.tool_timeout_sec=330`,
-    `${prefix}.enabled_tools=${JSON.stringify(roleMcpTools(context.role))}`,
-    ...roleMcpTools(context.role).map((tool) => `${prefix}.tools.${tool}.approval_mode="approve"`),
+    `${prefix}.enabled_tools=${JSON.stringify(roleMcpTools(context.role, context.engine))}`,
+    ...roleMcpTools(context.role, context.engine).map(
+      (tool) => `${prefix}.tools.${tool}.approval_mode="approve"`,
+    ),
   ];
   return settings.flatMap((setting) => ["-c", setting]);
 }
