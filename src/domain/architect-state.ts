@@ -174,7 +174,10 @@ export function checkWall(s: RunState, e: RunEvent): boolean {
     );
   }
   if (a.wall === "capped" && spent >= cap + CAP_GRACE_MS)
-    a.finishing = { verdict: "stopped", why: `cap: the run's wall time (${hours(cap)}) is spent` };
+    a.finishing = {
+      verdict: "stopped",
+      why: `cap: the run's wall time (${hours(cap)}) is spent`,
+    };
   return `${a.wall}/${a.finishing === null}` !== before;
 }
 
@@ -217,15 +220,25 @@ export const REVIEW_ROUNDS = 3;
 export const workAttempts = (a: ArchState, ledgerTask: string): ArchTask[] =>
   attemptsOn(a, ledgerTask).filter((t) => !READERS.includes(t.role));
 
-/** Spec D8: the reviews of a ledger task since the architect last edited it: a replan starts the count again. */
+/** A review that ended without a usable reply (failed, timed out, blocked or refused): no round, no diff base. */
+const failedReview = (t: ArchTask): boolean =>
+  t.outcome !== null &&
+  (!t.outcome.startsWith("ok/") || t.outcome === "ok/blocked" || t.outcome === "ok/refused");
+
+/**
+ * Spec D8: the reviews of a ledger task since the architect last edited it: a replan starts the count again. A review
+ * that ended without a usable reply is no round.
+ */
 export const reviewRounds = (a: ArchState, ledgerTask: string): ArchTask[] =>
   attemptsOn(a, ledgerTask).filter(
-    (t) => t.role === "reviewer" && t.delegatedSeq > (a.ledgerNews[ledgerTask] ?? 0),
+    (t) => t.role === "reviewer" && !failedReview(t) && t.delegatedSeq > (a.ledgerNews[ledgerTask] ?? 0),
   );
 
-/** The ledger task's last review that ended with a snapshot: a re-review reads only the diff since it (spec D8). */
+/** The ledger task's last usable review that ended with a snapshot: a re-review reads only the diff since it (spec D8). */
 export const lastReview = (a: ArchState, ledgerTask: string): ArchTask | undefined =>
-  lastEnded(attemptsOn(a, ledgerTask).filter((t) => t.role === "reviewer" && t.snapshot !== null));
+  lastEnded(
+    attemptsOn(a, ledgerTask).filter((t) => t.role === "reviewer" && t.snapshot !== null && !failedReview(t)),
+  );
 
 /**
  * The rung whose work a review reads: the ledger task's last work attempt, else the run's last ended work attempt;
@@ -424,7 +437,12 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       const dv = s.dispatches[e.dispatchId];
       if (!dv) return true;
       dv.thread = e.thread ?? dv.thread;
-      dv.ended = { at: e.at, status: e.status, replyStatus: e.replyStatus, reason: e.reason };
+      dv.ended = {
+        at: e.at,
+        status: e.status,
+        replyStatus: e.replyStatus,
+        reason: e.reason,
+      };
       const rung = tryParseRung(dv.rung);
       if (rung) {
         if (e.status === "limit") s.holds[quotaOf(rung)] = new Date(Date.parse(e.at) + HOLD_MS).toISOString();
@@ -447,7 +465,10 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         }
         a.idle += 1;
         if (a.idle >= 2)
-          a.finishing = { verdict: "stopped", why: "idle: two turns in a row ended with nothing running" };
+          a.finishing = {
+            verdict: "stopped",
+            why: "idle: two turns in a row ended with nothing running",
+          };
         else
           push(
             a,
@@ -552,7 +573,12 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       return true;
     }
     case "land.requested":
-      a.lands[e.landId] = { landId: e.landId, final: e.final, why: e.why, state: "queued" };
+      a.lands[e.landId] = {
+        landId: e.landId,
+        final: e.final,
+        why: e.why,
+        state: "queued",
+      };
       a.idle = 0;
       return true;
     case "land.done": {
@@ -588,7 +614,10 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       push(a, e, `the owner answered (${e.unit}): ${e.answer}`);
       // spec D11: the merge question is the run's last; the run does not wait on the merge itself
       if (e.unit === RUN_UNIT && a.mergeAsked)
-        a.finishing ??= { verdict: "done", why: `the owner answered the merge question: ${e.answer}` };
+        a.finishing ??= {
+          verdict: "done",
+          why: `the owner answered the merge question: ${e.answer}`,
+        };
       return true;
     case "effect.failed": {
       if (e.action === "report" || e.action === "notify" || e.action === "remind") return true;
