@@ -167,7 +167,8 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       } else {
         const t = a.tasks[e.name];
         if (t) {
-          t.state = "working";
+          // a cancel that landed while the start was in flight keeps the task cancelled; the machine stops it
+          if (t.state !== "cancelled") t.state = "working";
           t.dispatchId = e.dispatchId;
         }
       }

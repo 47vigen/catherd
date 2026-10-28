@@ -144,6 +144,18 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     expect(log.state().arch?.idle).toBe(0);
   });
 
+  it("a task cancelled while queued stays cancelled when its dispatch starts, and the dispatch is stopped", () => {
+    const log = architectRun();
+    turn(log, 1);
+    delegate(log, "T1");
+    log.add("task.cancelled", { taskId: "T1", by: "architect-1", why: "not needed" });
+    const t1 = startDispatch(log, { name: "T1", unit: "T1", lane: null, rung: RUNG });
+    expect(log.state().arch?.tasks.T1).toMatchObject({ state: "cancelled", dispatchId: t1 });
+    expect(after(log)).toContainEqual({ type: "cancel", dispatchIds: [t1] });
+    for (let i = 2; i <= 5; i++) delegate(log, `T${i}`);
+    expect(names(after(log))).toEqual(["T2", "T3", "T4", "T5"]);
+  });
+
   it("starts a fresh thread after a failed turn or a daemon restart, and stops after three failed turns", () => {
     const log = architectRun();
     endDispatch(log, turn(log, 1), { name: "architect-1", unit: "run", status: "timeout", thread: "th-a" });

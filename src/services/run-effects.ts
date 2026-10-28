@@ -717,11 +717,17 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const { d, specPath } = admitted;
     // a cancel that landed while this start was in flight: the role must not start after the run is cancelled
     const now = replayRun(run);
-    if (now.cancelling || now.phase === "ended") {
+    const taskCancelled = now.arch?.tasks[a.name]?.state === "cancelled";
+    if (now.cancelling || now.phase === "ended" || taskCancelled) {
       requestCancel(d.dir);
       await finalizeDispatch(run, d);
       if (await tryCollect(d.dir)) endCollect(d.dir);
-      return void (await refuse("E_RUN_CANCELLED", "the run was cancelled before the role started"));
+      return void (await refuse(
+        "E_RUN_CANCELLED",
+        taskCancelled
+          ? "the task was cancelled before it started"
+          : "the run was cancelled before the role started",
+      ));
     }
     try {
       launcher.launch(d, specPath);

@@ -55,6 +55,8 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
         : { type: "finish", outcome: OUTCOME[a.finishing.verdict] },
     ];
   }
+  const strays = live.filter((d) => a.tasks[d.name]?.state === "cancelled");
+  if (strays.length) out.push({ type: "cancel", dispatchIds: strays.map((d) => d.dispatchId) });
   for (const c of Object.values(a.checks))
     if (c.state === "queued") out.push({ type: "runCheck", checkId: c.checkId });
   if (s.paused !== null) return out;
