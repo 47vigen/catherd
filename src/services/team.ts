@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { adapterFor } from "../adapters/registry.ts";
 import { CatherdError } from "../domain/errors.ts";
@@ -74,8 +74,14 @@ async function steerVia(backend: string, thread: string, text: string): Promise<
   }
 }
 
+/** Plan 47: a message is a `notice` (what changed) or a `question`; `queue` never steers, `auto` steers where it can. */
+export const MESSAGE_KINDS = ["notice", "question"] as const;
+export type MessageKind = (typeof MESSAGE_KINDS)[number];
+export const SEND_MODES = ["auto", "queue", "steer"] as const;
+export type SendMode = (typeof SEND_MODES)[number];
+
 export async function teamSend(
-  i: { run: string; from: string; to: string; text: string },
+  i: { run: string; from: string; to: string; text: string; kind?: MessageKind; mode?: SendMode },
   o: { steer?: (backend: string, thread: string, text: string) => Promise<boolean> } = {},
 ): Promise<{ n: number; delivery: "steered" | "queued" }> {
   const text = i.text.replace(/\s+/g, " ").trim().slice(0, MAX_TEXT);
@@ -95,29 +101,45 @@ export async function teamSend(
       const d = db();
       d.transaction(() => {
         ensureRunRow(d, run);
-        insertMessage(d, run.id, m);
+        insertMessage(d, run.id, { ...m, ...(i.kind ? { kind: i.kind } : {}) });
       }).immediate();
     }
     return n;
   });
-  if (!steers(i.from)) return { n, delivery: "queued" };
+  if (i.mode === "queue" || !steers(i.from)) return { n, delivery: "queued" };
   const state = replayRun(run);
-  if (state.lanes[i.to]?.status !== "running") return { n, delivery: "queued" };
-  const d = Object.values(state.dispatches).find((x) => x.lane === i.to && x.ended === null);
+  const live = Object.values(state.dispatches).filter((x) => x.ended === null);
+  // a lane while it runs (2.0), or a dispatch by its name (an architect run's task, plan 47)
+  const d =
+    state.lanes[i.to]?.status === "running"
+      ? live.find((x) => x.lane === i.to)
+      : live.find((x) => x.name === i.to);
   const thread = d && (readThread(join(roleDir(run, d.name), d.dispatchId)) ?? d.thread);
   const backend = d && tryParseRung(d.rung)?.backend;
   if (!thread || !backend) return { n, delivery: "queued" };
   const ok = await (o.steer ?? steerVia)(backend, thread, `${i.from} (catherd team #${n}): ${text}`);
+  if (ok && !existsSync(file))
+    db()
+      .query("UPDATE messages SET mode = 'steer', delivered_at = ? WHERE run_id = ? AND n = ?")
+      .run(new Date().toISOString(), run.id, n);
   return { n, delivery: ok ? "steered" : "queued" };
 }
 
-export function teamRead(i: { run: string; since?: number; limit?: number; maxChars?: number }): {
+export function teamRead(i: {
+  run: string;
+  from?: string;
+  since?: number;
+  limit?: number;
+  maxChars?: number;
+}): {
   messages: TeamMessage[];
   next: number | null;
 } {
   const limit = clamp(i.limit, 1, 20, 10);
   const maxChars = clamp(i.maxChars, 1, 2_000, 500);
-  const after = teamMessages(findRun(i.run)).filter((m) => m.n > (i.since ?? 0));
+  const after = teamMessages(findRun(i.run)).filter(
+    (m) => m.n > (i.since ?? 0) && (i.from === undefined || m.from === i.from),
+  );
   const messages = after.slice(0, limit).map((m) => ({ ...m, text: cut(m.text, maxChars) }));
   return { messages, next: after.length > limit ? (messages.at(-1)?.n ?? null) : null };
 }

@@ -151,4 +151,36 @@ describe("the team channel (plan 45)", () => {
     ]);
     expect(teamFor(run, { ...d, since: "2999-01-01T00:00:00.000Z" })).toEqual([]);
   });
+
+  it("steers a running task by its name, records the kind and the delivery, and queue never steers (plan 47)", async () => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    startDispatch(log, {
+      name: "T1",
+      unit: "T1",
+      lane: null,
+      rung: "codex:gpt-6-sol#high",
+      thread: "ses_T1",
+    });
+    writeFileSync(eventsFile(run), log.events.map((e) => `${JSON.stringify(e)}\n`).join(""));
+    const steer = async () => true;
+    expect(
+      (await teamSend({ run: run.id, from: "architect", to: "T1", text: "a", mode: "queue" }, { steer }))
+        .delivery,
+    ).toBe("queued");
+    expect(
+      (await teamSend({ run: run.id, from: "architect", to: "T1", text: "b", kind: "question" }, { steer }))
+        .delivery,
+    ).toBe("steered");
+    const rows = db()
+      .query("SELECT n, kind, mode, delivered_at IS NOT NULL AS delivered FROM messages ORDER BY n")
+      .all();
+    expect(rows).toEqual([
+      { n: 1, kind: "notice", mode: "queue", delivered: 0 },
+      { n: 2, kind: "question", mode: "steer", delivered: 1 },
+    ]);
+    expect(teamRead({ run: run.id, from: "architect" }).messages.map((m) => m.text)).toEqual(["a", "b"]);
+    expect(teamRead({ run: run.id, from: "owner" }).messages).toEqual([]);
+  });
 });
