@@ -40,6 +40,7 @@ import {
   supersededFile,
 } from "./run-store.ts";
 import { protocolNext, protocolView } from "./protocol.ts";
+import { readEvents } from "./run-events-store.ts";
 import { CODING_FLOOR, type NoRungCause } from "../domain/select.ts";
 import { writePin } from "./run-pin.ts";
 import { claimRun, currentSession } from "./sessions.ts";
@@ -241,8 +242,19 @@ export function writeRunFile(i: { run: string; path: string; content: string }):
   return { path: file, bytes: Buffer.byteLength(i.content) };
 }
 
+/** Plan 46: what a role still reads as a run file though its rows are in the database, as the file it was. */
+const ROWS_AS_FILE: Record<string, (run: Run) => unknown[]> = {
+  "events.jsonl": (run) => readEvents(run),
+};
+
 export function readRunFile(i: { run: string; path: string }): string {
-  const file = runFile(findRun(i.run), i.path, "read");
+  const run = findRun(i.run);
+  const file = runFile(run, i.path, "read");
+  const rows = ROWS_AS_FILE[i.path];
+  if (!existsSync(file) && rows)
+    return rows(run)
+      .map((r) => `${JSON.stringify(r)}\n`)
+      .join("");
   if (!existsSync(file))
     throw new CatherdError("E_IO_PATH", `no file ${i.path} in the run folder`, {
       fix: "pass a path relative to the run folder",

@@ -8,7 +8,7 @@ description: Use when the user asks for a task or a project to be orchestrated w
 ## Overview
 
 catherd runs the work in a background daemon: it plans, dispatches the roles, reviews, verifies and lands each
-milestone by itself, and writes everything it does to the run's `events.jsonl`. You are the owner's front door to
+milestone by itself, and writes everything it does to the run's event log. You are the owner's front door to
 it, not its driver. Your job is four things:
 
 - write the A-lines the run must meet;

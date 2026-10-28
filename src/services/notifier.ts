@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
@@ -30,7 +30,7 @@ import {
 } from "./dispatch-service.ts";
 import { type Dispatch, listDispatches, readFailover, roleThreadOf } from "./dispatches.ts";
 import type { Deps } from "./ports.ts";
-import { eventsFile, isDaemonRun, readEvents } from "./run-events-store.ts";
+import { isDaemonRun, lastEventSeq, readEvents } from "./run-events-store.ts";
 import { listRuns, readRecords, type Run } from "./run-store.ts";
 import { currentSession, ownsRun, readSessionRows, runOwner } from "./sessions.ts";
 
@@ -514,7 +514,7 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
   /** The reports of a 2.0 run this session owns: queued once each, under `<run>/reports/<seq>/`. */
   const reportSizes = new Map<string, number>();
   const enqueueReports = (run: Run, force: boolean): void => {
-    const size = statSync(eventsFile(run)).size;
+    const size = lastEventSeq(run);
     if (!force && reportSizes.get(run.id) === size) return;
     reportSizes.set(run.id, size);
     for (const e of readEvents(run)) {
