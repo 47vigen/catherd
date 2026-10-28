@@ -106,6 +106,8 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
 - A run this build starts keeps its events in `<data dir>/catherd.db` (SQLite, WAL) and writes no `events.jsonl`.
 - A run an earlier build started keeps its `events.jsonl` and finishes as before.
 - `catherd run-file read <run> events.jsonl` still prints a run's events, one JSON line each.
+- Dispatch records and team messages are in the database too. `runs.jsonl` and `team.jsonl` are written only for a
+  run an earlier build started; `catherd run-file read <run> runs.jsonl` still prints its records.
 
 ### Grok Build and Antigravity are removed
 

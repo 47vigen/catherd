@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { db } from "../../src/infra/db.ts";
 import type { MilestonePlan } from "../../src/domain/run-events.ts";
 import { eventsFile } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
-import { teamFor, teamMessages, teamRead, teamSend, teamWait } from "../../src/services/team.ts";
+import { TEAM_FILE, teamFor, teamMessages, teamRead, teamSend, teamWait } from "../../src/services/team.ts";
 import { makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { freshRun } from "./helpers.ts";
@@ -42,6 +44,21 @@ const send = (run: Run, from: string, to: string, text: string, o?: Parameters<t
   teamSend({ run: run.id, from, to, text }, o);
 
 describe("the team channel (plan 45)", () => {
+  it("keeps a run's messages in the database; an earlier build's team.jsonl stays that run's store (plan 46)", async () => {
+    const run = fixture();
+    await send(run, "worker-M1.L3", "all", "first");
+    expect(existsSync(join(run.dir, TEAM_FILE))).toBe(false);
+    expect(db().query("SELECT n, sender, target, text FROM messages WHERE run_id = ?").all(run.id)).toEqual([
+      { n: 1, sender: "worker-M1.L3", target: "all", text: "first" },
+    ]);
+    const old = fixture();
+    const line = { n: 1, at: "2026-10-27T10:00:00.000Z", from: "architect", to: "all", text: "old" };
+    writeFileSync(join(old.dir, TEAM_FILE), `${JSON.stringify(line)}\n`);
+    expect((await send(old, "worker-M1.L3", "all", "next")).n).toBe(2);
+    expect(teamMessages(old).map((m) => m.text)).toEqual(["old", "next"]);
+    expect(db().query("SELECT count(*) AS n FROM messages WHERE run_id = ?").get(old.id)).toEqual({ n: 0 });
+  });
+
   it("team_send numbers each message and queues it between lanes, running or not", async () => {
     const run = fixture();
     expect(await send(run, "worker-M1.L3", "M1.L4", "src/b/x.ts: I added Operator")).toEqual({

@@ -111,3 +111,19 @@ export function insertDispatch(d: Database, runId: string, r: RunRecord): void {
     JSON.stringify(r),
   );
 }
+
+/** One team message. */
+export function insertMessage(
+  d: Database,
+  runId: string,
+  m: { n: number; at: string; from: string; to: string; text: string },
+): void {
+  d.query("INSERT INTO messages (run_id, n, at, sender, target, text) VALUES (?, ?, ?, ?, ?, ?)").run(
+    runId,
+    m.n,
+    m.at,
+    m.from,
+    m.to,
+    m.text,
+  );
+}
