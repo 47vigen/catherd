@@ -153,7 +153,7 @@ describe("doctor", () => {
     });
     expect(check(r, "backend:codex")?.detail).toMatch(/^0\.157\.0 · ChatGPT login · \d+ models$/);
     expect(check(r, "agents")?.detail).toBe("2 linked");
-    expect(check(r, "access:full")?.detail).toBe("no sandbox for: verifier (default), ui-reviewer (default)");
+    expect(check(r, "access:full")?.detail).toBe("no sandbox for: verifier (default), reviewer (default)");
   });
 
   it("fails on a backend a role runs on, but only warns on one a failover stand-in alone uses", async () => {
@@ -190,7 +190,6 @@ describe("doctor", () => {
       "or move its roles to claude-code: /catherd-setup in Claude Code, or run (artist needs codex, so it is turned off)",
       to("worker"),
       to("reviewer"),
-      to("ui-reviewer"),
       "catherd profile set roles.artist.enabled false --profile default --host claude-code",
       to("writer"),
       to("researcher"),
@@ -342,7 +341,6 @@ describe("doctor", () => {
         roles: {
           worker: { ...claude, defaultRung: "claude:claude-opus-5-5#medium" },
           reviewer: claude,
-          "ui-reviewer": claude,
           artist: { enabled: false },
           writer: claude,
           researcher: claude,
@@ -405,7 +403,7 @@ describe("doctor", () => {
       "default",
       {
         roles: {
-          reviewer: { access: "full" },
+          researcher: { access: "full" },
           worker: {
             rungs: ["codex:gpt-6-sol#medium", "opencode:opencode-go/gpt-6-luna#high"],
           },
@@ -419,7 +417,7 @@ describe("doctor", () => {
       label: "full access",
       state: "warn",
       word: "warning",
-      detail: "no sandbox for: reviewer (default); as shipped: verifier (default), ui-reviewer (default)",
+      detail: "no sandbox for: researcher (default); as shipped: verifier (default), reviewer (default)",
     });
     expect(check(r, "access:advisory")).toMatchObject({
       state: "warn",

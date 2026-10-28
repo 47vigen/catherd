@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { BLOCKED_REASONS } from "./blocked.ts";
 import { REPLY_STATUSES, RUN_STATUSES } from "./record.ts";
-import { ROLES } from "./roles.ts";
+import { ROLES, readRole } from "./roles.ts";
 
 /**
  * Every event carries `v`; a newer catherd's events are refused (E_RUNTIME_TOO_OLD). Plan 48 (spec D4, D16): 2 is the
@@ -96,7 +96,7 @@ const ev = <T extends string, S extends z.ZodRawShape>(type: T, shape: S) =>
   z.object({ ...base, type: z.literal(type), ...shape });
 
 const strings = z.array(z.string());
-const role = z.enum(ROLES);
+const role = z.preprocess(readRole, z.enum(ROLES));
 const reason = z.enum(PARK_REASONS);
 const outcome = z.enum(["done", "cancelled", "failed"]);
 

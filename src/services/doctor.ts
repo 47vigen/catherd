@@ -376,7 +376,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       detail: "the plugin's MCP launcher runs bunx when no global catherd is installed",
       fix: "put Bun's bin folder (~/.bun/bin) on PATH",
     });
-  const browser = uiBrowserCheck(mine, onPath, d.host.host);
+  const browser = uiBrowserCheck(mine, onPath);
   if (browser) checks.push(browser);
   let corrupt: ReturnType<typeof listRuns>["corrupt"] = [];
   try {

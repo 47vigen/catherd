@@ -262,8 +262,8 @@ describe("A-line owner tags", () => {
     for (const owner of ["worker", "run", null] as const) expect(readsALine("worker", owner)).toBe(true);
     expect(readsALine("worker", "reviewer")).toBe(false);
     expect(readsALine("writer", "worker")).toBe(true);
-    expect(readsALine("ui-reviewer", "reviewer")).toBe(true);
-    expect(readsALine("ui-reviewer", "verifier")).toBe(false);
+    expect(readsALine("reviewer", "reviewer")).toBe(true);
+    expect(readsALine("reviewer", "verifier")).toBe(false);
     for (const owner of A_LINE_OWNERS) expect(readsALine("architect", owner)).toBe(true);
     expect(readsALine("architect", "verifier")).toBe(true);
   });

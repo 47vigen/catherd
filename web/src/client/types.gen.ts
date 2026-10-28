@@ -122,7 +122,7 @@ export type RunNode = {
     kind: 'start' | 'architect' | 'later' | 'route' | 'preflight' | 'lane' | 'check' | 'commit' | 'review' | 'verify' | 'integrate' | 'land' | 'judge' | 'report' | 'end';
     milestone: string | null;
     lane: string | null;
-    role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'ui-reviewer' | 'artist' | 'writer' | 'researcher' | null;
+    role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'artist' | 'writer' | 'researcher' | null;
     title: string;
     status: 'pending' | 'running' | 'done' | 'failed' | 'parked' | 'skipped' | 'cancelled';
     now: string;
@@ -585,7 +585,7 @@ export type SetupView = {
         warnings: Array<Issue>;
     };
     roles: Array<{
-        role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'ui-reviewer' | 'artist' | 'writer' | 'researcher';
+        role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'artist' | 'writer' | 'researcher';
         enabled: boolean;
         access: 'read-only' | 'workspace-write' | 'full';
         network: boolean;

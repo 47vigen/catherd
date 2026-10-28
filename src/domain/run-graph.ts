@@ -120,8 +120,7 @@ const BACKEND: Record<string, string> = {
 const DOING: Record<string, string> = {
   architect: "driving the run",
   worker: "writing the code",
-  reviewer: "reviewing the commit",
-  "ui-reviewer": "reviewing the interface",
+  reviewer: "reviewing the work",
   verifier: "checking the acceptance lines",
   artist: "making the images",
   writer: "writing the docs",
@@ -185,7 +184,6 @@ const firstLine = (s: string): string => s.split("\n")[0]?.trim() ?? "";
 /** The node kind a delegated task draws as: the existing kinds, so the panel needs no change (plan 48 R12). */
 const KIND_OF_ROLE: Partial<Record<string, RunNode["kind"]>> = {
   reviewer: "review",
-  "ui-reviewer": "review",
   verifier: "verify",
 };
 

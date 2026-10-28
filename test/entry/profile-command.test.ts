@@ -27,7 +27,7 @@ describe("catherd profile show", () => {
     const lines = r.out.split("\n");
     expect(lines[0]).toBe("profile default (active)");
     expect(lines.find((l) => l.startsWith("  reviewer"))).toBe(
-      "  reviewer     read-only, enforced          codex:gpt-6-sol#high",
+      "  reviewer    full, enforced               codex:gpt-6-sol#high",
     );
     expect(lines.find((l) => l.startsWith("  architect"))).toContain("workspace-write, advisory");
     // both stand-ins are indexed pairs, so neither carries a note

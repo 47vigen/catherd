@@ -87,7 +87,7 @@ describe("catherd catalog", () => {
     const r = catherd("list", "--role", "chef");
     expect([r.code, r.err]).toEqual([
       2,
-      `error E_INPUT_INVALID: no role "chef"\nfix: pass --role ${"architect|verifier|worker|reviewer|ui-reviewer|artist|writer|researcher"}\n`,
+      `error E_INPUT_INVALID: no role "chef"\nfix: pass --role ${"architect|verifier|worker|reviewer|artist|writer|researcher"}\n`,
     ]);
   });
 

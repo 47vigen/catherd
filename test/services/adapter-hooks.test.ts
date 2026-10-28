@@ -402,9 +402,7 @@ describe("a dollar budget a backend cannot see (spec §4.6)", () => {
           reviewer: { rungs: [GO] },
           ...(codexRoles
             ? {}
-            : Object.fromEntries(
-                ["ui-reviewer", "artist", "writer", "researcher"].map((r) => [r, { enabled: false }]),
-              )),
+            : Object.fromEntries(["artist", "writer", "researcher"].map((r) => [r, { enabled: false }]))),
         },
       },
       "p",
@@ -417,7 +415,7 @@ describe("a dollar budget a backend cannot see (spec §4.6)", () => {
     // codex, the real adapter, reports no dollars either
     expect(budgetUsdWarnings(onFake({ usd: 5 }, true))).toEqual([
       blind("opencode", "worker, reviewer"),
-      blind("codex", "ui-reviewer, artist, writer, researcher"),
+      blind("codex", "artist, writer, researcher"),
     ]);
   });
 
@@ -447,10 +445,7 @@ describe("a dollar budget a backend cannot see (spec §4.6)", () => {
         failover: { [SONNET]: GO },
         roles: Object.fromEntries([
           ["worker", { rungs: [SONNET] }],
-          ...["reviewer", "ui-reviewer", "artist", "writer", "researcher"].map((r) => [
-            r,
-            { enabled: false },
-          ]),
+          ...["reviewer", "artist", "writer", "researcher"].map((r) => [r, { enabled: false }]),
         ]),
       },
       "p",
@@ -463,7 +458,7 @@ describe("a dollar budget a backend cannot see (spec §4.6)", () => {
     withHome();
     const r = patchProfile("default", { budget: { usd: 5 } }, { host: "claude-code" });
     expect([r.saved, r.errors]).toEqual([true, []]);
-    const codex = blind("codex", "worker, reviewer, ui-reviewer, artist, writer, researcher");
+    const codex = blind("codex", "worker, reviewer, artist, writer, researcher");
     expect(r.warnings).toContainEqual(codex);
     // what `profile validate` and doctor's profile row read
     expect(validateNamed("default", null, "claude-code").warnings).toContainEqual(codex);
@@ -471,7 +466,7 @@ describe("a dollar budget a backend cannot see (spec §4.6)", () => {
 });
 
 describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", () => {
-  const reviewerOn = (
+  const researcherOn = (
     harness: Record<string, { isolated: boolean }>,
     failover: Record<string, string> = {},
   ) =>
@@ -479,7 +474,7 @@ describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", 
       {
         schema: 1,
         roles: {
-          reviewer: { rungs: ["codex:gpt-6-sol#high"] },
+          researcher: { rungs: ["codex:gpt-6-sol#high"] },
           writer: { rungs: ["opencode:go-m1#default"] },
         },
         harness,
@@ -490,28 +485,28 @@ describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", 
     );
   const NATIVE = {
     path: "failover.codex:gpt-6-sol#high",
-    message: "opencode:go-m1#default: native opencode cannot hold the reviewer role to read-only",
+    message: "opencode:go-m1#default: native opencode cannot hold the researcher role to read-only",
     fix: "isolate opencode (catherd profile set harness.opencode.isolated true), or put this role on another backend",
   };
 
   it("is an error for a role at that access on the native harness, a failover stand-in's included", () => {
     fake({ isolatedOnly: ["read-only"] });
-    // the writer (workspace-write) runs natively as it likes; the reviewer fails over onto the backend
-    expect(isolatedOnlyErrors(reviewerOn({}))).toEqual([]);
-    expect(isolatedOnlyErrors(reviewerOn({}, { "codex:gpt-6-sol#high": "opencode:go-m1#default" }))).toEqual([
-      NATIVE,
-    ]);
+    // the writer (workspace-write) runs natively as it likes; the researcher fails over onto the backend
+    expect(isolatedOnlyErrors(researcherOn({}))).toEqual([]);
+    expect(
+      isolatedOnlyErrors(researcherOn({}, { "codex:gpt-6-sol#high": "opencode:go-m1#default" })),
+    ).toEqual([NATIVE]);
     expect(
       isolatedOnlyErrors(
-        reviewerOn({ opencode: { isolated: true } }, { "codex:gpt-6-sol#high": "opencode:go-m1#default" }),
+        researcherOn({ opencode: { isolated: true } }, { "codex:gpt-6-sol#high": "opencode:go-m1#default" }),
       ),
     ).toEqual([]);
     const onIt = resolveProfile(
-      { schema: 1, roles: { reviewer: { rungs: ["opencode:go-m1#default"] } } },
+      { schema: 1, roles: { researcher: { rungs: ["opencode:go-m1#default"] } } },
       "p",
       "claude-code",
     );
-    expect(isolatedOnlyErrors(onIt)).toEqual([{ ...NATIVE, path: "roles.reviewer.rungs" }]);
+    expect(isolatedOnlyErrors(onIt)).toEqual([{ ...NATIVE, path: "roles.researcher.rungs" }]);
     fake();
     expect(isolatedOnlyErrors(onIt)).toEqual([]);
   });
@@ -521,11 +516,11 @@ describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", 
     fake({ isolatedOnly: ["read-only"] });
     const r = patchProfile(
       "default",
-      { roles: { reviewer: { rungs: ["opencode:go-m1#default"] } } },
+      { roles: { researcher: { rungs: ["opencode:go-m1#default"] } } },
       { host: "claude-code" },
     );
     expect(r.saved).toBe(false);
-    expect(r.errors).toContainEqual({ ...NATIVE, path: "roles.reviewer.rungs" });
+    expect(r.errors).toContainEqual({ ...NATIVE, path: "roles.researcher.rungs" });
   });
 });
 

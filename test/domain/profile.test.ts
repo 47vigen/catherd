@@ -37,7 +37,6 @@ describe("the default profile (spec §7.2)", () => {
         "codex:gpt-6-sol#xhigh",
       ],
       reviewer: ["codex:gpt-6-sol#high"],
-      "ui-reviewer": ["codex:gpt-6-sol#medium"],
       artist: ["codex:gpt-6-sol#medium"],
       writer: ["codex:gpt-6-luna#high"],
       researcher: ["codex:gpt-6-luna#high"],
@@ -51,8 +50,7 @@ describe("the default profile (spec §7.2)", () => {
       architect: "workspace-write",
       verifier: "full",
       worker: "workspace-write",
-      reviewer: "read-only",
-      "ui-reviewer": "full",
+      reviewer: "full",
       artist: "workspace-write",
       writer: "workspace-write",
       researcher: "read-only",
@@ -612,5 +610,50 @@ describe("Cursor retired (plan 45)", () => {
       errors: [],
       warnings: [],
     });
+  });
+});
+
+describe("the ui-reviewer folds into the reviewer (plan 51, spec D8 and D16)", () => {
+  const caps = { ...DEFAULT_CAPS };
+
+  it("an enabled ui-reviewer leaves its rung on the reviewer's ladder and its full access, once", () => {
+    const before = ProfileDocSchema.parse({
+      schema: 1,
+      caps,
+      roles: {
+        reviewer: { access: "read-only", rungs: ["codex:gpt-6-sol#high"] },
+        "ui-reviewer": { enabled: true, access: "full", rungs: ["claude:claude-opus-5-5#medium"] },
+      },
+    });
+    const { doc, notes } = migrateProfileDoc(before);
+    expect(doc.roles?.["ui-reviewer"]).toBeUndefined();
+    expect(doc.roles?.reviewer).toEqual({
+      access: "full",
+      rungs: ["codex:gpt-6-sol#high", "claude:claude-opus-5-5#medium"],
+    });
+    expect(notes).toEqual([
+      "dropped roles.ui-reviewer: the reviewer does the UI passes",
+      "added claude:claude-opus-5-5#medium to roles.reviewer.rungs: the ui-reviewer's rung, for UI passes",
+      "set roles.reviewer.access to full: a UI pass takes screenshots with a browser",
+    ]);
+    expect(migrateProfileDoc(doc)).toEqual({ doc, notes: [] });
+    expect(resolveProfile(doc, "p", "claude-code").roles.reviewer.access).toBe("full");
+  });
+
+  it("a ui-reviewer that was off, or a reviewer on the shipped ladder, only loses the entry", () => {
+    const off = ProfileDocSchema.parse({
+      schema: 1,
+      caps,
+      roles: {
+        reviewer: { access: "read-only" },
+        "ui-reviewer": { enabled: false, rungs: ["codex:gpt-6-sol#medium"] },
+      },
+    });
+    expect(migrateProfileDoc(off)).toEqual({
+      doc: { schema: 1, caps, roles: { reviewer: { access: "read-only" } } },
+      notes: ["dropped roles.ui-reviewer: the reviewer does the UI passes"],
+    });
+    // before the write-back, a stored ui-reviewer still loads: it is never resolved
+    expect(resolveProfile(off, "p", "claude-code").roles).not.toHaveProperty("ui-reviewer");
   });
 });

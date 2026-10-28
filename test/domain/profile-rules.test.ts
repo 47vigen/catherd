@@ -342,12 +342,12 @@ describe("validateProfile: failover and ladder warnings (spec 1.1 §11)", () => 
   });
 
   it("warns that network: false does nothing on a read-only or full role (1.1 follow-ups)", () => {
-    const v = check({ roles: { reviewer: { network: false }, worker: { network: false } } });
+    const v = check({ roles: { researcher: { network: false }, worker: { network: false } } });
     expect(v.warnings).toContainEqual({
-      path: "roles.reviewer.network",
+      path: "roles.researcher.network",
       message:
-        "network: false does nothing here: it applies to workspace-write roles, and reviewer runs read-only",
-      fix: "catherd profile set roles.reviewer.network null",
+        "network: false does nothing here: it applies to workspace-write roles, and researcher runs read-only",
+      fix: "catherd profile set roles.researcher.network null",
     });
     // a workspace-write role's network: false takes its grants: no warning
     expect(v.warnings.some((w) => w.path === "roles.worker.network")).toBe(false);

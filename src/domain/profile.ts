@@ -193,7 +193,6 @@ export const BUILTIN_ROLES: Record<Role, RoleConfig> = {
     rungs: [LUNA_HIGH, SOL("medium"), SOL("high"), SOL("xhigh")],
   },
   reviewer: { enabled: true, access: DEFAULT_ACCESS.reviewer, rungs: [SOL("high")] },
-  "ui-reviewer": { enabled: true, access: DEFAULT_ACCESS["ui-reviewer"], rungs: [SOL("medium")] },
   artist: { enabled: true, access: DEFAULT_ACCESS.artist, rungs: [SOL("medium")] },
   writer: { enabled: true, access: DEFAULT_ACCESS.writer, rungs: [LUNA_HIGH] },
   researcher: { enabled: true, access: DEFAULT_ACCESS.researcher, rungs: [LUNA_HIGH] },
@@ -429,6 +428,7 @@ export function migrateProfileDoc(doc: ProfileDoc): { doc: ProfileDoc; notes: st
   for (const [role, r] of Object.entries(out.roles ?? {}))
     drop(`roles.${role}.bars`, r, "bars", "the role ladders replace it");
   retireCursor(out, notes);
+  foldUiReviewer(out, notes);
   if ("decision" in out || out.roles?.judge !== undefined || out.caps === undefined) {
     drop("decision", out, "decision", "the role ladders replace the decision model");
     drop("roles.judge", out.roles, "judge", "the architect does the judge's work");
@@ -447,6 +447,29 @@ export function migrateProfileDoc(doc: ProfileDoc): { doc: ProfileDoc; notes: st
     }
   }
   return { doc: out, notes };
+}
+
+/**
+ * Plan 51, spec D8 and D16, once: the ui-reviewer folds into the reviewer. An enabled one leaves its first rung at the
+ * top of a stored reviewer ladder that lacks it (a ui-reviewer rung reads images) and a read-only reviewer full
+ * access, which its browser screenshots need; its entry goes.
+ */
+function foldUiReviewer(out: ProfileDoc, notes: string[]): void {
+  const ui = out.roles?.["ui-reviewer"];
+  if (!out.roles || ui === undefined) return;
+  delete out.roles["ui-reviewer"];
+  notes.push("dropped roles.ui-reviewer: the reviewer does the UI passes");
+  const reviewer = out.roles.reviewer;
+  if (ui.enabled === false || reviewer === undefined) return;
+  const rung = ui.rungs?.[0];
+  if (rung !== undefined && reviewer.rungs !== undefined && !reviewer.rungs.includes(rung)) {
+    reviewer.rungs.push(rung);
+    notes.push(`added ${rung} to roles.reviewer.rungs: the ui-reviewer's rung, for UI passes`);
+  }
+  if (reviewer.access === "read-only") {
+    reviewer.access = "full";
+    notes.push("set roles.reviewer.access to full: a UI pass takes screenshots with a browser");
+  }
 }
 
 /** Plan 45 R14: Cursor is retired; a profile that names it loads with each Cursor rung and key dropped. */

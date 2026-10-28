@@ -4,7 +4,7 @@ import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
 import { dispatchHints } from "../domain/hints.ts";
 import { ACCESS, type RunRecord } from "../domain/record.ts";
-import { ROLES } from "../domain/roles.ts";
+import { ROLES, readRole } from "../domain/roles.ts";
 import { dispatchPaths, readExit, supervisorAlive } from "../infra/dispatch-dir.ts";
 import { isAlive } from "../infra/proc.ts";
 import { readVersioned, writeTextAtomic } from "../infra/store.ts";
@@ -16,7 +16,7 @@ const AdmitSchema = z.looseObject({
   runId: z.string(),
   dispatchId: z.string(),
   name: z.string(),
-  role: z.enum(ROLES),
+  role: z.preprocess(readRole, z.enum(ROLES)),
   lane: z.string().nullable(),
   owns: z.array(z.string()),
   /**

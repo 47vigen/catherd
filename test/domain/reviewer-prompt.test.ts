@@ -16,6 +16,11 @@ describe("the reviewer contract (plan 51, spec D8)", () => {
     expect(text).toContain("after two replies on it, the architect decides");
   });
 
+  it("takes over the ui-reviewer's screenshots when the brief names screens", () => {
+    expect(text).toContain("When your brief names screens (a UI pass)");
+    expect(text).toContain("agent-browser screenshot <path>");
+  });
+
   it("tells the architect when to review and how deep, and to log each finding's handling", () => {
     const architect = rolePrompt("architect", "2.0.0");
     expect(architect).toContain("after three review rounds on one task, replan it");

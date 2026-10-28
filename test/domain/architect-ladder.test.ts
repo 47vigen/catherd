@@ -129,7 +129,6 @@ describe("spec D7: the ladder's default, climbed on observed failure", () => {
       "reviewer",
     );
     expect(next(log, "L1", "reviewer")).toBe(MID);
-    expect(next(log, "L1", "ui-reviewer")).toBe(LOW);
   });
 
   it("never lets another role's failure climb a worker", () => {

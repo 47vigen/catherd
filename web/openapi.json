@@ -2075,7 +2075,6 @@
                   "verifier",
                   "worker",
                   "reviewer",
-                  "ui-reviewer",
                   "artist",
                   "writer",
                   "researcher"
@@ -3585,7 +3584,6 @@
                 "verifier",
                 "worker",
                 "reviewer",
-                "ui-reviewer",
                 "artist",
                 "writer",
                 "researcher"
@@ -4496,7 +4494,6 @@
                     "verifier",
                     "worker",
                     "reviewer",
-                    "ui-reviewer",
                     "artist",
                     "writer",
                     "researcher"

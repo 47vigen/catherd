@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { IndexFileSchema } from "../../src/domain/slopalytics.ts";
-import { capableFor, pairOf, rungInfo, successorOf } from "../../src/domain/catalog.ts";
+import { capableFor, pairOf, rungInfo, seesImages, successorOf } from "../../src/domain/catalog.ts";
 import { fixtureIndex, indexOf, shipped, shippedModels } from "./shipped.ts";
 
 describe("catalog/models.json", () => {
@@ -169,7 +169,7 @@ describe("capableFor", () => {
     const c = shipped();
     expect(capableFor(c, rungInfo(c, "codex:gpt-6-sol#medium"), "artist")).toBe(true);
     expect(capableFor(c, rungInfo(c, "claude-code:claude-opus-5-5#high"), "artist")).toBe(false);
-    expect(capableFor(c, rungInfo(c, "claude-code:claude-opus-5-5#high"), "ui-reviewer")).toBe(true);
+    expect(seesImages(c, rungInfo(c, "claude-code:claude-opus-5-5#high"))).toBe(true);
   });
 
   it("reads image input for an unknown model from its listing", () => {
@@ -181,7 +181,7 @@ describe("capableFor", () => {
     };
     const c = shipped({ listed });
     expect(capableFor(c, rungInfo(c, "opencode:opencode-go/kimi-k3#default"), "worker")).toBe(true);
-    expect(capableFor(c, rungInfo(c, "opencode:opencode-go/kimi-k3#default"), "ui-reviewer")).toBe(false);
+    expect(seesImages(c, rungInfo(c, "opencode:opencode-go/kimi-k3#default"))).toBe(false);
   });
 
   it("reads a native claude rung's image input from claude-code's listing, as rungInfo does", () => {
@@ -193,8 +193,8 @@ describe("capableFor", () => {
     };
     const c = shipped({ listed });
     expect(rungInfo(c, "claude:claude-next-7#default").listed).toBe(true);
-    expect(capableFor(c, rungInfo(c, "claude:claude-next-7#default"), "ui-reviewer")).toBe(true);
-    expect(capableFor(c, rungInfo(c, "claude-code:claude-next-7#default"), "ui-reviewer")).toBe(true);
+    expect(seesImages(c, rungInfo(c, "claude:claude-next-7#default"))).toBe(true);
+    expect(seesImages(c, rungInfo(c, "claude-code:claude-next-7#default"))).toBe(true);
   });
 
   it("a pair carries the index's measured cost and lab", () => {
