@@ -210,7 +210,7 @@ describe("the stage comparison, per task (plan 51, spec D17)", () => {
   it("passes when every task ran twice, finished, and kept its median wall time within 10 %", () => {
     const v = stageBar(
       twice("stage-1", () => [50, 70]),
-      file("stage-0", all(60)),
+      twice("stage-0", () => [60, 60]),
     );
     expect(v.failures).toEqual([]);
     expect(v.rows[0]).toMatchObject({
@@ -238,6 +238,16 @@ describe("the stage comparison, per task (plan 51, spec D17)", () => {
       "raqam-myanmar: 1 of 1 runs did not finish",
       "catherd-findings: median wall 80 min against stage-0's 60 min (more than 10 % slower)",
     ]);
+  });
+
+  it("fails a task the baseline ran fewer than twice", () => {
+    const v = stageBar(
+      twice("stage-1", () => [50, 50]),
+      file("stage-0", all(60)),
+    );
+    expect(v.failures).toContain(
+      "raqam-myanmar: 1 run(s) in stage-0; a stage is compared on 2 or more per task",
+    );
   });
 
   it("reads a file written before plan 51 as one run per task", () => {

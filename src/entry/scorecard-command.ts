@@ -78,13 +78,9 @@ export function formatComparison(
 const opt = (n: number | null, unit = ""): string => (n === null ? "?" : `${num(n)}${unit}`);
 
 /** Spec D17: a stage against its baseline, one line per task, then each failure, then the verdict. */
-export function formatStage(
-  current: ScorecardFile,
-  baseline: ScorecardFile | null,
-  v: StageVerdict,
-): string[] {
+export function formatStage(current: ScorecardFile, baseline: ScorecardFile, v: StageVerdict): string[] {
   return [
-    `stage ${current.label} against ${baseline ? baseline.label : "no baseline"}, per task (medians)`,
+    `stage ${current.label} against ${baseline.label}, per task (medians)`,
     ...v.rows.map((r) =>
       [
         r.task,
@@ -228,9 +224,13 @@ const stage = defineCommand({
         fix: `catherd scorecard record <dir> --label ${args.label}`,
       });
     const baseline = readScorecard(resultsFile(dir, args.baseline));
+    if (!baseline)
+      throw new CatherdError("E_INPUT_INVALID", `no scorecard ${args.baseline} yet`, {
+        fix: `catherd scorecard record <dir> --label ${args.baseline}`,
+      });
     const verdict = stageBar(current, baseline);
     process.exitCode = verdict.pass ? 0 : 1;
-    if (args.json) return printJson({ current: current.label, baseline: baseline?.label ?? null, verdict });
+    if (args.json) return printJson({ current: current.label, baseline: baseline.label, verdict });
     for (const line of formatStage(current, baseline, verdict)) console.log(line);
   },
 });

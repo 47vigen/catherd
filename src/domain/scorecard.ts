@@ -132,21 +132,25 @@ const med = (rows: TaskScore[], f: (m: RunMetrics) => number | null): number | n
  * STAGE_RUNS runs; it fails when one did not finish, or when its median wall time is more than 10 % over the
  * baseline's median for that task. The other metrics are reported, never gated.
  */
-export function stageBar(current: ScorecardFile, baseline: ScorecardFile | null): StageVerdict {
+export function stageBar(current: ScorecardFile, baseline: ScorecardFile): StageVerdict {
   const failures: string[] = [];
   const rows = SCORECARD_TASKS.map((task): StageRow => {
     const runs = runsOf(current, task);
-    const base = baseline ? runsOf(baseline, task) : [];
+    const base = runsOf(baseline, task);
     const wall = median(runs.map((r) => r.wallMinutes));
     const baseWall = median(base.map((r) => r.wallMinutes));
     const finished = runs.filter((r) => r.finished).length;
     if (runs.length < STAGE_RUNS)
       failures.push(`${task}: ${runs.length} run(s); a stage is compared on ${STAGE_RUNS} or more per task`);
+    if (base.length < STAGE_RUNS)
+      failures.push(
+        `${task}: ${base.length} run(s) in ${baseline.label}; a stage is compared on ${STAGE_RUNS} or more per task`,
+      );
     if (finished < runs.length)
       failures.push(`${task}: ${runs.length - finished} of ${runs.length} runs did not finish`);
     if (wall !== null && baseWall !== null && wall > baseWall * (1 + WALL_TOLERANCE))
       failures.push(
-        `${task}: median wall ${Math.round(wall)} min against ${baseline?.label}'s ${Math.round(baseWall)} min (more than 10 % slower)`,
+        `${task}: median wall ${Math.round(wall)} min against ${baseline.label}'s ${Math.round(baseWall)} min (more than 10 % slower)`,
       );
     return {
       task,

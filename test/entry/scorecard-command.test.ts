@@ -267,4 +267,14 @@ describe("catherd scorecard stage (plan 51, spec D17)", () => {
     expect(two.out).toContain("raqam-myanmar  runs 2 (2 finished)  wall 52 min (60 min)");
     expect(two.out).toEndWith("PASS\n");
   });
+
+  it("refuses a stage whose baseline was never recorded", async () => {
+    withHome();
+    const results = tempDir("scorecard-results-");
+    for (const t of SCORECARD_TASKS)
+      await saveTaskScore(join(results, "stage-1.json"), "stage-1", score(t, { run: `${t}-a` }));
+    const r = catherd(["scorecard", "stage", "stage-1", "--baseline", "nope", "--results", results]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("error E_INPUT_INVALID: no scorecard nope yet");
+  });
 });
