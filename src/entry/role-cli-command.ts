@@ -17,7 +17,8 @@ import { defaultDeps } from "./deps.ts";
  * whose harness has no role server (opencode) or when no MCP tool is listed. In a role
  * (CATHERD_ROLE, or its scratch TMPDIR) they are bound to its own run and its role's operations.
  */
-const scope = () => roleScopeFromEnv(process.env);
+// scratch: a role that unsets CATHERD_ROLE still has its scratch TMPDIR, and must not pass for the owner
+const scope = () => roleScopeFromEnv(process.env, { scratch: true });
 
 const RUN_PATH = {
   run: { type: "positional", required: true, description: "the run id" },

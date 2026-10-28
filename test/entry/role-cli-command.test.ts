@@ -4,14 +4,14 @@ import { join } from "node:path";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import { createRun, runPaths } from "../../src/services/run-store.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
-import { snapshotEnv, tempRepo } from "../helpers.ts";
+import { snapshotEnv, tempDir, tempRepo } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 import { fakeDispatch, freshRun } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 
 /** `catherd <args>` as a role's shell runs it: CATHERD_ROLE set, or not, and nothing else of catherd's. */
-function catherd(args: string[], o: { role?: string; stdin?: string } = {}) {
+function catherd(args: string[], o: { role?: string; stdin?: string; tmpdir?: string } = {}) {
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     NO_COLOR: "1",
@@ -21,6 +21,7 @@ function catherd(args: string[], o: { role?: string; stdin?: string } = {}) {
   delete env.CATHERD_DISPATCH_ID;
   delete env.TMPDIR;
   if (o.role) env.CATHERD_ROLE = o.role;
+  if (o.tmpdir) env.TMPDIR = o.tmpdir;
   const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), ...args], {
     env,
     stdin: o.stdin === undefined ? "ignore" : Buffer.from(o.stdin),
@@ -94,5 +95,16 @@ describe("the CLI forms any role can run (spec 1.5 plan 21)", () => {
       why: "shipped",
     });
     expect(catherd(["call", run.id, "teleport"], { stdin: "{}" }).err).toContain("E_INPUT_INVALID");
+  });
+
+  it("takes a role that unset CATHERD_ROLE for what its scratch TMPDIR says, never for the owner", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    await fakeDispatch(run, { name: "T1", lane: null, owns: [] });
+    const tmpdir = join(tempDir("catherd-home-"), "runs", run.id, "scratch", "T1", "tmp");
+    const r = catherd(["call", run.id, "finish"], { tmpdir, stdin: '{"verdict":"done","why":"w"}' });
+    expect(r.code).not.toBe(0);
+    expect(r.err).toContain("E_ROLE_SCOPE");
+    expect(readEvents(run).some((e) => e.type === "run.finishing")).toBe(false);
   });
 });

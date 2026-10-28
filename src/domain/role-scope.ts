@@ -47,8 +47,8 @@ export function roleScopeOfScratch(tmpdir: string | undefined): RoleScope | null
 
 /**
  * The role this process works for: CATHERD_ROLE, else (`scratch`, the MCP server's only) a TMPDIR that is a
- * role's scratch, else null. A CLI shell with a scratch TMPDIR but no CATHERD_ROLE is the owner's: a verifier's
- * scratch TMPDIR leaked into it would otherwise refuse the owner's own commands.
+ * role's scratch, else null. The role CLI commands (`call`, `run-file`) pass `scratch` too, so a role that unsets
+ * CATHERD_ROLE is not taken for the owner.
  */
 export function roleScopeFromEnv(
   env: Record<string, string | undefined>,
