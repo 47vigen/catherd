@@ -8,7 +8,7 @@ import { db } from "../infra/db.ts";
 import { currentBranch, fetchBase, gitOrigin, gitRun } from "../infra/git.ts";
 import { ensurePrivateDir, writeTextAtomic } from "../infra/store.ts";
 import { ledgerTasks } from "./ledger-store.ts";
-import { readEvents } from "./run-events-store.ts";
+import { appendEvent, readEvents } from "./run-events-store.ts";
 import type { Run } from "./run-store.ts";
 import { branchPusher } from "./run-tree.ts";
 import { runTree } from "./tree-path.ts";
@@ -120,6 +120,23 @@ async function onOrigin(tree: string, branch: string): Promise<boolean | null> {
 const pushedBefore = (events: readonly RunEvent[]): boolean =>
   events.some((e) => e.type === "land.done" && (e.outcome === "pushed" || e.message.startsWith("pushed ")));
 
+/** The shas this run meant to push to `branch`, from its `land.started` events. */
+const intents = (events: readonly RunEvent[], branch: string): string[] =>
+  events.flatMap((e) => (e.type === "land.started" && e.branch === branch ? [e.sha] : []));
+
+/**
+ * Whether origin's `branch` is this run's: an earlier land of the run meant to push it (a daemon died after the push,
+ * before its `land.done`) and the remote tip is one of those commits or a descendant of one.
+ */
+async function ownBranch(tree: string, branch: string, shas: string[]): Promise<boolean> {
+  if (shas.length === 0) return false;
+  const fetched = await gitRun(tree, ["fetch", "-q", "origin", `refs/heads/${branch}`], LS_REMOTE_MS);
+  if (fetched.code !== 0) return false;
+  for (const sha of shas)
+    if ((await gitRun(tree, ["merge-base", "--is-ancestor", sha, "FETCH_HEAD"])).code === 0) return true;
+  return false;
+}
+
 /** A green full check of this run on `sha` (spec D11), with its command and log. */
 function greenFull(run: Run, sha: string): { command: string; log: string } | null {
   const r = db()
@@ -214,11 +231,13 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
     if (!pushedBefore(readEvents(run))) {
       const there = await onOrigin(tree, branch);
       if (there === null) return refused("origin cannot be reached: reach origin, then land again");
-      if (there)
+      if (there && !(await ownBranch(tree, branch, intents(readEvents(run), branch))))
         return refused(
           `branch ${branch} already exists on origin and is not this run's: rename the run, then land again`,
         );
     }
+    // before the push: a daemon that dies after it still finds its own branch on origin at the retry
+    await appendEvent(run, { type: "land.started", landId: l.landId, branch, sha });
     await branchPusher.push(tree, branch, sha);
     const mb = (await out(tree, ["merge-base", "HEAD", `origin/${base}`])).trim();
     const events = readEvents(run);

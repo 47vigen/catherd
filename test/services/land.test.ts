@@ -197,4 +197,25 @@ describe("land (plan 50, spec D11)", () => {
     expect(sh(origin, "rev-parse", "t")).toBe(sh(origin, "rev-parse", "main"));
     expect(sh(t, "rev-parse", "HEAD")).toBe(sh(origin, "rev-parse", "main"));
   });
+
+  it("lands again after a daemon died between the first push and its land.done", async () => {
+    const { run, tree: t, origin } = await tree();
+    // the first land pushed and recorded its intent, but its land.done was never appended
+    const first = await runLand(run, land(false));
+    expect(first.done.outcome).toBe("pushed");
+    writeFileSync(join(t, "more.txt"), "more\n");
+    const again = await runLand(run, land(false, 2));
+    expect(again.done.outcome).toBe("pushed");
+    expect(sh(origin, "rev-parse", "t")).toBe(sh(t, "rev-parse", "HEAD"));
+  });
+
+  it("still refuses an unrelated branch of the run's name, also when an intent was recorded", async () => {
+    const { run, tree: t, origin } = await tree();
+    await appendEvent(run, { type: "land.started", landId: "L0", branch: "t", sha: "0".repeat(40) });
+    sh(origin, "branch", "t", "main");
+    const r = await runLand(run, land(false));
+    expect(r.done.outcome).toBe("refused");
+    expect(r.done.message).toContain("branch t already exists on origin");
+    expect(sh(t, "rev-parse", "HEAD")).toBe(sh(origin, "rev-parse", "main"));
+  });
 });
