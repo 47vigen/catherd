@@ -11,7 +11,7 @@ import { defaultDeps } from "../src/entry/deps.ts";
 import { servePanel } from "../src/entry/panel/server.ts";
 import { daemonLauncher } from "../src/services/daemon.ts";
 import { runStart } from "../src/services/run-client.ts";
-import { appendEvent, eventsFile } from "../src/services/run-events-store.ts";
+import { appendEvent, readEvents } from "../src/services/run-events-store.ts";
 import { dispatchDir } from "../src/services/run-files.ts";
 import { patchProfile } from "../src/services/profile-service.ts";
 import { activeName, profileFile } from "../src/services/profile-store.ts";
@@ -158,15 +158,27 @@ const panel = servePanel({
   distDir: join(import.meta.dir, "../web/dist"),
   pollMs: 100,
 });
+// the specs run on Node and cannot reach the run store: they append to a run's log, and read its last event, through this
+const eventsApi = Bun.serve({
+  hostname: "127.0.0.1",
+  port: 0,
+  async fetch(req) {
+    const run = findRun(new URL(req.url).pathname.slice(1));
+    if (req.method === "POST")
+      return Response.json(await appendEvent(run, (await req.json()) as RunEventInput));
+    return Response.json(readEvents(run).at(-1));
+  },
+});
+const eventsUrl = (id: string) => `${eventsApi.url}${id}`;
 mkdirSync(dirname(state), { recursive: true });
 writeFileSync(
   state,
   JSON.stringify({
     home,
-    a: { id: a.run, events: eventsFile(findRun(a.run)) },
+    a: { id: a.run, events: eventsUrl(a.run) },
     b: { id: b.run },
     fixture: { id: fixture.id },
-    live: { id: live.run, events: eventsFile(liveRun), stream: join(dir, "events.jsonl") },
+    live: { id: live.run, events: eventsUrl(live.run), stream: join(dir, "events.jsonl") },
     profile: profileFile(activeName(repo)),
     path: process.env.PATH,
   }),

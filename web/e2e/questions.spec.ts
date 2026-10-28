@@ -1,11 +1,6 @@
-import { readFileSync } from "node:fs";
-
 import { expect, test } from "@playwright/test";
 
-import { consoleErrors, signIn, state, tile } from "./helpers";
-
-const lastEvent = (events: string) =>
-  JSON.parse(readFileSync(events, "utf8").trim().split("\n").at(-1)!) as { type: string; unit?: string };
+import { consoleErrors, lastEvent, signIn, state, tile } from "./helpers";
 
 test("a question answered from the graph node clears it", async ({ page }) => {
   const errors = consoleErrors(page);
@@ -18,7 +13,7 @@ test("a question answered from the graph node clears it", async ({ page }) => {
   await question.getByRole("textbox", { name: "Your answer" }).fill("merge them");
   await question.getByRole("button", { name: "Send answer" }).click();
   await expect(question).toBeHidden();
-  expect(lastEvent(live.events)).toMatchObject({ type: "question.answered", unit: "M1.L2" });
+  expect(await lastEvent(live.events)).toMatchObject({ type: "question.answered", unit: "M1.L2" });
   expect(errors).toEqual([]);
 });
 
@@ -31,6 +26,6 @@ test("one answered from Questions moves to Recently answered", async ({ page }) 
   await page.getByRole("button", { name: "Send answer" }).click();
   await expect(page.getByText("Nothing is waiting for you.")).toBeVisible();
   await expect(tile(page, "Recently answered")).toContainText("keep it");
-  expect(lastEvent(state().a.events).type).toBe("question.answered");
+  expect((await lastEvent(state().a.events)).type).toBe("question.answered");
   expect(errors).toEqual([]);
 });

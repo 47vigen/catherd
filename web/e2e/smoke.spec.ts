@@ -65,7 +65,7 @@ test("a run's timeline shows its events, and a new one arrives live", async ({ p
   await expect(timeline.getByRole("listitem").first()).toBeVisible();
   // the socket's start is fixed once it is open: append after that
   await expect(page.locator('output[data-connected="true"]')).toBeVisible();
-  appendEvent(a.events, { type: "report.posted", kind: "parked", unit: "M1.L2", text: "M1.L2 parked" });
+  await appendEvent(a.events, { type: "report.posted", kind: "parked", unit: "M1.L2", text: "M1.L2 parked" });
   await expect(timeline.getByRole("listitem").first()).toContainText("report (parked) on M1.L2");
 });
 
