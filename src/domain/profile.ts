@@ -413,7 +413,7 @@ export type ProfilePatch = z.infer<typeof ProfilePatchSchema>;
  * - Plan 44 D25: a 1.5 file's `jev`, `bars`, `roles.*.bars` and `objective` go.
  * - Plan 45 R14: every Cursor rung and key goes.
  * - Plan 49, spec D16, once: a document that still has a `decision` block or a `roles.judge` entry (every profile a
- *   2.0 build before plan 49 wrote) loses both, its architect's `read-only` access becomes `workspace-write`, and
+ *   2.0 build before plan 49 wrote), or has no `caps` (a 1.5 profile), loses both, its architect's `read-only` access becomes `workspace-write`, and
  *   its missing `caps` are written with D10's defaults. Without either key it is never touched again, so an access
  *   or a cap the owner sets later stays his.
  */
@@ -429,7 +429,7 @@ export function migrateProfileDoc(doc: ProfileDoc): { doc: ProfileDoc; notes: st
   for (const [role, r] of Object.entries(out.roles ?? {}))
     drop(`roles.${role}.bars`, r, "bars", "the role ladders replace it");
   retireCursor(out, notes);
-  if ("decision" in out || out.roles?.judge !== undefined) {
+  if ("decision" in out || out.roles?.judge !== undefined || out.caps === undefined) {
     drop("decision", out, "decision", "the role ladders replace the decision model");
     drop("roles.judge", out.roles, "judge", "the architect does the judge's work");
     const architect = out.roles?.architect;

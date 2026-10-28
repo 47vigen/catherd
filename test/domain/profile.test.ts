@@ -522,6 +522,19 @@ describe("the profile migration (plan 44 D25, plan 49)", () => {
     expect(migrateProfileDoc(later).notes).toEqual([]);
   });
 
+  it("a 1.5 profile with a read-only architect and no judge, decision or caps is migrated once", () => {
+    const before = ProfileDocSchema.parse({
+      schema: 1,
+      jev: { enabled: true },
+      roles: { architect: { access: "read-only" }, worker: { rungs: ["codex:gpt-6-sol#high"] } },
+    });
+    const { doc, notes } = migrateProfileDoc(before);
+    expect(doc.roles?.architect?.access).toBe("workspace-write");
+    expect(doc.caps).toEqual({ ...DEFAULT_CAPS });
+    expect(notes.some((n) => n.includes("roles.architect.access"))).toBe(true);
+    expect(migrateProfileDoc(doc)).toEqual({ doc, notes: [] });
+  });
+
   it("an unmigrated 2.0 profile resolves without the decision model or the judge, and validates", () => {
     const doc = ProfileDocSchema.parse({
       schema: 1,
