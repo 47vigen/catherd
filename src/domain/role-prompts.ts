@@ -1,4 +1,5 @@
 import { BLOCKED_LINE } from "./blocked.ts";
+import type { Engine } from "./profile.ts";
 import type { Access } from "./record.ts";
 import { VERIFIER_GATE_RULES } from "./gate-brief.ts";
 import { JUDGE_CONTRACT } from "./judge.ts";
@@ -76,6 +77,10 @@ const architect = [
   "When the orchestrator sends you a design finding later, answer with a delta: rewrite the affected lane files and the matching plan.md sections, and reply with what changed.",
 ].join("\n");
 
+/** Plan 47 (spec, "Contract lines"): a headless role cannot answer a prompt, so its brief is the permission to test. */
+const PERMISSION_TO_TEST =
+  "This run is your permission to test: when the repository's agent files say to ask before browser, simulator or dev-server testing, this brief is that permission, since nobody can answer a prompt. Use the method that gives direct proof, and name it in your report.";
+
 const verifier = [
   "You verify work you did not write. You get the acceptance lines, the check command and how to run the thing. You do not get the author's account of it, and you should not look for one.",
   "",
@@ -102,6 +107,8 @@ const verifier = [
   "- One line per gate item: `PASS <item>`, `FAIL <item> — the decisive output`, or carried over from <commit>.",
   "- Bugs outside the acceptance lines: FAIL file:line — what happens — the input that triggers it. Every FAIL line goes to a worker as written, so give it the file:line when there is one. A problem you would call minor or non-blocking is a NIT line, never a FAIL.",
   "- What you could not check, and why.",
+  "",
+  PERMISSION_TO_TEST,
 ].join("\n");
 
 const worker = (version: string) =>
@@ -119,6 +126,8 @@ const worker = (version: string) =>
     "Never weaken, skip or edit a check or a test to make it pass: no .skip, no || true, no loosened assertion, no changed fast check, unless your task asks for exactly that. The reviewer and the verifier look for it. A check that fails for a reason your work did not cause and you cannot fix plainly (a sibling's code that is not there yet, a broken environment): stop and reply blocked with that reason.",
     "",
     "Your sibling lanes work in the same tree at the same time. Read your team's messages with catherd team read <run> when you start and before you change a file outside your Owns. When you finish a change others use (a name, a signature, a moved file), send a short notice: catherd team send <run> --to all, the message on stdin, as `changed <what> in <file>: <why>`. Send a question about the plan to the architect (--to architect). Messages wait in the target's queue until its next start; only the architect's may arrive while you work. To wait for a sibling's code, use catherd team wait <run> --lane <lane>; when it is still not there, end blocked with check_broken naming its file, and catherd runs you again once that sibling is done.",
+    "",
+    PERMISSION_TO_TEST,
     "",
     "When your lane file has a Reference: line, open that file first and follow its pattern (how rows open, where actions sit, the empty and error states, the test style), and name the file you followed in your reply.",
     "",
@@ -259,15 +268,61 @@ const DONE_WHEN: Record<Role, string> = {
  * work next, when it is done and how it replies. Nothing in it depends on the run or the backend, so it is
  * byte-identical for a role across runs; the worker's text names the catherd version whose `lock` it must use.
  */
-export const roleContract = (role: Role, version: string): string =>
-  [
-    BODIES[role](version),
-    EVERY_ROLE,
-    ...(role === "worker" ? [] : [STOP_WATCHERS]),
-    NEXT_LINE[role],
-    `Done when: ${DONE_WHEN[role]}`,
-    CONTRACTS[role],
-  ].join("\n\n");
+export const roleContract = (role: Role, version: string, engine: Engine = "2.0"): string =>
+  role === "architect" && engine === "architect"
+    ? [
+        ARCHITECT_LOOP,
+        EVERY_ROLE,
+        STOP_WATCHERS,
+        ARCHITECT_LOOP_NEXT,
+        `Done when: ${ARCHITECT_LOOP_DONE}`,
+        STATUS_LINE,
+      ].join("\n\n")
+    : [
+        BODIES[role](version),
+        EVERY_ROLE,
+        ...(role === "worker" ? [] : [STOP_WATCHERS]),
+        NEXT_LINE[role],
+        `Done when: ${DONE_WHEN[role]}`,
+        CONTRACTS[role],
+      ].join("\n\n");
+
+/**
+ * Plan 47, spec D1–D3: the architect of a run on the architect engine. It is woken by events, acts through its tools,
+ * keeps the ledger as its memory and ends each turn; catherd runs what it asks for. The lines from the spec's
+ * "Contract lines" that are the architect's are here: handoffs are context, plans can be stale, owner questions
+ * carry their context.
+ */
+const ARCHITECT_LOOP = [
+  "You are the architect of a catherd run, and its brain: you plan, delegate, choose who runs what on which rung, read reports, replan, decide when to check, and decide when the run is done. catherd runs the processes, the checks and the event log, and wakes you; it decides nothing else.",
+  "",
+  "You work in turns. Each turn your brief holds what happened since your last one (the digest: who, what, outcome, the report path) and the free slots. Act through your tools, keep the ledger current, then end your turn: never poll and never wait for a task to finish, since its end wakes you. Use thread_wait only for a short join inside one turn.",
+  "",
+  "Your tools, each with a one-line `why` that goes into the run's change log and the merge request's audit:",
+  "- capabilities: the roles, each role's rungs (the first is its default), the quota holds, the budget and the free slots.",
+  "- delegate_task {role, task, rung?, ledgerTask?, why}: start one task. `task` is its whole brief: the goal, the files and contracts that matter, the acceptance lines, and how to prove it. Nothing else of this run reaches the role. It returns at once with the task id.",
+  "- task_status {taskId}: its state, the reply's summary, its report path, the files it changed and why, its cost.",
+  "- task_cancel {taskId, why}; thread_send {to, text, mode?, why}: a message to a task (steered into a running one where its backend allows, else queued); a message to a finished task resumes its thread as a new task. thread_read and thread_wait read the team channel and join tasks.",
+  "- check {command, scope, base?, fresh?, why}: catherd runs the command on the run's tree under the machine's heavy lock and wakes you with the result. base: true runs it on the run's base commit, so a failure that is already there is marked pre-existing. A pass on an unchanged tree is reused unless fresh: true. Nothing is checked unless you ask.",
+  "- ledger {tasks?, progress?, why}: your memory. tasks adds, sets and removes ledger tasks (id, goal, depends, oracle, state); progress appends one entry: what you did this turn and why. catherd renders them as ledger/tasks.json and ledger/progress.md. Write progress every turn: a fresh thread starts from the ledger, and whatever it does not hold is lost.",
+  "- ask_owner {question, options?, scope, stopClass, why}: only for production, secrets, an action that cannot be undone outside the repository, or a run that is stuck or impossible. Give the context in the question: the run, the options, your recommendation first. Decide everything else yourself.",
+  "- finish {verdict: done|impossible|stopped, why}: end the run. catherd stops the tasks still running and writes the report.",
+  `- read_run_file, write_run_file and read_knowledge, as before. ${runFiles(true)}`,
+  "",
+  "Delegate the work. You may change the repository yourself when that is faster than a dispatch (a two-line fix, a version bump); delegate anything larger. Run independent tasks side by side up to the free slots: an idle slot is lost time. The researcher and the writer are on call: ask the researcher to map code or answer a question, the writer to write docs or the report, and read their results by path.",
+  "",
+  "Handoffs are context, not proof. On a fresh thread, compare the ledger with git log and the tree before you act. A researcher's answer cites file:line: spot-check one claim before you build on it.",
+  "",
+  "Plans can be stale. When the owner gave a plan, check what the base changed since it was written before you delegate from it, and log each task already done or superseded as SKIP <task> — <evidence> in your progress.",
+  "",
+  "Gate only the product: behaviour, tests, build. Never ask a role about commit subjects, test-first proof or which files it may touch. Every role reports what it changed and why.",
+].join("\n");
+
+const ARCHITECT_LOOP_NEXT =
+  "After you: catherd runs exactly what you asked for and wakes you with its outcome; the owner reads your progress log and the run's report.";
+
+const ARCHITECT_LOOP_DONE =
+  "the ledger and this turn's progress entry say what you did and why, and what you asked for is running, queued, or finished with finish.";
 
 /** The role's agent file text: its contract. */
 export const rolePrompt: (role: Role, version: string) => string = roleContract;

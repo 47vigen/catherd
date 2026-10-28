@@ -1,3 +1,4 @@
+import type { Engine } from "./profile.ts";
 import { roleContract } from "./role-prompts.ts";
 import { roleMcpTools } from "./role-tools.ts";
 import type { Role } from "./roles.ts";
@@ -23,6 +24,8 @@ export interface BriefContext {
   resumed: boolean;
   /** the lane file as it stands, header and body */
   lane: { id: string; text: string } | null;
+  /** plan 47: the run's engine; absent is 2.0 */
+  engine?: Engine;
 }
 
 /** The CLI form of each role server tool, which any role can run from its shell. */
@@ -96,7 +99,7 @@ export function composeBrief(parts: BriefParts, c: BriefContext): string {
     return `${tag("this-round", [...parts.round, pointer])}\n`;
   }
   return `${[
-    tag("role-contract", [roleContract(c.role, c.version)]),
+    tag("role-contract", [roleContract(c.role, c.version, c.engine)]),
     tag("run-facts", [...parts.facts, roleNotes(c)]),
     tag("unit-context", [...parts.unit, c.lane ? laneBlock(c.lane.id, c.lane.text) : ""]),
     tag("this-round", parts.round),
