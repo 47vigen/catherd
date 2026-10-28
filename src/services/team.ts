@@ -109,11 +109,13 @@ export async function teamSend(
   if (i.mode === "queue" || !steers(i.from)) return { n, delivery: "queued" };
   const state = replayRun(run);
   const live = Object.values(state.dispatches).filter((x) => x.ended === null);
-  // a lane while it runs (2.0), or a dispatch by its name (an architect run's task, plan 47)
+  // a lane while it runs (2.0), or on an architect run a dispatch by its name (a task, plan 47)
   const d =
     state.lanes[i.to]?.status === "running"
       ? live.find((x) => x.lane === i.to)
-      : live.find((x) => x.name === i.to);
+      : state.arch
+        ? live.find((x) => x.name === i.to)
+        : undefined;
   const thread = d && (readThread(join(roleDir(run, d.name), d.dispatchId)) ?? d.thread);
   const backend = d && tryParseRung(d.rung)?.backend;
   if (!thread || !backend) return { n, delivery: "queued" };

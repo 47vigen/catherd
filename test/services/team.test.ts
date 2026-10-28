@@ -155,7 +155,7 @@ describe("the team channel (plan 45)", () => {
   it("steers a running task by its name, records the kind and the delivery, and queue never steers (plan 47)", async () => {
     const { run } = freshRun();
     const log = makeLog();
-    log.add("run.started", startedFields);
+    log.add("run.started", { ...startedFields, engine: "architect" });
     startDispatch(log, {
       name: "T1",
       unit: "T1",
@@ -182,5 +182,22 @@ describe("the team channel (plan 45)", () => {
     ]);
     expect(teamRead({ run: run.id, from: "architect" }).messages.map((m) => m.text)).toEqual(["a", "b"]);
     expect(teamRead({ run: run.id, from: "owner" }).messages).toEqual([]);
+  });
+
+  it("a 2.0 run never steers a live dispatch by its name: the message to the architect is queued", async () => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    startDispatch(log, {
+      name: "architect",
+      role: "architect",
+      unit: "run",
+      lane: null,
+      rung: "codex:gpt-6-sol#high",
+      thread: "ses_A",
+    });
+    writeFileSync(eventsFile(run), log.events.map((e) => `${JSON.stringify(e)}\n`).join(""));
+    const steer = async () => true;
+    expect((await send(run, "owner", "architect", "hurry", { steer })).delivery).toBe("queued");
   });
 });
