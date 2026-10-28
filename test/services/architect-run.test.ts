@@ -18,7 +18,6 @@ const wake = (o: Partial<DispatchAction> = {}): DispatchAction => ({
   failoverFrom: null,
   brief: "wake",
   notes: [],
-  decision: null,
   ...o,
 });
 
@@ -28,7 +27,7 @@ describe("the architect's briefs (plan 47, spec D1 and D12)", () => {
     mkdirSync(join(run.dir, PLAN_INPUT_DIR), { recursive: true });
     writeFileSync(join(run.dir, PLAN_INPUT_DIR, "PLAN.md"), "# P\n\n## M1 — core\n\nno check here\n");
     const log = makeLog();
-    log.add("run.started", { ...startedFields, engine: "architect", plan: ["/repo/PLAN.md"] });
+    log.add("run.started", { ...startedFields, plan: ["/repo/PLAN.md"] });
     const { unit, round } = wakeBrief(run, log.state(), wake({ upTo: 1 }));
     expect(unit.join("\n")).toContain("The run's goal: wallet.");
     expect(unit.join("\n")).toContain("plan-input/PLAN.md");
@@ -42,7 +41,7 @@ describe("the architect's briefs (plan 47, spec D1 and D12)", () => {
   it("a fresh thread after a turn says why and to check the ledger against git; only events up to upTo", () => {
     const { run } = freshRun();
     const log = makeLog();
-    log.add("run.started", { ...startedFields, engine: "architect" });
+    log.add("run.started", { ...startedFields });
     const a1 = newId();
     log.add("dispatch.started", {
       dispatchId: a1,
@@ -105,7 +104,7 @@ describe("the architect's briefs (plan 47, spec D1 and D12)", () => {
   it("a researcher task writes its answer to research/<id>.md; a worker reports each file with its reason", () => {
     const { run } = freshRun();
     const log = makeLog();
-    log.add("run.started", { ...startedFields, engine: "architect" });
+    log.add("run.started", { ...startedFields });
     log.add("task.delegated", {
       taskId: "T1",
       role: "researcher",

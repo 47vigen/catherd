@@ -3945,13 +3945,6 @@
               ]
             }
           },
-          "engine": {
-            "type": "string",
-            "enum": [
-              "2.0",
-              "architect"
-            ]
-          },
           "limits": {
             "type": "object",
             "properties": {

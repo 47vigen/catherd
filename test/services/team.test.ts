@@ -2,34 +2,20 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { db } from "../../src/infra/db.ts";
-import type { MilestonePlan } from "../../src/domain/run-events.ts";
 import { eventsFile } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
-import { TEAM_FILE, teamFor, teamMessages, teamRead, teamSend, teamWait } from "../../src/services/team.ts";
+import { TEAM_FILE, teamFor, teamMessages, teamRead, teamSend } from "../../src/services/team.ts";
 import { makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { freshRun } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
-const PLAN: MilestonePlan[] = [
-  {
-    id: "M1",
-    title: "the core",
-    after: [],
-    lanes: [
-      { id: "M1.L3", role: "worker", kind: "repo_code", after: [], owns: ["src/a/"] },
-      { id: "M1.L4", role: "worker", kind: "repo_code", after: [], owns: ["src/b/"] },
-    ],
-  },
-];
-
 /** A run whose M1.L4 runs on `ses_M1.L4` and whose M1.L3 waits. */
 function fixture(): Run {
   const { run } = freshRun();
   const log = makeLog();
   log.add("run.started", startedFields);
-  log.add("plan.ready", { milestones: PLAN });
   startDispatch(log, {
     name: "worker-M1.L4",
     unit: "M1.L4",
@@ -89,16 +75,22 @@ describe("the team channel (plan 45)", () => {
     await expect(send(run, "worker-M1.L4", "../etc", "x")).rejects.toMatchObject({ code: "E_INPUT_INVALID" });
   });
 
-  it("only the architect and the owner steer a running lane mid-turn; a lane's message is queued", async () => {
+  it("only the architect and the owner steer a running dispatch by its name; another's message is queued", async () => {
     const run = fixture();
     const seen: string[][] = [];
     const steer = async (backend: string, thread: string, text: string) => {
       seen.push([backend, thread, text]);
       return true;
     };
-    expect((await send(run, "worker-M1.L3", "M1.L4", "I changed Foo", { steer })).delivery).toBe("queued");
-    expect((await send(run, "architect-M1-1", "M1.L4", "use Operator", { steer })).delivery).toBe("steered");
-    expect((await send(run, "owner", "M1.L4", "hurry", { steer })).delivery).toBe("steered");
+    expect((await send(run, "worker-M1.L3", "worker-M1.L4", "I changed Foo", { steer })).delivery).toBe(
+      "queued",
+    );
+    expect((await send(run, "architect-M1-1", "worker-M1.L4", "use Operator", { steer })).delivery).toBe(
+      "steered",
+    );
+    expect((await send(run, "owner", "worker-M1.L4", "hurry", { steer })).delivery).toBe("steered");
+    // a lane id is no dispatch name: plan 48 deleted lanes
+    expect((await send(run, "owner", "M1.L4", "hurry", { steer })).delivery).toBe("queued");
     expect(seen).toEqual([
       ["codex", "ses_M1.L4", "architect-M1-1 (catherd team #2): use Operator"],
       ["codex", "ses_M1.L4", "owner (catherd team #3): hurry"],
@@ -115,27 +107,6 @@ describe("the team channel (plan 45)", () => {
     const rest = teamRead({ run: run.id, since: 3 });
     expect(rest.messages.map((m) => m.n)).toEqual([4]);
     expect(rest.next).toBeNull();
-  });
-
-  it("team_wait returns at once for a lane that is not running, and times out on one that is", async () => {
-    const run = fixture();
-    expect(await teamWait({ run: run.id, lane: "M1.L3", timeoutMs: 0 })).toMatchObject({
-      status: "pending",
-      timedOut: false,
-    });
-    expect(await teamWait({ run: run.id, lane: "M1.L4", timeoutMs: 0 })).toEqual({
-      lane: "M1.L4",
-      status: "running",
-      timedOut: true,
-      posted: [],
-    });
-    await send(run, "worker-M1.L4", "M1.L3", "Operator is in");
-    const r = await teamWait({ run: run.id, lane: "M1.L4", timeoutMs: 0, since: 0 });
-    expect(r.timedOut).toBe(false);
-    expect(r.posted).toMatchObject([{ n: 1, from: "worker-M1.L4" }]);
-    await expect(teamWait({ run: run.id, lane: "M9.L1", timeoutMs: 0 })).rejects.toMatchObject({
-      code: "E_INPUT_INVALID",
-    });
   });
 
   it("a dispatch's brief carries the messages sent to it, its role or everyone, after its last start", async () => {
@@ -155,7 +126,7 @@ describe("the team channel (plan 45)", () => {
   it("steers a running task by its name, records the kind and the delivery, and queue never steers (plan 47)", async () => {
     const { run } = freshRun();
     const log = makeLog();
-    log.add("run.started", { ...startedFields, engine: "architect" });
+    log.add("run.started", startedFields);
     startDispatch(log, {
       name: "T1",
       unit: "T1",
@@ -182,22 +153,5 @@ describe("the team channel (plan 45)", () => {
     ]);
     expect(teamRead({ run: run.id, from: "architect" }).messages.map((m) => m.text)).toEqual(["a", "b"]);
     expect(teamRead({ run: run.id, from: "owner" }).messages).toEqual([]);
-  });
-
-  it("a 2.0 run never steers a live dispatch by its name: the message to the architect is queued", async () => {
-    const { run } = freshRun();
-    const log = makeLog();
-    log.add("run.started", startedFields);
-    startDispatch(log, {
-      name: "architect",
-      role: "architect",
-      unit: "run",
-      lane: null,
-      rung: "codex:gpt-6-sol#high",
-      thread: "ses_A",
-    });
-    writeFileSync(eventsFile(run), log.events.map((e) => `${JSON.stringify(e)}\n`).join(""));
-    const steer = async () => true;
-    expect((await send(run, "owner", "architect", "hurry", { steer })).delivery).toBe("queued");
   });
 });

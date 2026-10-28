@@ -320,24 +320,6 @@ describe("admission", () => {
     });
   });
 
-  it("refuses a lane whose After: lane has not finished, naming it (spec 1.5 lane order)", async () => {
-    const { run } = setup();
-    writeLane(run, "M1.L2", ["src/b.ts"], "true", "Kind: repo_code\nDifficulty: build\nAfter: M1.L1\n");
-    const e = await admit(fakeDeps(), run, input({ name: "worker-M1.L2", lane: "M1.L2" })).catch((x) => x);
-    expect(e).toMatchObject({
-      code: "E_ADMIT_ORDER",
-      message: "M1.L2 runs after M1.L1 (its After: line), which has not finished",
-    });
-    const first = await admit(fakeDeps(), run, input());
-    await appendRecord(
-      run,
-      makeRecord({ runId: run.id, dispatchId: first.d.admit.dispatchId, name: "worker-M1.L1" }),
-    );
-    expect(await refusal(admit(fakeDeps(), run, input({ name: "worker-M1.L2", lane: "M1.L2" })))).toBe(
-      "admitted",
-    );
-  });
-
   it("keeps the server's environment out of spec.json, which only its owner can read (spec §10.4)", async () => {
     const { repo, run } = setup();
     process.env.FOO_API_KEY = "s3cret";

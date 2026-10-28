@@ -8,10 +8,9 @@ import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { admit } from "../../src/services/admission.ts";
 import { setGateEnv } from "../../src/services/gate-env.ts";
 import { gateCheck, gatePass } from "../../src/services/gate-service.ts";
-import { issueTitle } from "../../src/services/brief-cap.ts";
 import { renderBrief } from "../../src/services/run-briefs.ts";
 import { milestoneOfName, verifierBrief } from "../../src/services/verifier-brief.ts";
-import { runningLog } from "../domain/run-fixtures.ts";
+import { makeLog, startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDeps, freshRun, testView } from "./helpers.ts";
@@ -104,55 +103,30 @@ describe("the verifier's brief (plan 23)", () => {
 describe("the composed verifier brief (plan 44)", () => {
   const verify = {
     type: "dispatch" as const,
-    unit: "M1",
-    name: "verifier-M1",
+    unit: "T1",
+    name: "T1",
     role: "verifier" as const,
     lane: null,
-    rung: null,
+    rung: "codex:gpt-6-sol#high",
     thread: null,
     failoverFrom: null,
-    brief: "verify" as const,
+    brief: "task" as const,
     notes: [],
-    decision: null,
   };
-
-  it("known issues are titles", async () => {
-    const { run } = freshRun();
-    const issue = `A8 red-first: accepted by the owner\n${"second line of the reason ".repeat(20)}\nthird line ${"z".repeat(300)}`;
-    expect(issue.split("\n")).toHaveLength(3);
-    expect(issue.length).toBeGreaterThan(800);
-    expect(issueTitle(issue)).toBe("A8 red-first: accepted by the owner");
-    const s = runningLog().state();
-    (s.milestones.find((m) => m.id === "M1") as { knownIssues: string[] }).knownIssues = [issue];
-    const text = await renderBrief(run, s, verify, false);
-    expect(text).toContain("- A8 red-first: accepted by the owner\n");
-    expect(text).toContain("the milestone's digest");
-    expect(text).not.toContain("second line of the reason");
-    expect(text).not.toContain("third line");
-  });
+  const state = () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    return log.state();
+  };
 
   it("carries the gate notes at the end of this round, once", async () => {
     const { repo, run } = freshRun();
     await setGateEnv(repo, "DOCKER_HOST", { value: "unix:///tmp/d.sock" });
-    const text = await renderBrief(run, runningLog().state(), verify, false);
+    const text = await renderBrief(run, state(), verify, false);
     expect(text.indexOf(GATE_NOTES_HEADING)).toBeGreaterThan(text.indexOf("<this-round>"));
     expect(text.split(GATE_NOTES_HEADING)).toHaveLength(2);
     expect(text).toContain("DOCKER_HOST=unix:///tmp/d.sock");
     // a resumed thread gets the notes too: the gate environment can change between rounds
-    expect(await renderBrief(run, runningLog().state(), verify, true)).toContain(GATE_NOTES_HEADING);
-  });
-
-  it("a verifier brief lists the commands to run", async () => {
-    const { run } = freshRun();
-    writeFileSync(join(run.dir, "plan.md"), "# P\n\n## M1 — core\n- A1 [run] it works\nCheck: bun test\n");
-    const s = runningLog().state();
-    const m = s.milestones.find((x) => x.id === "M1") as { commit: string | null; checkedOn: string | null };
-    m.commit = "abc123def456abc";
-    m.checkedOn = null;
-    const open = await renderBrief(run, s, verify, false);
-    expect(open).toContain("\nRUN: bun test\n");
-    expect(open).toContain("RAN: <command> — exit <n> — <log path>");
-    m.checkedOn = m.commit;
-    expect(await renderBrief(run, s, verify, false)).not.toContain("RUN: bun test");
+    expect(await renderBrief(run, state(), verify, true)).toContain(GATE_NOTES_HEADING);
   });
 });

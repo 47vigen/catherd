@@ -19,36 +19,24 @@ const node = (m: ReturnType<typeof runModel>, id: string) => {
 };
 
 describe("the run model service", () => {
-  it("the case-helpers run: every node done, two rounds on the lane, the commit and the review", () => {
+  it("an earlier build's run (spec D16): every role it ran draws as a node of its own, read-only", () => {
     freshRun();
     const run = seedFixtureRun();
     const m = RunModelSchema.parse(runModel(run.id));
-    expect(m.engine).toBe("2.0");
-    expect(m.phase).toBe("ended");
-    expect(m.outcome).toBe("done");
+    expect([m.engine, m.phase, m.outcome]).toEqual(["2.0", "ended", "done"]);
     expect(m.nodes.map((n) => [n.id, n.status])).toEqual([
       ["start", "done"],
       ["architect", "done"],
-      ["M1/route", "done"],
-      ["M1/preflight", "done"],
-      ["M1/lane/M1.L1", "done"],
-      ["M1/check/M1.L1", "done"],
-      ["M1/commit", "done"],
-      ["M1/review", "done"],
-      ["M1/verify", "done"],
-      ["M1/land", "done"],
-      ["judge", "done"],
-      ["report", "done"],
+      ["task/worker-M1.L1", "done"],
+      ["task/reviewer-M1", "done"],
+      ["task/verifier-M1", "done"],
+      ["task/judge-rules", "done"],
       ["end", "done"],
     ]);
-    const lane = node(m, "M1/lane/M1.L1");
-    expect(lane.attempts.map((a) => a.label)).toEqual(["round 1", "round 0"]);
-    expect(lane.attempts[1]?.tokens?.output).toBe(7845);
-    expect(lane.attempts[0]?.tokens?.output).toBe(10630);
-    expect(node(m, "M1/commit").attempts.map((a) => a.label)).toEqual(["round 1", "round 0"]);
-    expect(node(m, "M1/review").attempts.map((a) => a.label)).toEqual(["round 1", "round 0"]);
+    const lane = node(m, "task/worker-M1.L1");
+    expect(lane.attempts.map((a) => a.tokens?.output)).toEqual([10630, 7845]);
+    expect(node(m, "task/reviewer-M1").attempts).toHaveLength(2);
     expect(node(m, "architect").attempts[0]?.costUsd).toBeCloseTo(0.687, 2);
-    expect(node(m, "judge").attempts.map((a) => a.label)).toEqual(["rules"]);
     expect(m.dispatches.length).toBe(7);
     expect(m.dispatches[0]?.name).toBe("judge-rules");
   });
@@ -83,7 +71,7 @@ describe("the run model service", () => {
       `${JSON.stringify({ v: 1, seq: 30, at: "2026-10-22T19:30:00.000Z", type: "question.parked", unit: "M1.L1", question: "Which way?", reason: "needs_user" })}\n`,
     );
     const c = QuestionContextSchema.parse(questionContext(run.id, "M1.L1"));
-    expect(c.node).toBe("M1/lane/M1.L1");
+    expect(c.node).toBe("task/worker-M1.L1");
     expect(c.lane).toBe("M1.L1");
     expect(c.replyName).toBe("worker-M1.L1");
     const latest = readFileSync(
@@ -94,19 +82,16 @@ describe("the run model service", () => {
     expect(runModel(run.id).nodes.find((n) => n.status === "parked")?.id).toBeUndefined();
   });
 
-  it("a question without a reply still has its node", () => {
+  it("a question of the run goes to the architect, with its latest reply", () => {
     freshRun();
     const run = seedFixtureRun();
     appendFileSync(
       eventsFile(run),
       `${JSON.stringify({ v: 1, seq: 30, at: "2026-10-22T19:30:00.000Z", type: "question.parked", unit: "run", question: "Budget?", reason: "budget" })}\n`,
     );
-    expect(questionContext(run.id, "run")).toEqual({
-      node: "start",
-      reply: null,
-      replyName: null,
-      lane: null,
-    });
+    const c = questionContext(run.id, "run");
+    expect(c).toMatchObject({ node: "architect", replyName: "architect", lane: null });
+    expect(c.reply).toContain("STATUS: complete");
   });
 
   it("the fixtures hold no home path and no trace of the machine they were recorded on", () => {

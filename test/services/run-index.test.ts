@@ -9,7 +9,7 @@ import { RunCardSchema, runIndex, runIndexCache } from "../../src/services/run-i
 import { appendRecord, appendRoute, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { interventionsOf } from "../../src/services/scorecard-metrics.ts";
 import { makeRecord } from "../domain/make-record.ts";
-import { PLAN, endDispatch, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
+import { makeLog, startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { fakeDeps } from "./helpers.ts";
 
@@ -34,12 +34,10 @@ const HOUR = 3_600_000;
 const at = (agoMs: number): Date => new Date(NOW - agoMs);
 const deps = () => fakeDeps({ now: () => NOW });
 
-/** A 2.0 run created `agoMs` before NOW in `repo`, with its plan approved and then `more`. */
+/** A run created `agoMs` before NOW in `repo`, then `more`. */
 async function make(repo: string, title: string, agoMs: number, ...more: RunEventInput[]): Promise<Run> {
   const run = createRun({ repo, title, aLines: ["A1 ok"], version: "0.0.0-test", now: at(agoMs) });
   await appendEvent(run, { type: "run.started", ...startedFields, repo, title }, at(agoMs));
-  await appendEvent(run, { type: "plan.ready", milestones: PLAN }, at(agoMs - 1000));
-  await appendEvent(run, { type: "plan.approved", by: "input" }, at(agoMs - 1000));
   for (const e of more) await appendEvent(run, e, at(agoMs - 2000));
   return run;
 }
@@ -71,7 +69,7 @@ describe("the run index", () => {
     expect(cards.map((c) => RunCardSchema.parse(c))).toEqual(cards);
     expect(cards[0]).toMatchObject({ engine: "1.5", phase: null, outcome: null, repo: b, title: "legacy" });
     expect(cards[1]).toMatchObject({ engine: "2.0", phase: "running", endedAt: null, wallMinutes: null });
-    expect(cards[1]?.milestones).toEqual({ total: 2, landed: 0 });
+    expect(cards[1]?.milestones).toEqual({ total: 0, landed: 0 });
     expect(runIndex(deps(), { repo: a }).map((c) => c.id)).toEqual([old.id]);
   });
 
@@ -138,30 +136,14 @@ describe("the run index", () => {
     expect(runIndex(deps())[0]?.totals).toMatchObject({ costUsd: 2.5, unpriced: 1 });
   });
 
-  it("counts completed review rounds rather than commit fix rounds", async () => {
-    withHome();
-    const run = await make(tempRepo(), "reviewed", HOUR, {
-      type: "commit.made",
-      milestone: "M1",
-      round: 0,
-      commit: "abc",
-    });
-    const log = makeLog();
-    const id = startDispatch(log, { name: "reviewer-M1", role: "reviewer", unit: "M1", lane: null });
-    endDispatch(log, id, { name: "reviewer-M1", unit: "M1" });
-    for (const { v: _v, seq: _seq, at: _at, ...e } of log.events) await appendEvent(run, e, at(0));
-    expect(runIndex(deps())[0]?.totals.rounds).toBe(1);
-  });
-
   it("counts failovers, climbs, rounds and interventions", async () => {
     withHome();
-    const run = await make(
-      tempRepo(),
-      "busy",
-      HOUR,
-      { type: "commit.made", milestone: "M1", round: 2, commit: "abc" },
-      { type: "question.parked", unit: "M1.L1", question: "which?", reason: "needs_user" },
-    );
+    const run = await make(tempRepo(), "busy", HOUR, {
+      type: "question.parked",
+      unit: "M1.L1",
+      question: "which?",
+      reason: "needs_user",
+    });
     await record(run, { failoverFrom: "codex:gpt-6-sol#medium" });
     await record(run, {});
     const row = {

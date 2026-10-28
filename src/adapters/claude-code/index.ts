@@ -239,9 +239,7 @@ function plan(r: RunRequest): SpawnPlan {
   const access = claudeAccessArgs(r.access, r.network, carried ? null : r.repo, r.scratch ? [r.scratch] : []);
   const accessArgs = carried ? withCarriedSettings(access) : [...access];
   if (r.roleMcp) {
-    const tools = roleMcpTools(r.roleMcp.role, r.roleMcp.engine).map(
-      (tool) => `mcp__${ROLE_MCP_SERVER}__${tool}`,
-    );
+    const tools = roleMcpTools(r.roleMcp.role).map((tool) => `mcp__${ROLE_MCP_SERVER}__${tool}`);
     const allowed = accessArgs.indexOf("--allowedTools");
     if (allowed >= 0) accessArgs[allowed + 1] = [accessArgs[allowed + 1], ...tools].join(",");
     else accessArgs.push("--allowedTools", tools.join(","));

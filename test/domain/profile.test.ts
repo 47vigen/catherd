@@ -236,16 +236,11 @@ describe("land.autoMerge", () => {
   });
 });
 
-describe("engine (plan 47)", () => {
-  it("defaults to 2.0, takes architect, and reads a value it does not know as 2.0", () => {
-    expect(resolveProfile({ schema: 1 }, "bare", "claude-code").engine).toBe("2.0");
-    expect(resolveProfile({ schema: 1, engine: "architect" }, "t", "claude-code").engine).toBe("architect");
-    expect(resolveProfile({ schema: 1, engine: "4.0" }, "t", "claude-code").engine).toBe("2.0");
-    expect(unknownValues({ schema: 1, engine: "4.0" })).toEqual([
-      { path: "engine", value: "4.0", readAs: "2.0" },
-    ]);
-    expect(patchAt("engine", "architect")).toEqual({ engine: "architect" });
-    expect(ProfilePatchSchema.safeParse({ engine: "4.0" }).success).toBe(false);
+describe("engine (plan 48: the switch is gone)", () => {
+  it("reads a profile that still names an engine, and offers no engine key to set", () => {
+    expect(resolveProfile({ schema: 1, engine: "2.0" }, "t", "claude-code")).not.toHaveProperty("engine");
+    expect(unknownValues({ schema: 1, engine: "4.0" })).toEqual([]);
+    expect(ProfilePatchSchema.safeParse({ engine: "architect" }).success).toBe(false);
   });
 });
 

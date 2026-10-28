@@ -35,7 +35,6 @@ describe("an architect run on the real effects (plan 47, spec D1–D3)", () => {
       ...startedFields,
       repo: run.meta.repo,
       title: "wallet",
-      engine: "architect",
     });
     writeTextAtomic(
       join(run.dir, taskBriefFile("T1")),

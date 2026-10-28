@@ -8,16 +8,16 @@ import { appendEvent, readEvents, replayRun } from "../../src/services/run-event
 import type { Run } from "../../src/services/run-store.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { fakeDeps, freshRun, testView } from "./helpers.ts";
+import { fakeDeps, freshRun, insertEarlier, testView } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
 const ARCHITECT: ToolCaller = { name: "architect-1", role: "architect" };
 const WORKER: ToolCaller = { name: "T1", role: "worker" };
 
-async function architectRun(engine: "architect" | "2.0" = "architect"): Promise<Run> {
+async function architectRun(): Promise<Run> {
   const { run } = freshRun();
-  await appendEvent(run, { type: "run.started", ...startedFields, engine });
+  await appendEvent(run, { type: "run.started", ...startedFields });
   return run;
 }
 
@@ -149,7 +149,6 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
       environment: null,
       verdict: null,
       findings: [],
-      foreign: [],
       replyPath: "roles/T1/D1/reply.md",
     });
     expect(
@@ -225,7 +224,7 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     expect(replayRun(run).arch?.finishing).toEqual({ verdict: "done", why: "shipped" });
   });
 
-  it("capabilities names each role's rungs, the slots and the budget; a 2.0 run has none of these tools", async () => {
+  it("capabilities names each role's rungs, the slots and the budget; an earlier build's run has none of these tools", async () => {
     const run = await architectRun();
     expect(await call(run, "capabilities", {})).toMatchObject({
       roles: { worker: { default: "codex:gpt-6-luna#high" }, researcher: expect.anything() },
@@ -233,7 +232,8 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
       standing: { running: 0, cap: 4 },
       queued: 0,
     });
-    const old = await architectRun("2.0");
+    const old = freshRun().run;
+    insertEarlier(old);
     await expect(call(old, "capabilities", {})).rejects.toMatchObject({ code: "E_ROLE_SCOPE" });
   });
 });

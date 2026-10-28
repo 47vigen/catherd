@@ -163,7 +163,7 @@ describe("the CLI forms any role can run (spec 1.5 plan 21)", () => {
 
   it("calls an architect-engine tool with JSON on stdin, bound to the role's own tools (plan 47)", async () => {
     const { run } = freshRun();
-    await appendEvent(run, { type: "run.started", ...startedFields, engine: "architect" });
+    await appendEvent(run, { type: "run.started", ...startedFields });
     await fakeDispatch(run, { name: "T1", lane: null, owns: [] });
     const worker = catherd(["call", run.id, "finish"], {
       role: `${run.id}/T1`,

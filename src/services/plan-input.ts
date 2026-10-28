@@ -8,7 +8,6 @@ import {
   aLineOwner,
   CHECK_COVERED,
   PROCESS_LINE,
-  depthProblems,
   milestoneSection,
   type PlanDoc,
   type PlanTask,
@@ -191,8 +190,8 @@ function untaggedALines(plan: string): string[] {
 }
 
 /**
- * What the architect must fix before the plan is read: an untagged A-line, an A-line no milestone owns, and, with
- * no plan input and before the owner approved it, plan.md's depth. A lane's tasks are its own business (plan 45).
+ * What an earlier build's plan check refused: an untagged A-line and an A-line no milestone owns. A lane's tasks are
+ * its own business (plan 45); plan 48 dropped the depth check with the approval it guarded.
  */
 export function planProblems(run: Run): string[] {
   const out: string[] = [];
@@ -203,9 +202,6 @@ export function planProblems(run: Run): string[] {
     out.push(
       `${unowned.join(", ")} ${unowned.length > 1 ? "are" : "is"} cited under no milestone: under the milestone that delivers each, write it in plan.md as an A<n> line`,
     );
-  const state = replayRun(run);
-  if (state.plan.length === 0 && state.phase === "planning")
-    out.push(...depthProblems(planDocs(run)[0] ?? parsePlanDoc("plan.md", "")));
   return out;
 }
 

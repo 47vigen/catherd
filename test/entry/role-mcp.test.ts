@@ -46,8 +46,6 @@ describe("dispatch-scoped role MCP", () => {
   it("exposes only each role's allowed tools", async () => {
     const { run } = freshRun();
     const cases: [Role, string[]][] = [
-      ["worker", ["read_run_file", "read_knowledge", "team_send", "team_read", "team_wait"]],
-      ["architect", ["read_run_file", "read_knowledge", "write_run_file", "team_send", "team_read"]],
       ["researcher", ["read_run_file", "read_knowledge", "write_run_file"]],
       ["verifier", ["read_run_file", "read_knowledge", "gate_check", "gate_pass", "gate_run"]],
     ];
@@ -62,9 +60,9 @@ describe("dispatch-scoped role MCP", () => {
     }
   });
 
-  it("an architect run's architect gets the loop's tools; its workers and writers the standing-role ones (plan 47)", async () => {
+  it("the architect gets the loop's tools; workers and writers the standing-role ones (plan 47)", async () => {
     const { run } = freshRun();
-    await appendEvent(run, { type: "run.started", ...startedFields, engine: "architect" });
+    await appendEvent(run, { type: "run.started", ...startedFields });
     const names = async (role: Role) => {
       const client = await roleClient(run.id, role);
       try {
@@ -89,7 +87,6 @@ describe("dispatch-scoped role MCP", () => {
         "read_knowledge",
         "team_send",
         "team_read",
-        "team_wait",
         "delegate_task",
         "task_status",
         "thread_wait",

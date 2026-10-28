@@ -11,11 +11,11 @@ import { selfIdentity } from "../infra/proc.ts";
 import { readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import type { Deps } from "./ports.ts";
 import type { RunEvent } from "../domain/run-events.ts";
-import { type Action, actionKey, confirms, failKey, next } from "../domain/run-machine.ts";
+import { type Action, actionKey, confirms, failKey } from "../domain/run-machine.ts";
 import { architectNext } from "../domain/architect-machine.ts";
 import { reduce, replay, type RunState } from "../domain/run-state.ts";
 import { type Effects, realEffects } from "./run-effects.ts";
-import { appendEvent, hasRunEnded, isDaemonRun, readEvents } from "./run-events-store.ts";
+import { appendEvent, hasRunEnded, isDaemonRun, isEarlierRun, readEvents } from "./run-events-store.ts";
 import { pausesFor } from "./pause.ts";
 import { findRun, type Run } from "./run-store.ts";
 
@@ -65,10 +65,11 @@ export const daemonLauncher = { launch: launchDaemon };
 
 /**
  * Makes sure a 2.0 run that has not ended has a daemon: one that is alive is left alone, a dead one is
- * started again at most once per revive window. A 1.5 run has none.
+ * started again at most once per revive window. A 1.5 run has none; a run an earlier build started gets none (D16).
  */
-export function ensureDaemon(run: Run): "alive" | "revived" | "ended" | "1.5" {
+export function ensureDaemon(run: Run): "alive" | "revived" | "ended" | "1.5" | "earlier" {
   if (!isDaemonRun(run)) return "1.5";
+  if (isEarlierRun(run)) return "earlier";
   if (hasRunEnded(run)) return "ended";
   if (daemonAlive(run)) return "alive";
   return withFileLockSync(launchStamp(run), () => {
@@ -158,7 +159,8 @@ export async function runDaemon(
   const inFlight = new Set<Promise<void>>();
   const watches = new Set<Promise<void>>();
   try {
-    if (!isDaemonRun(run) || hasRunEnded(run)) return "ended";
+    // spec D16: a run an earlier build started is finished with that build, never driven by this one
+    if (!isDaemonRun(run) || hasRunEnded(run) || isEarlierRun(run)) return "ended";
     const clock = o.clock ?? REAL_CLOCK;
     const effects = o.effects ?? realEffects(deps, run);
     let state: RunState = replay(readEvents(run), run.id);
@@ -187,8 +189,8 @@ export async function runDaemon(
         .finally(() => {
           inFlight.delete(p);
           watches.delete(p);
-          // Notices, stale reminders and empty merge checks leave no event to free their key.
-          if (a.type === "notify" || a.type === "remind" || a.type === "checkMerged") issued.delete(key);
+          // Notices and stale reminders leave no event to free their key.
+          if (a.type === "notify" || a.type === "remind") issued.delete(key);
         });
       inFlight.add(p);
       if (a.type === "watch") watches.add(p);
@@ -197,8 +199,7 @@ export async function runDaemon(
       state = reduce(state, e);
       for (const k of confirms(e))
         for (const [key, fk] of issued) if (key === k || fk === k) issued.delete(key);
-      // plan 47: an architect run's machine only runs what the architect asked for and wakes it
-      for (const a of (state.arch ? architectNext : next)(state, e)) issue(a);
+      for (const a of architectNext(state, e)) issue(a);
     };
     let beatAt = clock.now();
     while (!o.until?.()) {

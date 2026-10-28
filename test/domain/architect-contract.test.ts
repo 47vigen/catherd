@@ -17,15 +17,13 @@ const TOOLS = [
 ];
 
 describe("the architect loop's contract (plan 47, spec D1–D3 and the contract lines)", () => {
-  it("names every tool and the architect's contract lines, and keeps the 2.0 architect's for a 2.0 run", () => {
-    const loop = roleContract("architect", "2.0.0", "architect");
+  it("names every tool and the architect's contract lines; the 2.0 architect's contract is gone (plan 48)", () => {
+    const loop = roleContract("architect", "2.0.0");
     for (const t of TOOLS) expect(loop).toContain(t);
     expect(loop).toContain("Handoffs are context, not proof");
     expect(loop).toContain("SKIP <task> — <evidence>");
     expect(loop).toContain("your recommendation first");
     expect(loop).not.toContain("lanes/Mx.Ly.md");
-    expect(roleContract("architect", "2.0.0")).toContain("lanes/Mx.Ly.md");
-    expect(roleContract("architect", "2.0.0", "2.0")).toBe(roleContract("architect", "2.0.0"));
   });
 
   it("makes a run the permission to test for the worker and the verifier", () => {
@@ -33,7 +31,7 @@ describe("the architect loop's contract (plan 47, spec D1–D3 and the contract 
       expect(roleContract(role, "2.0.0")).toContain("This run is your permission to test");
   });
 
-  it("composes an architect run's brief with the loop's contract", () => {
+  it("composes the architect's brief with the loop's contract, and no other role's with its tools", () => {
     const parts = { facts: ["f"], unit: [], round: ["r"] };
     const c = {
       run: "r1",
@@ -43,7 +41,7 @@ describe("the architect loop's contract (plan 47, spec D1–D3 and the contract 
       resumed: false,
       lane: null,
     };
-    expect(composeBrief(parts, { ...c, engine: "architect" })).toContain("delegate_task");
-    expect(composeBrief(parts, c)).not.toContain("delegate_task");
+    expect(composeBrief(parts, c)).toContain("delegate_task");
+    expect(composeBrief(parts, { ...c, role: "reviewer" })).not.toContain("delegate_task");
   });
 });

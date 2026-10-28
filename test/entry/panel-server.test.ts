@@ -529,17 +529,6 @@ describe("the sign-in page", () => {
 // ---- panel v2: the operations and the socket frames ----
 
 const D1 = "d-20261023-100000-aaaaaa";
-const planReady: RunEventInput = {
-  type: "plan.ready",
-  milestones: [
-    {
-      id: "M1",
-      title: "m",
-      after: [],
-      lanes: [{ id: "M1.L1", role: "worker", kind: null, after: [], owns: ["src/a/**"] }],
-    },
-  ],
-};
 const dStarted: RunEventInput = {
   type: "dispatch.started",
   dispatchId: D1,
@@ -564,7 +553,6 @@ const dEnded: RunEventInput = {
   environment: null,
   verdict: null,
   findings: [],
-  foreign: [],
   replyPath: "reply.md",
 };
 const getJson = async <T = Record<string, any>>(cookie: string, path: string): Promise<T> =>
@@ -572,10 +560,9 @@ const getJson = async <T = Record<string, any>>(cookie: string, path: string): P
 const errorCode = async (r: Response): Promise<string> =>
   ((await r.json()) as { error: { code: string } }).error.code;
 
-/** A live run: planned, with one worker dispatch started (D1). */
+/** A live run with one worker dispatch started (D1). */
 async function liveRun(title: string): Promise<Run> {
   const run = findRun(await start(title));
-  await appendEvent(run, planReady);
   await appendEvent(run, dStarted);
   return run;
 }
@@ -614,8 +601,9 @@ describe("the panel's v2 operations", () => {
     const run = seedFixtureRun();
     const base = `/api/runs/${run.id}`;
     const model = RunModelSchema.parse(await getJson(cookie, `${base}/model`));
-    expect(model.nodes.map((n) => n.id)).toContain("M1/lane/M1.L1");
-    const worker = model.nodes.find((n) => n.id === "M1/lane/M1.L1")?.attempts.at(-1)?.dispatchId as string;
+    expect(model.nodes.map((n) => n.id)).toContain("task/worker-M1.L1");
+    const worker = model.nodes.find((n) => n.id === "task/worker-M1.L1")?.attempts.at(-1)
+      ?.dispatchId as string;
     const d = await getJson(cookie, `${base}/dispatches/${worker}`);
     expect([d.name, d.role, d.brief.length > 0]).toEqual(["worker-M1.L1", "worker", true]);
     // the fixture keeps no role stream: write the real codex one beside the dispatch
@@ -646,7 +634,7 @@ describe("the panel's v2 operations", () => {
     git("add", "-A");
     git("commit", "-q", "-m", "x");
     const sha = git("rev-parse", "HEAD").trim();
-    await appendEvent(live, { type: "commit.made", milestone: "M1", round: 0, commit: sha });
+    await appendEvent(live, { ...dEnded, head: sha } as RunEventInput);
     const diff = await getJson(cookie, `/api/runs/${live.id}/commits/${sha}/diff`);
     expect([diff.sha, diff.truncated, diff.text.includes("x.ts")]).toEqual([sha, false, true]);
   });
@@ -705,8 +693,8 @@ describe("the panel's v2 operations", () => {
   it("filters a run's timeline by event types", async () => {
     const cookie = await signIn();
     const run = await liveRun("wallet split");
-    const t = await getJson(cookie, `/api/runs/${run.id}/timeline?types=plan.ready,dispatch.started`);
-    expect(t.items.map((i: { type: string }) => i.type)).toEqual(["dispatch.started", "plan.ready"]);
+    const t = await getJson(cookie, `/api/runs/${run.id}/timeline?types=run.started,dispatch.started`);
+    expect(t.items.map((i: { type: string }) => i.type)).toEqual(["dispatch.started", "run.started"]);
     expect(t.total).toBe(2);
   });
 
@@ -727,7 +715,7 @@ describe("the panel's v2 operations", () => {
       type: "dispatch.ended",
       event: { dispatchId: D1 },
     });
-    expect(ev.patch.nodes.map((n: { id: string }) => n.id)).toContain("M1/lane/M1.L1");
+    expect(ev.patch.nodes.map((n: { id: string }) => n.id)).toContain("task/worker-M1.L1");
     expect(ev.patch.seq).toBe(e.seq);
 
     const dir = dispatchDir(run, D1);

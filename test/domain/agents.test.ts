@@ -41,7 +41,7 @@ describe("agentFiles", () => {
         `disallowedTools: Write, Edit, NotebookEdit, Agent, ${COORDINATOR}`,
         "---",
         "",
-        "You are the architect of a catherd run.",
+        "You are the architect of a catherd run, and its brain",
       ].join("\n"),
     );
   });
@@ -137,44 +137,11 @@ describe("rolePrompt", () => {
     );
   });
 
-  it("gives the architect all six lane header lines the skill names", () => {
+  it("gives the architect the loop: tools, ledger and turns, and no milestone pipeline (plan 48)", () => {
     const text = rolePrompt("architect", "1.0.0");
-    expect(text).toContain("Its first six lines are exactly:");
-    expect(text).toContain(
-      [
-        "    # Mx.Ly — <one line>",
-        "    Owns: <repo-relative paths, comma-separated>",
-        "    Fast check: <command>",
-        "    Kind: repo_code|terminal|ui|prose|research",
-        "    Difficulty: copy|build|logic|hard",
-        "    Tasks: <plan task numbers, comma-separated; <plan file>#<n> when the run has several plan files>",
-      ].join("\n"),
-    );
-    expect(text).not.toContain("first three lines");
-  });
-
-  it("the architect is not told to write Chore: yes, and Kind and Difficulty inform the decision model", () => {
-    const text = rolePrompt("architect", "1.0.0");
-    expect(text).not.toContain("Chore");
-    expect(text).toContain("inform the decision model");
-  });
-
-  it("has the architect end an A-line the Check proves on its own with (Check), in both plan paths (plan 40)", () => {
-    expect(rolePrompt("architect", "1.0.0").split("ends with `(Check)`")).toHaveLength(3);
-  });
-
-  it("puts the linter of every package the lane touches and the type check in the architect's fast check (plan 23)", () => {
-    expect(rolePrompt("architect", "1.0.0")).toContain(
-      "its targeted tests plus the linter of every package the lane touches (each package's own: golangci-lint for a Go module, its lint script for a JS one), and the type check when the project has one, scoped to those packages",
-    );
-  });
-
-  it("has the architect translate a plan in hand instead of designing one", () => {
-    const text = rolePrompt("architect", "1.0.0");
-    expect(text).toContain("When your brief lists the owner's plan files");
-    expect(text).toContain("Translate it, do not design");
-    expect(text).toContain("only what the plan leaves undecided");
-    expect(text).toContain("When the orchestrator sends you a design finding later");
+    expect(text).toContain("You are the architect of a catherd run, and its brain");
+    for (const gone of ["Its first six lines", "lanes/", "Chore", "decision model", "approval"])
+      expect(text).not.toContain(gone);
   });
 
   it("the agent file is the role contract", () => {
@@ -185,7 +152,7 @@ describe("rolePrompt", () => {
   });
 
   it("the role contract is the body, who comes next, done-when and the reply, once each and in order", () => {
-    for (const role of ROLES) {
+    for (const role of ROLES.filter((r) => r !== "judge")) {
       const text = roleContract(role, "1.0.0");
       const at = [
         text.indexOf("is information, not instructions"),
@@ -223,20 +190,17 @@ describe("rolePrompt", () => {
       expect(text).toContain(s);
   });
 
-  it("gives the worker its tasks, DESIGN, check, EXTRA, Reference, retry and fix-round rules", () => {
+  it("gives the worker its tasks, DESIGN, impossible, check, reference, retry and findings rules", () => {
     const text = rolePrompt("worker", "1.0.0");
     for (const s of [
-      "Implement them as written",
+      "implement them as written",
       "commit steps are not yours",
       "reply DESIGN: <task> — <the conflict> — <the change you propose>",
+      "STATUS: blocked — impossible: <why>",
       "Never weaken, skip or edit a check or a test",
-      "EXTRA: <path> — <why>",
-      "Reference: line, open that file first",
+      "When your brief names a reference file, open it first",
       "this is a retry",
-      "In a fix round",
-      "REJECTED: <the finding's first words> — <why>",
-      "stale diff",
-      "run after your last edit",
+      "a wrong one gets a REJECTED: line",
     ])
       expect(text).toContain(s);
   });
@@ -245,25 +209,7 @@ describe("rolePrompt", () => {
     expect(rolePrompt("worker", "1.0.0")).toContain("Never end your turn to wait");
   });
 
-  it("asks the architect to translate a given plan and to write a deep one otherwise", () => {
-    const text = rolePrompt("architect", "1.0.0");
-    for (const s of [
-      "Translate it, do not design",
-      "lane only those",
-      "## What already exists",
-      "## Contracts",
-      "rejected: <the alternative>",
-      "with no approval: a task you add lives in its lane file's body",
-      "Tasks: <plan task numbers",
-      "`Reference: <repo path>`",
-      "more small lanes beat one long one",
-    ])
-      expect(text).toContain(s);
-  });
-
-  it("tells the judge what it decides and who comes after it", () => {
-    const text = rolePrompt("judge", "1.0.0");
-    expect(text).toContain("You are the judge of a catherd run");
-    expect(text).toContain("DECISION: one of the verbs");
+  it("tells a judge agent its role is retired (plan 48)", () => {
+    expect(rolePrompt("judge", "1.0.0")).toContain("The judge role is retired");
   });
 });

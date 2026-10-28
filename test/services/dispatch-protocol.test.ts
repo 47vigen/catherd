@@ -29,12 +29,10 @@ function setup() {
 
 describe("the reply contract (spec 1.1 §6)", () => {
   it("ends every role's contract with the STATUS line", () => {
-    for (const role of ROLES.filter((r) => r !== "worker" && r !== "judge"))
+    for (const role of ROLES.filter((r) => r !== "worker"))
       expect(replyContract(role)).toContain(
         "The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>",
       );
-    // the judge opens with its DECISION line and has one status, complete
-    expect(replyContract("judge")).toContain("STATUS: complete — <one line why>");
     // plan 30b: every contract says how to stop, after its STATUS line
     for (const role of ROLES) {
       const c = replyContract(role);

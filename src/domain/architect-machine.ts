@@ -24,7 +24,7 @@ function wake(a: ArchState): DispatchAction {
     failoverFrom: null,
     brief: "wake",
     notes: a.fresh === null ? [] : [a.fresh],
-    decision: null,
+
     upTo: a.inbox.at(-1)?.seq ?? 0,
   };
 }
@@ -35,7 +35,7 @@ function wake(a: ArchState): DispatchAction {
  */
 export function architectNext(s: RunState, e: RunEvent): Action[] {
   const a = s.arch;
-  if (!a || s.phase === "ended") return [];
+  if (s.earlier || s.phase === "ended") return [];
   const live = liveDispatches(s);
   const out: Action[] = [
     ...(e.type === "daemon.started"
@@ -70,7 +70,7 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
   if (strays.length) out.push({ type: "cancel", dispatchIds: strays.map((d) => d.dispatchId) });
   for (const c of Object.values(a.checks))
     if (c.state === "queued") out.push({ type: "runCheck", checkId: c.checkId });
-  if (s.paused !== null) return out;
+  if (s.paused !== null || s.held !== null) return out;
   const running = Object.values(a.tasks).filter((t) => t.state === "working");
   let standing = running.filter((t) => isStanding(t.role)).length;
   let writers = running.length - standing;
@@ -90,7 +90,6 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
       failoverFrom: null,
       brief: "task",
       notes: [],
-      decision: null,
     });
   }
   // a turn that ended on a quota limit waits for the hold: recomputeWake ticks when it lapses

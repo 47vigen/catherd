@@ -6,7 +6,7 @@
  */
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { RunEventSchema, type RunEventInput } from "../src/domain/run-events.ts";
+import { EVENTS_SCHEMA, RunEventSchema, type RunEventInput } from "../src/domain/run-events.ts";
 import { defaultDeps } from "../src/entry/deps.ts";
 import { servePanel } from "../src/entry/panel/server.ts";
 import { daemonLauncher } from "../src/services/daemon.ts";
@@ -15,7 +15,7 @@ import { appendEvent, readEvents } from "../src/services/run-events-store.ts";
 import { dispatchDir } from "../src/services/run-files.ts";
 import { patchProfile } from "../src/services/profile-service.ts";
 import { activeName, profileFile } from "../src/services/profile-store.ts";
-import { findRun, runPaths } from "../src/services/run-store.ts";
+import { findRun } from "../src/services/run-store.ts";
 import { seedFixtureRun } from "./services/fixture-run.ts";
 import { tempRepo, withHome } from "./helpers.ts";
 
@@ -45,37 +45,11 @@ patchProfile(
 deps.routing.probe = async () => ({ ok: true, latencyMs: 1 });
 
 async function add(run: string, e: RunEventInput): Promise<void> {
-  RunEventSchema.parse({ v: 1, seq: 1, at: new Date().toISOString(), ...e });
-  // the architect writes plan.md before its plan is ready
-  if (e.type === "plan.ready")
-    writeFileSync(runPaths(findRun(run).dir).plan, "# Plan\n\nOne milestone, two lanes.\n");
+  RunEventSchema.parse({ v: EVENTS_SCHEMA, seq: 1, at: new Date().toISOString(), ...e });
   await appendEvent(findRun(run), e);
 }
 
 const a = await runStart(deps, { repo, title: "wallet split", aLines: ["A1 the wallet ids stay"] });
-await add(a.run, {
-  type: "plan.ready",
-  milestones: [
-    {
-      id: "M1",
-      title: "wallet split",
-      after: [],
-      lanes: [
-        { id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: ["src/wallet.ts"] },
-        { id: "M1.L2", role: "worker", kind: "repo_code", after: [], owns: ["src/ids.ts"] },
-      ],
-    },
-  ],
-});
-await add(a.run, { type: "plan.approved", by: "input" });
-await add(a.run, {
-  type: "lanes.routed",
-  milestone: "M1",
-  lanes: [
-    { lane: "M1.L1", rung: RUNG, ladder: [RUNG] },
-    { lane: "M1.L2", rung: RUNG, ladder: [RUNG] },
-  ],
-});
 await add(a.run, {
   type: "dispatch.started",
   dispatchId: "D0001",
@@ -98,31 +72,8 @@ await add(b.run, { type: "run.ended", outcome: "done", reportPath: null });
 
 const fixture = seedFixtureRun();
 
-// "live split": mid-way through its first lane, with a question parked on the second
+// "live split": one worker mid-way, with a question parked on another unit
 const live = await runStart(deps, { repo, title: "live split", aLines: ["A1 the split holds"] });
-await add(live.run, {
-  type: "plan.ready",
-  milestones: [
-    {
-      id: "M1",
-      title: "live split",
-      after: [],
-      lanes: [
-        { id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: ["src/split.ts"] },
-        { id: "M1.L2", role: "worker", kind: "repo_code", after: [], owns: ["src/merge.ts"] },
-      ],
-    },
-  ],
-});
-await add(live.run, { type: "plan.approved", by: "input" });
-await add(live.run, {
-  type: "lanes.routed",
-  milestone: "M1",
-  lanes: [
-    { lane: "M1.L1", rung: RUNG, ladder: [RUNG] },
-    { lane: "M1.L2", rung: RUNG, ladder: [RUNG] },
-  ],
-});
 await add(live.run, {
   type: "dispatch.started",
   dispatchId: "D0101",

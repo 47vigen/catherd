@@ -25,9 +25,6 @@ export function assertProfileName(name: string): string {
 
 export const NOTIFY = ["milestone", "finish", "blocked"] as const;
 
-/** Plan 47: which machine drives a new run, the 2.0 pipeline or the architect loop (spec D1–D4). */
-export const ENGINES = ["2.0", "architect"] as const;
-export type Engine = (typeof ENGINES)[number];
 export type NotifyMoment = (typeof NOTIFY)[number];
 
 /** The harnesses a profile can isolate (spec §7.1 `harness`); the native `claude` path has none. */
@@ -83,6 +80,7 @@ export const ProfileDocSchema = z.looseObject({
   notify: z.array(z.string()).optional(),
   // plan 35: unknown, so a hand edit never makes the file unreadable; resolveProfile reads what it can
   limits: z.unknown().optional(),
+  /** plan 47's engine switch: plan 48 makes the architect the only engine and reads this key as nothing */
   engine: z.string().optional(),
 });
 export type ProfileDoc = z.infer<typeof ProfileDocSchema>;
@@ -144,7 +142,6 @@ export function unknownValues(doc: ProfileDoc): UnknownValue[] {
   if (conf !== undefined && confidenceOf(conf) !== conf)
     out.push({ path: "decision.minConfidence", value: String(conf), readAs: String(DEFAULT_MIN_CONFIDENCE) });
   for (const n of doc.notify ?? []) check("notify", NOTIFY, n, "skipped");
-  check("engine", ENGINES, doc.engine, "2.0");
   for (const [k, v] of Object.entries(storedMemory(doc)))
     if (!(MEMORY_KEYS as readonly string[]).includes(k) || !positiveInt(v))
       out.push({ path: `limits.memory.${k}`, value: JSON.stringify(v), readAs: "the default" });
@@ -193,8 +190,6 @@ export interface Profile {
   notify: NotifyMoment[];
   /** plan 35: only the memory numbers the profile sets; the defaults are `MEMORY_LIMITS` */
   limits: { memory: Partial<Record<MemoryKey, number>> };
-  /** plan 47: the machine a new run starts on; "2.0" unless the profile says "architect" */
-  engine: Engine;
 }
 
 const LUNA_HIGH = "codex:gpt-6-luna#high";
@@ -370,7 +365,6 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
     land: { autoMerge: doc.land?.autoMerge ?? false },
     lock: { heavy: doc.lock?.heavy ?? "cpus/2" },
     notify: doc.notify === undefined ? [...NOTIFY] : doc.notify.filter((n) => known(NOTIFY, n)),
-    engine: known(ENGINES, doc.engine) ? doc.engine : "2.0",
     limits: {
       memory: Object.fromEntries(
         MEMORY_KEYS.flatMap((k) => {
@@ -436,7 +430,6 @@ export const ProfilePatchSchema = z.strictObject({
   land: z.strictObject({ autoMerge: z.boolean() }).optional(),
   lock: z.strictObject({ heavy: z.union([z.number().int().positive(), z.literal("cpus/2")]) }).optional(),
   notify: z.array(z.enum(NOTIFY)).optional(),
-  engine: z.enum(ENGINES).optional(),
   limits: z
     .strictObject({
       memory: z

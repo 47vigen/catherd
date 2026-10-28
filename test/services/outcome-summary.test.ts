@@ -42,20 +42,6 @@ const outcome = (o: Partial<OutcomeRow> = {}): OutcomeRow => ({
   envCaused: false,
   ...o,
 });
-const planned: RunEventInput = {
-  type: "plan.ready",
-  milestones: [
-    {
-      id: "M1",
-      title: "m",
-      after: [],
-      lanes: [
-        { id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: ["src/a/"] },
-        { id: "M1.L2", role: "worker", kind: "repo_code", after: [], owns: ["src/b/"] },
-      ],
-    },
-  ],
-};
 const started = (dispatchId: string, role: "worker" | "reviewer", lane: string | null): RunEventInput => ({
   type: "dispatch.started",
   dispatchId,
@@ -80,14 +66,12 @@ const reviewed = (findings: { label: "BLOCKER" | "BUG" | "NIT"; file: string | n
   environment: null,
   verdict: "fail",
   findings: findings.map((f) => ({ ...f, text: "x" })),
-  foreign: [],
   replyPath: "reply.md",
 });
 
 async function finishedRun(): Promise<Run> {
   const { run } = freshRun();
   await appendEvents(run, [
-    planned,
     started("W1", "worker", "M1.L1"),
     started("W2", "worker", "M1.L1"),
     started("R1", "reviewer", null),
@@ -113,14 +97,15 @@ describe("laneRecords", () => {
         landed: true,
         firstPass: false,
         rounds: 2,
-        findings: 1,
+        // plan 48: no plan of lanes pins a finding to a lane any more
+        findings: 0,
       },
     ]);
   });
 
   it("counts a landed lane with one dispatch as a first pass", async () => {
     const { run } = freshRun();
-    await appendEvents(run, [planned, started("W1", "worker", "M1.L1")]);
+    await appendEvents(run, [started("W1", "worker", "M1.L1")]);
     appendRoute(run, route());
     appendOutcome(run, outcome());
     expect(laneRecords(run)[0]).toMatchObject({ firstPass: true, rounds: 1, findings: 0 });
@@ -132,7 +117,7 @@ describe("laneRecords", () => {
     appendOutcome(run, outcome());
     rmSync(join(run.dir, "events.jsonl"), { force: true });
     expect(laneRecords(run)).toEqual([]);
-    await appendEvents(run, [planned, started("W1", "worker", "M1.L1")]);
+    await appendEvents(run, [started("W1", "worker", "M1.L1")]);
     expect(laneRecords(run)).toHaveLength(1);
   });
 
@@ -154,7 +139,7 @@ describe("outcomeStats", () => {
       effort: "high",
       lanes: 2,
       rounds: 4,
-      findings: 2,
+      findings: 0,
     });
   });
 });

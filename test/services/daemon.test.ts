@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "bun:test";
 import { chmodSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tryLock } from "../../src/infra/filelock.ts";
@@ -16,23 +15,16 @@ import {
 } from "../../src/services/daemon.ts";
 import { pauseMachine, resumeMachine } from "../../src/services/pause.ts";
 import { appendEvent, eventsFile, readEvents } from "../../src/services/run-events-store.ts";
-import type { MilestonePlan, RunEventInput } from "../../src/domain/run-events.ts";
-import type { Action } from "../../src/domain/run-machine.ts";
-import { appendCheckRecord, type CheckRecord } from "../../src/services/milestone-check.ts";
-import { type Effects, milestoneChecker, realEffects } from "../../src/services/run-effects.ts";
+import type { RunEventInput } from "../../src/domain/run-events.ts";
+import { realEffects } from "../../src/services/run-effects.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
-import { newId } from "../domain/run-fixtures.ts";
 import type { Deps } from "../../src/services/ports.ts";
 import { profileService } from "../../src/services/profile-service.ts";
 import { runProfile } from "../../src/services/run-pin.ts";
-import { createRun, type Run, runPaths } from "../../src/services/run-store.ts";
-import { fakeDeps, freshRun, waitFor, writeLane } from "./helpers.ts";
+import { createRun } from "../../src/services/run-store.ts";
+import { fakeDeps, freshRun, insertEarlier, waitFor } from "./helpers.ts";
 
 afterEach(snapshotEnv());
-const realCheck = milestoneChecker.run;
-afterEach(() => {
-  milestoneChecker.run = realCheck;
-});
 
 const started: RunEventInput = {
   type: "run.started",
@@ -41,7 +33,6 @@ const started: RunEventInput = {
   aLines: [],
   plan: [],
   base: null,
-  engine: "2.0",
 };
 
 /** a launcher that records the runs it was asked to start and starts nothing */
@@ -130,6 +121,15 @@ describe("runDaemon", () => {
     ]);
     expect(r.sort()).toEqual(["ended", "lost-lock"]);
     expect(readEvents(run).filter((e) => e.type === "daemon.started")).toHaveLength(1);
+  });
+
+  it("never drives a run an earlier build started: no daemon, no event (plan 48, spec D16)", async () => {
+    const { run } = freshRun();
+    // an earlier build wrote its events at version 1
+    insertEarlier(run);
+    expect(ensureDaemon(run)).toBe("earlier");
+    expect(await runDaemon(fakeDeps(), run.id, { until: () => true })).toBe("ended");
+    expect(readEvents(run).map((e) => e.type)).toEqual(["run.started"]);
   });
 
   it("returns at once for an ended run, appending nothing", async () => {
@@ -275,7 +275,7 @@ describe("runDaemon", () => {
         async run(_a, s) {
           chmodSync(eventsFile(run), 0o444);
           try {
-            await real.run({ type: "integrate", milestone: "M1" }, s);
+            await real.run({ type: "runCheck", checkId: "C9" }, s);
           } finally {
             chmodSync(eventsFile(run), 0o644);
           }
@@ -410,165 +410,5 @@ describe("daemonDeps", () => {
     const { deps } = daemonSide("codex");
     const run = createRun({ repo: tempRepo(), title: "t2", aLines: [], version: "0.0.0-test" });
     expect(daemonDeps(deps, run)).toBe(deps);
-  });
-});
-
-const headOf = (repo: string): string =>
-  execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
-
-/**
- * Every role ends ok and every step answers as the real one would. The machine check is not faked: the real effect
- * runs, against a check that passes.
- */
-function fakeSteps(run: Run, deps: Deps, clock: { now(): number }): Effects & { actions: Action[] } {
-  const real = realEffects(deps, run);
-  const add = (e: RunEventInput) => appendEvent(run, e, new Date(clock.now()));
-  const actions: Action[] = [];
-  return {
-    actions,
-    async run(a, s) {
-      actions.push(a);
-      switch (a.type) {
-        case "machineCheck":
-        case "decide":
-          return real.run(a, s);
-        case "readPlan":
-          return void (await add({ type: "plan.ready", milestones: CHECKED_PLAN }));
-        case "route":
-          await add({
-            type: "lanes.routed",
-            milestone: a.milestone,
-            lanes: [{ lane: "M1.L1", rung: "codex:gpt-6-sol#medium", ladder: ["codex:gpt-6-sol#medium"] }],
-          });
-          return void (await add({
-            type: "preflight.done",
-            milestone: a.milestone,
-            blocking: [],
-            confirm: null,
-            lint: [],
-          }));
-        case "dispatch": {
-          const dispatchId = newId();
-          await add({
-            type: "dispatch.started",
-            dispatchId,
-            name: a.name,
-            role: a.role,
-            unit: a.unit,
-            lane: a.lane,
-            rung: "codex:gpt-6-sol#medium",
-            thread: null,
-          });
-          return void (await add({
-            type: "dispatch.ended",
-            dispatchId,
-            name: a.name,
-            unit: a.unit,
-            status: "ok",
-            replyStatus: "complete",
-            reason: null,
-            why: "done",
-            thread: null,
-            head: null,
-            environment: null,
-            verdict: null,
-            findings: [],
-            foreign: [],
-            replyPath: "",
-          }));
-        }
-        case "fastCheck":
-          return void (await add({ type: "check.ran", lane: a.lane, exit: 0, tail: "", foreign: [] }));
-        case "commit":
-          return void (await add({
-            type: "commit.made",
-            milestone: a.milestone,
-            round: a.round,
-            commit: headOf(run.meta.repo),
-          }));
-        case "land":
-          return void (await add({
-            type: "milestone.landed",
-            milestone: a.milestone,
-            commit: headOf(run.meta.repo),
-            knownIssues: a.knownIssues,
-            digestPath: "",
-          }));
-        case "report":
-          return void (await add({ type: "report.posted", kind: a.kind, unit: a.unit, text: a.text }));
-        case "judge":
-          // the finished run's rules review proposes no change
-          return void (await add({
-            type: "judge.decided",
-            id: a.input.id,
-            unit: a.input.unit,
-            kind: a.input.kind,
-            decision: { verb: "rules", changes: [] },
-            dispatchId: newId(),
-          }));
-        case "finish":
-          return void (await add({ type: "run.ended", outcome: a.outcome, reportPath: null }));
-        default:
-          return;
-      }
-    },
-  };
-}
-
-const CHECKED_PLAN: MilestonePlan[] = [
-  {
-    id: "M1",
-    title: "the core",
-    after: [],
-    lanes: [{ id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: ["src/a/"] }],
-  },
-];
-
-describe("the daemon's machine check (plan 40 D1)", () => {
-  it("a check-only milestone lands with no verifier dispatch", async () => {
-    withHome();
-    const repo = tempRepo();
-    const run = createRun({ repo, title: "t", aLines: ["A1 it works (Check)"], version: "0.0.0-test" });
-    writeFileSync(runPaths(run.dir).plan, "# P\n## M1 — core\nCheck: true\n");
-    writeLane(run, "M1.L1", ["src/a/"]);
-    // the fake checker: green on the commit it is asked about, and the record a worker would write
-    milestoneChecker.run = async (i) => {
-      const record: CheckRecord = {
-        at: new Date().toISOString(),
-        run: run.id,
-        milestone: i.milestone,
-        command: i.command,
-        head: headOf(repo),
-        exit: 0,
-        durationMs: 1,
-        fails: [],
-        log: "",
-        secrets: "clean",
-      };
-      appendCheckRecord(repo, record);
-      return { running: false, cached: false, record, missing: [], audit: [] };
-    };
-    const clock = {
-      now: () => Date.parse("2026-10-21T10:00:00.000Z"),
-      sleep: () => new Promise<void>((r) => setImmediate(r)),
-    };
-    const deps = fakeDeps({ now: clock.now });
-    // the rules review at the run's end is decided like any role, so the profile names a judge
-    deps.view.roles.judge = { enabled: true, access: "read-only", rungs: ["codex:gpt-6-sol#high"] };
-    const fx = fakeSteps(run, deps, clock);
-    // the owner gave the plan: no approval waits between plan.ready and the first lane
-    await appendEvent(
-      run,
-      { ...started, aLines: ["A1 it works (Check)"], plan: ["plan.md"] },
-      new Date(clock.now()),
-    );
-    expect(await runDaemon(deps, run.id, { effects: fx, clock })).toBe("ended");
-    expect(fx.actions.filter((a) => a.type === "dispatch" && a.name === "verifier-M1")).toEqual([]);
-    expect(readEvents(run).findLast((e) => e.type === "milestone.checked")).toMatchObject({
-      milestone: "M1",
-      checkOnly: true,
-      uncovered: [],
-    });
-    expect(readEvents(run).map((e) => e.type)).toContain("milestone.landed");
   });
 });

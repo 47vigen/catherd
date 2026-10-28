@@ -2,9 +2,10 @@ import { statSync } from "node:fs";
 import { z } from "zod";
 import { errorMessage } from "../domain/errors.ts";
 import { tryParseRung } from "../domain/ids.ts";
-import { isDone, liveDispatches, replay } from "../domain/run-state.ts";
+import { liveDispatches, replay } from "../domain/run-state.ts";
 import { coveredMs } from "../domain/util.ts";
 import { log } from "../infra/log.ts";
+import { ledgerOf } from "./ledger-store.ts";
 import { landedMilestones } from "./milestones.ts";
 import { pauseSpans } from "./pause.ts";
 import type { Deps } from "./ports.ts";
@@ -126,8 +127,12 @@ function compute(deps: Deps, run: Run): RunCard {
             (endMs - Date.parse(startedAt) - coveredMs(Date.parse(startedAt), endMs, pauseSpans(run))) /
               60_000,
           ),
+    // plan 48: an architect run's milestones are its ledger tasks, landed when done
     milestones: state
-      ? { total: state.milestones.length, landed: state.milestones.filter(isDone).length }
+      ? {
+          total: ledgerOf(run, state).length,
+          landed: ledgerOf(run, state).filter((t) => t.state === "done").length,
+        }
       : { total: landedMilestones(run).length, landed: landedMilestones(run).length },
     live: state
       ? liveDispatches(state).map((d) => ({ name: d.name, role: d.role, rung: d.rung, unit: d.unit }))
@@ -143,7 +148,8 @@ function compute(deps: Deps, run: Run): RunCard {
       interventions: interventionsOf(run, endMs ?? deps.now(), 0).total,
       failovers: records.filter((r) => r.failoverFrom !== null).length,
       climbs: readRoutes(run).filter((r) => r.source === "climb").length,
-      rounds: state ? state.milestones.reduce((n, m) => n + m.counts.length, 0) : 0,
+      // shortcut: plan 51's rounds per task replace this count; an architect run has no review rounds yet
+      rounds: 0,
     },
     byBackend: [...backends].map(([backend, v]) => ({ backend, ...v })),
     byModel: [...models].map(([model, t]) => ({ model, tokens: t })),

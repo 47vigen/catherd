@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import type { RunEventInput } from "../../src/domain/run-events.ts";
@@ -8,11 +8,9 @@ import { answerUnit, cancelRun, profileTool, runResult, runStart } from "../../s
 import { openQuestions, park } from "../../src/services/questions.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import { findRun, listRuns, type Run } from "../../src/services/run-store.ts";
-import { approvalQuestion } from "../../src/domain/plan-doc.ts";
-import { PLAN, startedFields } from "../domain/run-fixtures.ts";
-import { commitInClone, repoWithOrigin, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
-import { git } from "../../src/infra/git.ts";
-import { fakeDeps, fakeDispatch, freshRun, PLAN_TEXT, testView } from "./helpers.ts";
+import { startedFields } from "../domain/run-fixtures.ts";
+import { repoWithOrigin, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
+import { fakeDeps, fakeDispatch, freshRun, PLAN_TEXT } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 const real = daemonLauncher.launch;
@@ -30,7 +28,6 @@ afterEach(() => {
 
 async function seed(run: Run, ...more: RunEventInput[]): Promise<void> {
   await appendEvent(run, { type: "run.started", ...startedFields });
-  await appendEvent(run, { type: "plan.ready", milestones: PLAN });
   for (const e of more) await appendEvent(run, e);
 }
 
@@ -52,7 +49,7 @@ describe("runStart", () => {
     const r = await runStart(deps, { repo, title: "wallet", aLines: ["A1 it works"] });
     const run = findRun(r.run);
     expect(readEvents(run)).toMatchObject([
-      { type: "run.started", title: "wallet", aLines: ["A1 it works"], plan: [], base: null, engine: "2.0" },
+      { type: "run.started", title: "wallet", aLines: ["A1 it works"], plan: [], base: null },
     ]);
     // the fake profile has no ui-reviewer: the run records it as off, and the reviewer as on
     const off = (readEvents(run)[0] as { rolesOff?: string[] }).rolesOff;
@@ -67,64 +64,27 @@ describe("runStart", () => {
     expect(r.next).toContain("https://ntfy.sh/catherd-test");
   });
 
-  it("run.started pins the profile's autoMerge", async () => {
-    withHome();
-    const repo = tempRepo();
-    const view = testView();
-    view.land = { autoMerge: true };
-    const r = await runStart(fakeDeps({ view }), { repo, title: "w", aLines: ["A1 x"] });
-    expect(readEvents(findRun(r.run))[0]).toMatchObject({ type: "run.started", autoMerge: true });
-    const off = await runStart(fakeDeps(), { repo, title: "w2", aLines: ["A1 x"] });
-    expect(readEvents(findRun(off.run))[0]).toMatchObject({ autoMerge: false });
-  });
-
-  it("starts an architect run when the profile says so: its plan files are input, not an approval (plan 47)", async () => {
+  it("starts an architect run by default: its plan files are input, not an approval (plan 48)", async () => {
     withHome();
     const repo = tempRepo();
     writeFileSync(join(repo, "PLAN.md"), PLAN_TEXT);
-    const r = await runStart(fakeDeps({ view: testView({ engine: "architect" }) }), {
+    const r = await runStart(fakeDeps(), {
       repo,
       title: "w",
       aLines: ["A1 x"],
       plan: ["PLAN.md"],
     });
     expect(readEvents(findRun(r.run)).map((e) => e.type)).toEqual(["run.started"]);
-    expect(readEvents(findRun(r.run))[0]).toMatchObject({
-      engine: "architect",
-      plan: [expect.stringMatching(/PLAN\.md$/)],
-    });
+    expect(readEvents(findRun(r.run))[0]).toMatchObject({ plan: [expect.stringMatching(/PLAN\.md$/)] });
+    expect(readEvents(findRun(r.run))[0]).not.toHaveProperty("engine");
     expect(r.next).toContain("architect drives the run");
   });
 
-  it("refuses a base on the architect engine, creating no run (plan 47)", async () => {
+  it("refuses a base, creating no run (landing returns in plan 50)", async () => {
     withHome();
     const { repo } = repoWithOrigin();
     const before = listRuns().runs.length;
-    const deps = fakeDeps({ view: testView({ engine: "architect" }) });
-    const e = await refusal(runStart(deps, { repo, title: "w", aLines: ["A1 x"], base: "main" }));
-    expect([e.code, listRuns().runs.length]).toEqual(["E_INPUT_INVALID", before]);
-  });
-
-  it("records base in meta and run.started, after fetching it", async () => {
-    withHome();
-    const { repo, origin } = repoWithOrigin();
-    commitInClone(origin, "x"); // origin main moves past the local copy
-    const r = await runStart(fakeDeps(), { repo, title: "w", aLines: ["A1 x"], base: "main" });
-    const run = findRun(r.run);
-    expect(run.meta.base).toBe("main");
-    expect(readEvents(run)[0]).toMatchObject({ type: "run.started", base: "main" });
-    const rev = async (dir: string, ref: string) => {
-      const o = await git(dir, ["rev-parse", ref]);
-      return o.kind === "ok" ? o.out.trim() : "";
-    };
-    expect(await rev(repo, "origin/main")).toBe(await rev(origin, "main"));
-  });
-
-  it("refuses a base origin does not have, creating no run", async () => {
-    withHome();
-    const { repo } = repoWithOrigin();
-    const before = listRuns().runs.length;
-    const e = await refusal(runStart(fakeDeps(), { repo, title: "w", aLines: ["A1 x"], base: "nope" }));
+    const e = await refusal(runStart(fakeDeps(), { repo, title: "w", aLines: ["A1 x"], base: "main" }));
     expect([e.code, listRuns().runs.length]).toEqual(["E_INPUT_INVALID", before]);
   });
 
@@ -151,7 +111,7 @@ describe("runStart", () => {
     expect(readEvents(run)[0]).toMatchObject({ type: "run.started", base: null });
   });
 
-  it("starts a run on its plan files: copies them, records them and approves them as input", async () => {
+  it("starts a run on its plan files: copies them and records them, approving nothing", async () => {
     withHome();
     const repo = tempRepo();
     const outside = join(tempDir("rc-out-"), "q.md");
@@ -166,12 +126,11 @@ describe("runStart", () => {
     });
     const run = findRun(r.run);
     expect(r.plan).toEqual([join(repo, "docs/p.md"), outside]);
-    expect(readEvents(run).map((e) => e.type)).toEqual(["run.started", "plan.approved"]);
+    expect(readEvents(run).map((e) => e.type)).toEqual(["run.started"]);
     expect(readEvents(run)[0]).toMatchObject({ plan: r.plan });
-    expect(readEvents(run)[1]).toMatchObject({ by: "input" });
     expect(readFileSync(join(run.dir, "plan-input/p.md"), "utf8")).toBe(PLAN_TEXT);
     expect(readFileSync(join(run.dir, "plan-input/q.md"), "utf8")).toBe(PLAN_TEXT);
-    expect(r.next).toStartWith("the run implements 2 plan files as written");
+    expect(r.next).toContain("the architect drives the run");
   });
 
   it("reads an A-line plan: as plan input too", async () => {
@@ -212,8 +171,7 @@ describe("runStart", () => {
     const r = await runStart(fakeDeps(), { repo, title: "t", aLines: ["A1 x"] });
     expect(r.plan).toEqual([]);
     expect(readEvents(findRun(r.run)).map((e) => e.type)).toEqual(["run.started"]);
-    expect(r.next).toContain("the architect writes a plan first");
-    expect(r.next).toContain("answer approve");
+    expect(r.next).toContain("the architect drives the run");
   });
 
   it("refuses a repo outside git, creating nothing", async () => {
@@ -268,55 +226,13 @@ describe("answerUnit", () => {
   });
 });
 
-describe("answerUnit and the plan approval", () => {
-  async function approvalRun(plan: string[] = []) {
-    const { run, repo } = freshRun();
-    await appendEvent(run, { type: "run.started", ...startedFields, repo, plan });
-    await appendEvent(run, { type: "plan.ready", milestones: PLAN });
-    await appendEvent(run, {
-      type: "question.parked",
-      unit: "run",
-      question: approvalQuestion(run.id),
-      reason: "approval",
-    });
-    writeFileSync(join(run.dir, "plan.md"), "# the architect's plan\n");
-    return { run, repo };
-  }
-
-  it("turns an approving answer into plan.approved, and any other into a change request", async () => {
-    const { run } = await approvalRun();
-    const before = readEvents(run).length;
-    expect(
-      (await answerUnit(fakeDeps(), { run: run.id, unit: "run", answer: "rename Ledger to Book" })).unit,
-    ).toBe("run");
-    expect(readEvents(run).slice(before)).toMatchObject([
-      { type: "question.answered", unit: "run", answer: "rename Ledger to Book", by: "owner" },
-    ]);
-    expect(existsSync(join(run.dir, "plan-approved.md"))).toBe(false);
-
-    const second = await approvalRun();
-    await answerUnit(fakeDeps(), { run: second.run.id, unit: "run", answer: "LGTM" });
-    const tail = readEvents(second.run).slice(-1);
-    expect(tail).toMatchObject([{ type: "plan.approved", by: "owner" }]);
-    expect(readEvents(second.run).some((e) => e.type === "question.answered")).toBe(false);
-    expect(readFileSync(join(second.run.dir, "plan-approved.md"), "utf8")).toBe("# the architect's plan\n");
-  });
-
-  it("does not approve an ordinary question of the run unit", async () => {
-    const { run } = freshRun();
-    await seed(run, { type: "question.parked", unit: "run", question: "q", reason: "effect" });
-    await answerUnit(fakeDeps(), { run: run.id, unit: "run", answer: "ok" });
-    expect(readEvents(run).at(-1)).toMatchObject({ type: "question.answered", unit: "run" });
-    expect(existsSync(join(run.dir, "plan-approved.md"))).toBe(false);
-  });
-
+describe("answerUnit and the plan input", () => {
   it("copies the plan files again on every answer", async () => {
     withHome();
     const repo = tempRepo();
     writeFileSync(join(repo, "p.md"), PLAN_TEXT);
     const r = await runStart(fakeDeps(), { repo, title: "t", aLines: ["A1 x"], plan: ["p.md"] });
     const run = findRun(r.run);
-    await appendEvent(run, { type: "plan.ready", milestones: PLAN });
     await appendEvent(run, { type: "question.parked", unit: "M1", question: "q", reason: "preflight" });
     writeFileSync(join(repo, "p.md"), `${PLAN_TEXT}fixed\n`);
     await answerUnit(fakeDeps(), { run: run.id, unit: "M1", answer: "fixed the plan" });
@@ -386,19 +302,9 @@ describe("a 1.5 run", () => {
 });
 
 describe("runResult", () => {
-  it("returns the report and the milestones, and with a name the role's record", async () => {
+  it("returns the report and the ledger's tasks, and with a name the role's record", async () => {
     const { run } = freshRun();
-    await seed(
-      run,
-      {
-        type: "milestone.landed",
-        milestone: "M1",
-        commit: "a".repeat(40),
-        knownIssues: ["a nit"],
-        digestPath: "/d/M1.md",
-      },
-      { type: "run.ended", outcome: "done", reportPath: null },
-    );
+    await seed(run, { type: "run.ended", outcome: "done", reportPath: null });
     expect(await runResult(fakeDeps(), { run: run.id })).toMatchObject({
       phase: "ended",
       outcome: "done",
@@ -420,16 +326,7 @@ describe("runResult", () => {
     expect(r).toMatchObject({
       reportPath: join(run.dir, "report.md"),
       report: "# wallet\n",
-      milestones: [
-        {
-          id: "M1",
-          status: "landed",
-          commit: "a".repeat(40),
-          digestPath: "/d/M1.md",
-          knownIssues: ["a nit"],
-        },
-        { id: "M2", status: "waiting", digestPath: null },
-      ],
+      milestones: [],
       role: { name: "worker-M1.L1", state: "finished", reply: "Done.\nSTATUS: complete — ok" },
     });
   });

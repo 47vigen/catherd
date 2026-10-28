@@ -106,7 +106,9 @@ export const taskAttempts = (a: ArchState): TaskAttempt[] =>
       outcome: t.outcome,
     }));
 
-const byArchitect = (by: string): boolean => by === "architect" || by.startsWith("architect-");
+/** The architect's own calls, and the owner's through `catherd call`: their results wake the architect. */
+const byArchitect = (by: string): boolean =>
+  by === "owner" || by === "architect" || by.startsWith("architect-");
 
 function push(a: ArchState, e: RunEvent, text: string, wakes = true, taskId?: string): void {
   a.inbox.push({ seq: e.seq, text, wakes, ...(taskId ? { taskId } : {}) });
@@ -135,12 +137,11 @@ function idleNow(s: RunState, a: ArchState): boolean {
 }
 
 /**
- * Folds `e` into an architect run's state; false leaves the event to the 2.0 reducer (pause, cancel, questions
- * parked and reminded, reports, ticks, the run's end), whose handling of them is the same here.
+ * Folds `e` into the architect's part of the state; false leaves the event to the rest of the reducer (the run's
+ * start, pause, cancel, questions parked and reminded, reports, ticks, the run's end).
  */
 export function applyArchitect(s: RunState, e: RunEvent): boolean {
   const a = s.arch;
-  if (!a) return false;
   switch (e.type) {
     case "daemon.started":
       if (a.thread !== null) a.fresh ??= "the daemon restarted";
@@ -179,6 +180,11 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
     case "dispatch.refused": {
       if (e.code === "E_RUN_CANCELLED") return true;
       const t = a.tasks[e.name];
+      // a machine pause is a wait, not a refusal: the task or the turn starts once `pause.lifted` clears it
+      if (e.code === "E_ADMIT_PAUSED") {
+        s.held ??= e.at;
+        return true;
+      }
       if (t) {
         t.state = "refused";
         push(

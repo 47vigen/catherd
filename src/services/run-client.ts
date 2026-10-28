@@ -2,30 +2,27 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
 import type { ProfilePatch } from "../domain/profile.ts";
-import { isApproval } from "../domain/plan-doc.ts";
 import { ROLES } from "../domain/roles.ts";
-import { RUN_UNIT } from "../domain/run-events.ts";
 import { liveDispatches } from "../domain/run-state.ts";
-import { fetchBase, git, gitToplevel } from "../infra/git.ts";
-import { writeTextAtomic } from "../infra/store.ts";
+import { gitToplevel } from "../infra/git.ts";
 import { ensureDaemon } from "./daemon.ts";
 import type { Deps } from "./ports.ts";
 import { copyPlanInputs, planInputPaths, resolvePlanInputs } from "./plan-input.ts";
+import { ledgerOf } from "./ledger-store.ts";
+import {
+  appendEvent,
+  isDaemonRun,
+  isEarlierRun,
+  readEvents,
+  replayRun,
+  withEventsLock,
+} from "./run-events-store.ts";
 import { answer, openQuestions } from "./questions.ts";
-import { appendEvent, isDaemonRun, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { runProfile } from "./run-pin.ts";
 import { findRun, type Run } from "./run-store.ts";
 import { result, startRun } from "./run-service.ts";
 
 /** What the session's tools, the panel and the CLI share: they only append events and read the run's state. */
-
-const readText = (file: string): string => {
-  try {
-    return readFileSync(file, "utf8");
-  } catch {
-    return "";
-  }
-};
 
 /** A 1.5 run has no daemon: this client neither answers nor cancels it. */
 function daemonRun(id: string): Run {
@@ -37,14 +34,24 @@ function daemonRun(id: string): Run {
   return run;
 }
 
-/** Fetches `origin/<base>` and refuses a base origin does not have (E_INPUT_INVALID); works from the last fetch offline. */
-async function assertBase(repo: string, base: string): Promise<void> {
-  await fetchBase(repo, base);
-  const r = await git(repo, ["rev-parse", "--verify", "--quiet", `origin/${base}^{commit}`]);
-  if (r.kind !== "ok")
-    throw new CatherdError("E_INPUT_INVALID", `origin/${base} does not exist in ${repo}`, {
-      fix: "pass a branch origin has, or omit base",
-    });
+/**
+ * Spec D16: a run an earlier build started is read here, never driven: an answer, a cancel or a pause would wake no
+ * daemon of this build. The owner finishes it with the build that started it.
+ */
+function drivenRun(id: string): Run {
+  const run = daemonRun(id);
+  if (isEarlierRun(run)) {
+    const v = readEvents(run).findLast((e) => e.type === "daemon.started");
+    const at = v?.type === "daemon.started" ? v.version : "<its version>";
+    throw new CatherdError(
+      "E_RUN_NOT_LIVE",
+      `run ${id} was started by catherd ${at}: this catherd does not drive it`,
+      {
+        fix: `finish it with npx catherd-cli@${at}`,
+      },
+    );
+  }
+  return run;
 }
 
 /**
@@ -67,14 +74,11 @@ export async function runStart(
   const top = await gitToplevel(i.repo);
   // a repo outside git is startRun's refusal
   const plan = top ? resolvePlanInputs(top, [...(i.plan ?? []), ...planInputPaths(i.aLines)]) : [];
-  const engine = top ? (deps.profiles.forRepo(top).engine ?? "2.0") : "2.0";
-  // plan 47: the architect loop works in the repository's checkout; a branch and its MR come with landing (plan 50)
-  if (engine === "architect" && i.base)
-    throw new CatherdError("E_INPUT_INVALID", "the architect engine does not take a base yet", {
-      fix: "start without base, or set the profile's engine to 2.0 for a branch run",
+  // plan 47: the architect works in the repository's checkout; a branch and its MR come with landing (plan 50)
+  if (i.base)
+    throw new CatherdError("E_INPUT_INVALID", "a run does not take a base yet", {
+      fix: "start without base: the run works in the repository's checkout",
     });
-  // a base run's branch must exist on origin before any run folder does
-  if (i.base && top) await assertBase(top, i.base);
   const started = await startRun(deps, { repo: i.repo, title: i.title, aLines: i.aLines, base: i.base });
   const run = findRun(started.run);
   copyPlanInputs(run, plan);
@@ -87,15 +91,11 @@ export async function runStart(
       aLines: i.aLines,
       plan,
       base: i.base ?? null,
-      engine,
-      autoMerge: runProfile(deps, run).land.autoMerge,
       rolesOff: ROLES.filter((r) => !runProfile(deps, run).roles[r]?.enabled),
     },
     new Date(deps.now()),
   );
   // the architect reads the owner's plan files as input it may edit; nothing approves them (spec D2)
-  if (plan.length && engine === "2.0")
-    await appendEvent(run, { type: "plan.approved", by: "input" }, new Date(deps.now()));
   const notifyUrl = deps.profiles.notifyUrl();
   let daemon: "revived" | "alive" | "failed";
   let warning: string | undefined;
@@ -112,12 +112,7 @@ export async function runStart(
     ...(warning === undefined ? {} : { warning }),
     notifyUrl,
     plan,
-    next:
-      engine === "architect"
-        ? `the architect drives the run from its ledger and asks you only what it must: status(run) shows it; questions reach ${notifyUrl} and this session`
-        : plan.length
-          ? `the run implements ${plan.length} plan file${plan.length === 1 ? "" : "s"} as written: status(run) shows it; parked questions reach ${notifyUrl} and this session`
-          : `the architect writes a plan first, and the run waits for your approval (answer approve): status(run) shows it; parked questions reach ${notifyUrl} and this session`,
+    next: `the architect drives the run from its ledger and asks you only what it must: status(run) shows it; questions reach ${notifyUrl} and this session`,
   };
 }
 
@@ -126,7 +121,7 @@ export async function answerUnit(
   deps: Deps,
   i: { run: string; unit: string; answer: string },
 ): Promise<{ unit: string; parked: string[] }> {
-  const run = daemonRun(i.run);
+  const run = drivenRun(i.run);
   // the check and the append are one step: two answers to one question never both get through
   await withEventsLock(run, async (add) => {
     const state = replayRun(run);
@@ -139,13 +134,7 @@ export async function answerUnit(
       });
     // the owner answers when they have fixed the plan: the roles read the copies, so copy again
     if (state.plan.length) copyPlanInputs(run, state.plan);
-    // a bare approving word approves the plan (the first approval or a re-approval): reduce closes the question
-    if (i.unit === RUN_UNIT && state.questions[RUN_UNIT]?.reason === "approval" && isApproval(i.answer)) {
-      writeTextAtomic(join(run.dir, "plan-approved.md"), readText(join(run.dir, "plan.md")));
-      add({ type: "plan.approved", by: "owner" }, new Date(deps.now()));
-      return;
-    }
-    // a milestone's park is in questions.jsonl too, which land's gate reads
+    // a milestone's park is in questions.jsonl too, which land's gate reads (both go in plan 50)
     if (openQuestions(run).some((q) => q.milestone === i.unit))
       await answer(deps, { run: run.id, milestone: i.unit, answer: i.answer });
     add({ type: "question.answered", unit: i.unit, answer: i.answer, by: "owner" }, new Date(deps.now()));
@@ -159,7 +148,7 @@ export async function cancelRun(
   deps: Deps,
   i: { run: string },
 ): Promise<{ cancelling: true; live: string[] }> {
-  const run = daemonRun(i.run);
+  const run = drivenRun(i.run);
   const s = replayRun(run);
   const live = liveDispatches(s).map((d) => d.name);
   if (!s.cancelling && s.phase !== "ended") {
@@ -185,14 +174,14 @@ async function setPaused(deps: Deps, run: Run, want: boolean): Promise<void> {
 
 /** Pauses the run: live roles finish, nothing new starts. Asking twice appends nothing. */
 export async function pauseRun(deps: Deps, i: { run: string }): Promise<{ paused: true; since: string }> {
-  const run = daemonRun(i.run);
+  const run = drivenRun(i.run);
   await setPaused(deps, run, true);
   return { paused: true, since: replayRun(run).paused as string };
 }
 
 /** Lifts the pause: the held dispatches start at once. Asking twice appends nothing. */
 export async function resumeRun(deps: Deps, i: { run: string }): Promise<{ paused: false }> {
-  await setPaused(deps, daemonRun(i.run), false);
+  await setPaused(deps, drivenRun(i.run), false);
   return { paused: false };
 }
 
@@ -216,11 +205,6 @@ export interface RunResult {
 export async function runResult(deps: Deps, i: { run: string; name?: string }): Promise<RunResult> {
   const run = daemonRun(i.run);
   const s = replayRun(run);
-  const digests = new Map(
-    readEvents(run).flatMap((e) =>
-      e.type === "milestone.landed" ? [[e.milestone, e.digestPath] as const] : [],
-    ),
-  );
   const file = join(run.dir, "report.md");
   const has = existsSync(file);
   return {
@@ -228,12 +212,13 @@ export async function runResult(deps: Deps, i: { run: string; name?: string }): 
     outcome: s.outcome,
     reportPath: has ? file : null,
     report: has ? readFileSync(file, "utf8") : null,
-    milestones: s.milestones.map((m) => ({
-      id: m.id,
-      status: m.status,
-      commit: m.commit,
-      digestPath: digests.get(m.id) ?? null,
-      knownIssues: m.knownIssues,
+    // plan 48: an architect run's milestones are its ledger tasks
+    milestones: ledgerOf(run, s).map((t) => ({
+      id: t.id,
+      status: t.state,
+      commit: null,
+      digestPath: null,
+      knownIssues: [],
     })),
     ...(i.name === undefined ? {} : { role: await result(deps, { run: run.id, name: i.name }) }),
   };

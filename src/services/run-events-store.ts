@@ -1,4 +1,3 @@
-import type { Engine } from "../domain/profile.ts";
 import { closeSync, existsSync, fstatSync, ftruncateSync, openSync, readFileSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError, UPGRADE } from "../domain/errors.ts";
@@ -35,8 +34,11 @@ const tooOld = (run: RunRef, v: unknown): CatherdError =>
     { fix: `upgrade catherd: ${UPGRADE}` },
   );
 
-/** One line as an event: a newer `v` is too old a catherd, anything else invalid is corrupt (null here). */
-function decode(run: RunRef, line: string): RunEvent | null {
+/**
+ * One line as an event: a newer `v` is too old a catherd, anything else invalid is corrupt (null here). Plan 48:
+ * an older `v` this build no longer reads (the 2.0 pipeline's events) is skipped (undefined); its row stays.
+ */
+function decode(run: RunRef, line: string): RunEvent | null | undefined {
   let raw: unknown;
   try {
     raw = JSON.parse(line);
@@ -46,7 +48,8 @@ function decode(run: RunRef, line: string): RunEvent | null {
   const v = (raw as { v?: unknown } | null)?.v;
   if (typeof v === "number" && v > EVENTS_SCHEMA) throw tooOld(run, v);
   const r = RunEventSchema.safeParse(raw);
-  return r.success ? r.data : null;
+  if (r.success) return r.data;
+  return typeof v === "number" && v < EVENTS_SCHEMA ? undefined : null;
 }
 
 /**
@@ -70,6 +73,7 @@ export function readEvents(run: RunRef, fromSeq = 1): RunEvent[] {
   for (const [i, line] of lines.entries()) {
     if (i + 1 < fromSeq || !line.trim()) continue;
     const e = decode(run, line);
+    if (e === undefined) continue;
     if (e === null) {
       if (i === lines.length - 1 && line === tail) {
         log("warn", "events", { run: run.id, torn: i + 1 });
@@ -91,6 +95,7 @@ function readRows(run: RunRef, fromSeq: number): RunEvent[] {
   const out: RunEvent[] = [];
   for (const r of rows) {
     const e = decode(run, r.body);
+    if (e === undefined) continue;
     if (e === null) throw corrupt(run, r.seq - 1, "a row is not an event");
     out.push(e);
   }
@@ -106,15 +111,18 @@ export function lastEventSeq(run: Run): number {
   return r.seq ?? 0;
 }
 
-/** Plan 47: the engine `run.started` named; an earlier build's run (on files) and a run not started yet are 2.0. */
-export function runEngine(run: Run): Engine {
-  if (onFile(run)) return "2.0";
+/**
+ * Plan 48, spec D16: a run an earlier build started (on files, or `run.started` below this build's events schema).
+ * This build reads it for status, result and the panel, and never drives it.
+ */
+export function isEarlierRun(run: Run): boolean {
+  if (onFile(run)) return true;
   const r = db()
     .query(
-      "SELECT json_extract(body, '$.engine') AS engine FROM events WHERE run_id = ? AND type = 'run.started' LIMIT 1",
+      "SELECT json_extract(body, '$.v') AS v FROM events WHERE run_id = ? AND type = 'run.started' LIMIT 1",
     )
-    .get(run.id) as { engine: string | null } | null;
-  return r?.engine === "architect" ? "architect" : "2.0";
+    .get(run.id) as { v: number | null } | null;
+  return r !== null && (r.v ?? 1) < EVENTS_SCHEMA;
 }
 
 /** Whether the run's events say it ended (`run.ended`). */
@@ -165,8 +173,9 @@ function lastSeq(run: Run, repair = false): number {
       const line = tail && decode(run, tail) !== null ? tail : body.slice(body.lastIndexOf("\n") + 1);
       if (!line) return 0;
       const last = decode(run, line);
-      if (!last) throw corrupt(run, 0, "its last line is not an event");
-      return last.seq;
+      if (last === null) throw corrupt(run, 0, "its last line is not an event");
+      // an earlier build's event this build skips still holds its seq
+      return last?.seq ?? (JSON.parse(line) as { seq: number }).seq;
     }
   } finally {
     closeSync(fd);

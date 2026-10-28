@@ -21,7 +21,7 @@ import { budgetOf } from "./budget.ts";
 import { cancel } from "./dispatch-service.ts";
 import { ledgerTasks, renderLedger, writeLedger } from "./ledger-store.ts";
 import type { Deps } from "./ports.ts";
-import { replayRun, runEngine, withEventsLock } from "./run-events-store.ts";
+import { isEarlierRun, replayRun, withEventsLock } from "./run-events-store.ts";
 import { runProfile } from "./run-pin.ts";
 import { readRecords, type Run } from "./run-store.ts";
 import { MESSAGE_KINDS, teamRead, teamSend } from "./team.ts";
@@ -443,12 +443,12 @@ export async function callArchitectTool(
   tool: ArchitectTool,
   args: unknown,
 ): Promise<unknown> {
-  if (runEngine(c.run) !== "architect")
+  if (isEarlierRun(c.run))
     throw new CatherdError(
       "E_ROLE_SCOPE",
-      `run ${c.run.id} is not on the architect engine: ${tool} is not here`,
+      `run ${c.run.id} was started by an earlier catherd: ${tool} is not here`,
       {
-        fix: "set the profile's engine to architect for the next run",
+        fix: "finish it with the catherd that started it",
       },
     );
   if (c.caller.name !== "owner" && !architectToolsFor(c.caller.role).includes(tool))

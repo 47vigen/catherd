@@ -1,4 +1,3 @@
-import type { Engine } from "../domain/profile.ts";
 import type { NoRungCause } from "../domain/select.ts";
 import type { HostContext } from "../domain/host.ts";
 import type { Budget } from "../domain/budget.ts";
@@ -48,8 +47,6 @@ export interface ProfileView {
   notify: string[];
   /** plan 35: the memory numbers that cap milestones side by side, defaults filled */
   limits: { memory: { reserveMb: number; perMilestoneMb: number; floorMb: number } };
-  /** plan 47: the machine a new run starts on; absent reads as "2.0" */
-  engine?: Engine;
 }
 
 /** What a profile write returns (spec §7.3): whether it saved, why not, what changed, and the agents it touched. */

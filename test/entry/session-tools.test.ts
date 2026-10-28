@@ -5,7 +5,7 @@ import { COORDINATOR_TOOLS } from "../../src/domain/role-scope.ts";
 import { daemonLauncher } from "../../src/services/daemon.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import { findRun } from "../../src/services/run-store.ts";
-import { PLAN, startedFields } from "../domain/run-fixtures.ts";
+import { startedFields } from "../domain/run-fixtures.ts";
 import { repoWithOrigin, snapshotEnv, spawnEnv, tempRepo, withHome } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
 import { fakeDeps, freshRun, PLAN_TEXT, waitFor } from "../services/helpers.ts";
@@ -43,21 +43,15 @@ describe("the session tools", () => {
     const started = await call(c, "run_start", { repo, title: "wallet", a_lines: ["A1 x"], plan: ["p.md"] });
     expect(started.isError).toBe(false);
     expect(started.data.plan).toEqual([join(repo, "p.md")]);
-    expect(readEvents(findRun(started.data.run)).map((e) => e.type)).toEqual([
-      "run.started",
-      "plan.approved",
-    ]);
+    expect(readEvents(findRun(started.data.run)).map((e) => e.type)).toEqual(["run.started"]);
   });
 
-  it("passes run_start's base, and refuses a remote ref as base", async () => {
+  it("refuses run_start's base until landing comes back (plan 50)", async () => {
     withHome();
     const { repo } = repoWithOrigin();
     const c = await mcpClient(fakeDeps());
     const started = await call(c, "run_start", { repo, title: "wallet", a_lines: ["A1 x"], base: "main" });
-    expect(started.isError).toBe(false);
-    expect(findRun(started.data.run).meta.base).toBe("main");
-    const bad = await call(c, "run_start", { repo, title: "wallet", a_lines: ["A1 x"], base: "origin/main" });
-    expect(bad.isError).toBe(true);
+    expect(started.error?.code).toBe("E_INPUT_INVALID");
   });
 
   it("starts, shows, answers, cancels and reads a run through the client", async () => {
@@ -70,8 +64,6 @@ describe("the session tools", () => {
     expect(launched).toEqual([run.id]);
     expect(started.data).toMatchObject({ daemon: "revived", notifyUrl: "https://ntfy.sh/catherd-test" });
     // the daemon is the fake: the test plays its part, parking a lane
-    await appendEvent(run, { type: "plan.ready", milestones: PLAN });
-    await appendEvent(run, { type: "plan.approved", by: "owner" });
     await appendEvent(run, {
       type: "question.parked",
       unit: "M1.L2",
@@ -81,7 +73,6 @@ describe("the session tools", () => {
     const shown = await call(c, "status", { run: run.id });
     expect(shown.data.runs[0]).toMatchObject({
       id: run.id,
-      engine: "2.0",
       phase: "running",
       parked: [
         { unit: "M1.L2", question: "which currency?", command: `catherd answer ${run.id} M1.L2 "<answer>"` },

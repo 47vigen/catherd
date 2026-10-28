@@ -45,16 +45,13 @@ test("the graph advances live", async ({ page }) => {
     environment: null,
     verdict: null,
     findings: [],
-    foreign: [],
     replyPath: "roles/worker-M1.L1/D0101/reply.md",
   });
   await expect(lane).toHaveAccessibleName(/^M1\.L1 worker\. Done/);
-  await appendEvent(live.events, { type: "check.ran", lane: "M1.L1", exit: 0, tail: "1 pass", foreign: [] });
-  await expect(page.getByRole("button", { name: /^M1\.L1 fast check\. Done/ })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test("the fixture run's drawer shows prompt, output and checks", async ({ page }) => {
+test("the fixture run's drawer shows prompt and output (an earlier build's run, spec D16)", async ({ page }) => {
   const errors = consoleErrors(page);
   await signIn(page);
   await page.goto(`/runs/${state().fixture.id}`);
@@ -67,11 +64,5 @@ test("the fixture run's drawer shows prompt, output and checks", async ({ page }
   await expect(outline.getByRole("button", { name: /^Context, \d+ words$/ })).toBeVisible();
   await drawer.getByRole("tab", { name: "Output" }).click();
   await expect(drawer).toContainText("STATUS: complete");
-  await page.keyboard.press("Escape");
-  await expect(drawer).toBeHidden();
-
-  await page.getByRole("button", { name: /^M1\.L1 fast check\. Done/ }).click();
-  await drawer.getByRole("tab", { name: "Checks" }).click();
-  await expect(drawer).toContainText("5 pass");
   expect(errors).toEqual([]);
 });

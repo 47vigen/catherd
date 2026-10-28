@@ -3,15 +3,22 @@ import {
   applyLedgerPatch,
   type LedgerPatch,
   type LedgerTask,
+  type LedgerView,
   ledgerView,
   renderProgress,
   type TaskAttempt,
 } from "../domain/ledger.ts";
+import { taskAttempts } from "../domain/architect-state.ts";
+import type { RunState } from "../domain/run-state.ts";
 import { db, ensureRunRow } from "../infra/db.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import type { Run } from "./run-store.ts";
 
 /** Spec D2: the ledger's rows, rendered read-only into the run folder after each change. */
+/** Plan 48: the ledger as the panel shows it, with the state its tasks' dispatches derive (plan 47 R19). */
+export const ledgerOf = (run: Run, s: RunState): LedgerView[] =>
+  ledgerView(ledgerTasks(run), taskAttempts(s.arch));
+
 export const LEDGER_DIR = "ledger";
 
 /** The run's ledger tasks, in the order the architect added them. */

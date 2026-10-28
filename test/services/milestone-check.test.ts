@@ -24,15 +24,7 @@ import { daemonLauncher } from "../../src/services/daemon.ts";
 import { answerUnit } from "../../src/services/run-client.ts";
 import { appendEvent, appendEvents } from "../../src/services/run-events-store.ts";
 import { openQuestions, park } from "../../src/services/questions.ts";
-import {
-  endDispatch,
-  finishLane,
-  type Log,
-  PLAN,
-  runningLog,
-  startDispatch,
-  startedFields,
-} from "../domain/run-fixtures.ts";
+import { endDispatch, type Log, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { fakeDeps, passGate, writeLane } from "./helpers.ts";
 import { gateCheck, gatePass, recordedItems } from "../../src/services/gate-service.ts";
 import { land } from "../../src/services/lane-service.ts";
@@ -89,27 +81,10 @@ const rec = (over: Partial<CheckRecord> = {}): CheckRecord => ({
   ...over,
 });
 
-/** The daemon's events for M1 verified on `head`: its lanes done and reviewed, checked green, and a verifier's PASS. */
+/** A run whose verifier passed M1 on `head`. */
 function verifiedLog(head: string): Log {
-  const log = runningLog();
-  finishLane(log, "M1.L1");
-  finishLane(log, "M1.L2");
-  log.add("commit.made", { milestone: "M1", round: 0, commit: head });
-  const reviewer = startDispatch(log, { name: "reviewer-M1", role: "reviewer", unit: "M1", lane: null });
-  endDispatch(log, reviewer, { name: "reviewer-M1", unit: "M1", findings: [] });
-  log.add("milestone.checked", {
-    milestone: "M1",
-    head,
-    command: "true",
-    missing: [],
-    findings: [],
-    uncovered: ["A1"],
-    checkOnly: false,
-    verdictCarried: false,
-    startedAt: "2026-10-21T10:00:00.000Z",
-    durationMs: 1,
-    waitedMs: 0,
-  });
+  const log = makeLog();
+  log.add("run.started", startedFields);
   const verifier = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
   endDispatch(log, verifier, { name: "verifier-M1", unit: "M1", verdict: "pass", head });
   return log;
@@ -118,26 +93,18 @@ function verifiedLog(head: string): Log {
 describe("execMilestoneCheck", () => {
   it("records the exit code and failing lines against HEAD, with its log", async () => {
     const r = await execMilestoneCheck(job({ command: "printf 'FAIL a.test > x [3ms]\\n'; exit 1" }));
-    expect(r).toMatchObject({ exit: 1, fails: ["FAIL a.test > x"], head: HEAD_REAL, rerunOf: 1 });
+    expect(r).toMatchObject({ exit: 1, fails: ["FAIL a.test > x"], head: HEAD_REAL });
+    expect(r.rerunOf).toBeUndefined();
     expect(readFileSync(r.log, "utf8")).toContain("FAIL a.test > x");
     expect(readChecks(repo).at(-1)).toEqual(r);
   });
 
-  it("reruns a failure with new lines once, recording the first exit", async () => {
+  it("never reruns a red check blind (plan 48, spec D6)", async () => {
     const flag = join(tempDir("c-"), "once");
     const r = await execMilestoneCheck(
       job({ command: `test -f ${flag} || { touch ${flag}; echo 'FAIL flaky'; exit 1; }` }),
     );
-    expect(r).toMatchObject({ exit: 0, rerunOf: 1, fails: [] });
-  });
-
-  it("does not rerun a failure the base already has", async () => {
-    const command = "echo 'FAIL a.test > x'; exit 1";
-    appendCheckRecord(
-      repo,
-      rec({ command, baseline: true, head: BASE, fails: ["FAIL a.test > x"], exit: 1 }),
-    );
-    const r = await execMilestoneCheck(job({ command, base: BASE }));
+    expect(r).toMatchObject({ exit: 1, fails: ["FAIL flaky"] });
     expect(r.rerunOf).toBeUndefined();
   });
 
@@ -367,7 +334,6 @@ describe("machineGate", () => {
     const refused = await machineGate(run, "M1", HEAD);
     expect(refused.missing.join("\n")).toContain("pre-existing");
     await appendEvent(run, { type: "run.started", ...startedFields });
-    await appendEvent(run, { type: "plan.ready", milestones: PLAN });
     const question = `land M1: the machine gate on ${HEAD.slice(0, 12)}: ${refused.missing.join("; ")}`;
     await park(deps, { run: run.id, milestone: "M1", question });
     await appendEvent(
@@ -426,7 +392,6 @@ describe("machineGate", () => {
       const refused = await machineGate(run, "M1", HEAD);
       expect(refused.missing.join("\n")).toContain("pre-existing");
       await appendEvent(run, { type: "run.started", ...startedFields });
-      await appendEvent(run, { type: "plan.ready", milestones: PLAN });
       const question = `land M1: the machine gate on ${HEAD.slice(0, 12)}: ${refused.missing.join("; ")}`;
       await park(deps, { run: run.id, milestone: "M1", question });
       await appendEvent(
@@ -526,76 +491,6 @@ describe("machineGate", () => {
       evidence: "passed",
     });
     await expect(land(deps, input)).resolves.toHaveProperty("ledger");
-  });
-
-  it("an owner accept on a check-red blocker lands that commit, and only that commit", async () => {
-    const deps = fakeDeps();
-    daemonLauncher.launch = () => 1;
-    const base = HEAD_REAL;
-    run = createRun({
-      repo,
-      title: "blocker accept",
-      aLines: ["A1"],
-      version: "0.0.0-test",
-      startHead: base,
-    });
-    writeFileSync(join(repo, "tracked.txt"), "work");
-    git(repo, "add", "tracked.txt");
-    git(repo, "commit", "-q", "-m", "work");
-    const head = git(repo, "rev-parse", "HEAD");
-    await passGate(run, "M1", undefined, head);
-    const command = "(echo 'FAIL x'; exit 1)";
-    appendCheckRecord(repo, rec({ command, head: base, baseline: true }));
-    appendCheckRecord(repo, rec({ command, head, exit: 1, fails: ["FAIL x"] }));
-    const owned = (text: string) => ({
-      label: "BLOCKER" as const,
-      text: `BLOCKER src/a/x.ts:1 — ${text}`,
-      file: "src/a/x.ts",
-    });
-    const review = (findings: ReturnType<typeof owned>[]) => {
-      const id = startDispatch(log, { name: "reviewer-M1", role: "reviewer", unit: "M1", lane: null });
-      endDispatch(log, id, { name: "reviewer-M1", unit: "M1", findings });
-    };
-    const log = runningLog();
-    finishLane(log, "M1.L1");
-    finishLane(log, "M1.L2");
-    log.add("commit.made", { milestone: "M1", round: 0, commit: "c".repeat(40) });
-    review([owned("first"), owned("second")]);
-    finishLane(log, "M1.L1");
-    log.add("commit.made", { milestone: "M1", round: 1, commit: head });
-    review([]);
-    log.add("milestone.checked", {
-      milestone: "M1",
-      head,
-      command,
-      missing: [],
-      findings: [owned("third")],
-      uncovered: ["A1"],
-      checkOnly: false,
-      verdictCarried: false,
-      startedAt: "2026-10-21T10:00:00.000Z",
-      durationMs: 1,
-      waitedMs: 0,
-    });
-    log.add("question.parked", { unit: "M1", question: "third", reason: "blocker" });
-    log.add("question.answered", { unit: "M1", answer: "accept", by: "owner" });
-    const verifier = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
-    endDispatch(log, verifier, { name: "verifier-M1", unit: "M1", verdict: "pass", head });
-    await appendEvents(run, log.events);
-    expect((await machineGate(run, "M1", head)).missing).toEqual([]);
-    await expect(
-      land(deps, {
-        run: run.id,
-        milestone: "M1",
-        what: "work",
-        commit: head,
-        evidence: "verified",
-        next: "M2",
-      }),
-    ).resolves.toHaveProperty("ledger");
-    const other = "d".repeat(40);
-    appendCheckRecord(repo, rec({ command, head: other, exit: 1, fails: ["FAIL x"] }));
-    expect((await machineGate(run, "M1", other)).missing.join("\n")).toContain("exits 1");
   });
 
   it("binds accept to the full record that caused refusal before an intervening rerun", async () => {
