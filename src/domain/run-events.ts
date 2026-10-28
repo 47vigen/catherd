@@ -60,6 +60,8 @@ export const ACTION_TYPES = [
   "finish",
   /** plan 47: a check the architect asked for */
   "runCheck",
+  /** plan 50: a land the architect asked for (spec D11) */
+  "land",
 ] as const;
 export type ActionType = (typeof ACTION_TYPES)[number];
 
@@ -201,6 +203,19 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     minutes: z.number(),
     logPath: z.string(),
   }),
+  /** plan 50, spec D11: the architect's land, and what it did: pushed (and asked when final) or refused */
+  ev("land.requested", { landId: z.string(), final: z.boolean(), by: z.string(), why: z.string() }),
+  /** the intent, appended before the push: a daemon that dies after the push still knows the branch is its own */
+  ev("land.started", { landId: z.string(), branch: z.string(), sha: z.string() }),
+  ev("land.done", {
+    landId: z.string(),
+    final: z.boolean(),
+    outcome: z.enum(["pushed", "refused"]),
+    branch: z.string(),
+    sha: z.string().nullable(),
+    mr: z.string().nullable(),
+    message: z.string(),
+  }),
   ev("ledger.changed", { tasks: strings, progress: z.boolean(), by: z.string(), why: z.string() }),
   ev("thread.sent", {
     to: z.string(),
@@ -277,6 +292,12 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
       return `${e.by} asked for check ${e.checkId} (${e.scope}${e.base ? ", base" : ""}): ${one(e.why)}`;
     case "check.done":
       return `check ${e.checkId} ${e.exit === 0 ? "passed" : `failed (exit ${e.exit ?? "timeout"})`}${e.cached ? " (cached)" : ""}`;
+    case "land.requested":
+      return `${e.by} asked to land${e.final ? " (final)" : ""} ${e.landId}: ${one(e.why)}`;
+    case "land.started":
+      return `land ${e.landId} is pushing ${e.branch} at ${e.sha.slice(0, 12)}`;
+    case "land.done":
+      return `land ${e.landId} ${e.outcome}: ${one(e.message)}`;
     case "ledger.changed":
       return `${e.by} changed the ledger${e.tasks.length ? ` (${e.tasks.join(", ")})` : ""}: ${one(e.why)}`;
     case "thread.sent":

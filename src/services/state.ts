@@ -8,7 +8,6 @@ import { withFileLock } from "../infra/filelock.ts";
 import { gitHead, statusSnapshot } from "../infra/git.ts";
 import { readVersioned, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import { liveDispatches } from "./dispatches.ts";
-import { protocolNext } from "./protocol.ts";
 import { type Run, runPaths } from "./run-store.ts";
 
 /** state.json: the orchestrator's notes that state.md shows beside the live facts. */
@@ -72,7 +71,6 @@ export function updateState(run: Run, change: NotesPatch | ((n: Notes) => NotesP
       lastCheck: next.lastCheck,
       pinChanges: next.pinChanges ?? [],
       next: next.next,
-      protocol: await protocolNext(run, next.parked ?? []),
     });
     writeTextAtomic(p.state, text);
     return text;

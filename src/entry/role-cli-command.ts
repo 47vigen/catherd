@@ -1,10 +1,6 @@
 import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
-import { ID_PATTERN } from "../domain/ids.ts";
 import { roleScopeFromEnv } from "../domain/role-scope.ts";
-import { gateCheckOrList, gatePass } from "../services/gate-service.ts";
-import { DISPATCH_ID_ENV, activityReporter } from "../infra/lock-activity.ts";
-import { runMilestoneCheck } from "../services/milestone-check.ts";
 import { assertRoleMay } from "../services/role-access.ts";
 import { readRunFile, writeRunFile } from "../services/run-service.ts";
 import { teamRead, teamSend } from "../services/team.ts";
@@ -21,7 +17,8 @@ import { defaultDeps } from "./deps.ts";
  * whose harness has no role server (opencode) or when no MCP tool is listed. In a role
  * (CATHERD_ROLE, or its scratch TMPDIR) they are bound to its own run and its role's operations.
  */
-const scope = () => roleScopeFromEnv(process.env);
+// scratch: a role that unsets CATHERD_ROLE still has its scratch TMPDIR, and must not pass for the owner
+const scope = () => roleScopeFromEnv(process.env, { scratch: true });
 
 const RUN_PATH = {
   run: { type: "positional", required: true, description: "the run id" },
@@ -51,126 +48,6 @@ const write = defineCommand({
 export const runFileCommand = defineCommand({
   meta: { name: "run-file", description: "Read or write a run's plan, lanes, dossier and notes" },
   subCommands: { read, write },
-});
-
-const GATE = {
-  run: { type: "positional", required: true, description: "the run id" },
-  item: { type: "string", required: true, description: "the gate item's name" },
-  command: { type: "string", required: true, description: "the command that checks it" },
-  paths: { type: "string", required: true, description: "the repo paths it depends on, comma-separated" },
-} as const;
-
-const pathsOf = (s: string): string[] => {
-  const paths = s
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
-  if (!paths.length)
-    throw new CatherdError("E_INPUT_INVALID", "--paths names no path", {
-      fix: "pass --paths src,package.json",
-    });
-  return paths;
-};
-
-const check = defineCommand({
-  meta: { name: "check", description: "Whether a gate item passed on unchanged content (gate_check)" },
-  // plan 23: with only the run and --milestone, it lists the milestone's recorded items (as gate_check does)
-  args: {
-    run: GATE.run,
-    item: { ...GATE.item, required: false },
-    command: { ...GATE.command, required: false },
-    paths: { ...GATE.paths, required: false },
-    milestone: { type: "string", description: "the milestone you verify, like M1" },
-  },
-  async run({ args }) {
-    assertRoleMay(scope(), args.run, "gate_check");
-    if (args.milestone !== undefined && !ID_PATTERN.test(args.milestone))
-      throw new CatherdError("E_INPUT_INVALID", `bad milestone "${args.milestone}"`, {
-        fix: "pass --milestone M1",
-      });
-    printJson(
-      await gateCheckOrList(defaultDeps(), {
-        run: args.run,
-        item: args.item,
-        command: args.command,
-        paths: args.paths === undefined ? undefined : pathsOf(args.paths),
-        ...(args.milestone ? { milestone: args.milestone } : {}),
-      }),
-    );
-  },
-});
-
-const pass = defineCommand({
-  meta: { name: "pass", description: "Record a passed gate item with its evidence (gate_pass)" },
-  args: {
-    ...GATE,
-    evidence: { type: "string", required: true, description: "what showed it passed" },
-    milestone: { type: "string", description: "the milestone you verify, like M1" },
-  },
-  async run({ args }) {
-    if (!args.milestone || !ID_PATTERN.test(args.milestone))
-      throw new CatherdError("E_INPUT_INVALID", "gate pass needs a milestone", {
-        fix: "call gate_check for this item, then pass --milestone M1",
-      });
-    assertRoleMay(scope(), args.run, "gate_pass");
-    printJson(
-      await gatePass(defaultDeps(), {
-        run: args.run,
-        item: args.item,
-        command: args.command,
-        paths: pathsOf(args.paths),
-        evidence: args.evidence,
-        milestone: args.milestone,
-      }),
-    );
-  },
-});
-
-const runCheck = defineCommand({
-  meta: {
-    name: "run",
-    description: "Run the milestone's full check on the committed HEAD, detached (gate_run)",
-  },
-  args: {
-    run: GATE.run,
-    milestone: { type: "string", required: true, description: "the milestone you verify, like M1" },
-    command: GATE.command,
-    at: { type: "string", description: "a checkout of the run's base, to record the base's own failures" },
-    force: { type: "boolean", description: "run it again although a record of this HEAD exists" },
-  },
-  async run({ args }) {
-    assertRoleMay(scope(), args.run, "gate_run");
-    if (!ID_PATTERN.test(args.milestone))
-      throw new CatherdError("E_INPUT_INVALID", `bad milestone "${args.milestone}"`, {
-        fix: "pass --milestone M1",
-      });
-    // a shell tool call may be cut off; the check goes on, and this ticks the dispatch's activity while it waits
-    const reporter = activityReporter(process.env[DISPATCH_ID_ENV]);
-    try {
-      const r = await runMilestoneCheck(
-        {
-          run: args.run,
-          milestone: args.milestone,
-          command: args.command,
-          ...(args.at ? { at: args.at } : {}),
-          ...(args.force ? { force: true } : {}),
-        },
-        reporter ? { onWait: reporter.tick } : {},
-      );
-      printJson(r);
-      if (!r.running && r.missing.length > 0) process.exitCode = 1;
-    } finally {
-      reporter?.done();
-    }
-  },
-});
-
-export const gateCommand = defineCommand({
-  meta: {
-    name: "gate",
-    description: "A verifier's gate evidence: check an item, record a pass, run the check",
-  },
-  subCommands: { check, pass, run: runCheck },
 });
 
 const TEAM_RUN = { run: { type: "positional", required: true, description: "the run id" } } as const;

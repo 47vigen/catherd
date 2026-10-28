@@ -3,14 +3,13 @@ import { join } from "node:path";
 import { sessionKey } from "../domain/host.ts";
 import { type Interventions, interventionTotal } from "../domain/scorecard.ts";
 import type { RunEvent } from "../domain/run-events.ts";
-import { coveredMs } from "../domain/util.ts";
-import { landedMilestones } from "./milestones.ts";
+import { coveredMs, natural } from "../domain/util.ts";
+import { landedMilestones } from "./run-history.ts";
 import { pauseSpans } from "./pause.ts";
-import { runMilestones } from "./protocol.ts";
 import { parkedSpans, questionCounts } from "./questions.ts";
 import { replay } from "../domain/run-state.ts";
 import { isDaemonRun, readEvents } from "./run-events-store.ts";
-import { listRuns, readAgentRuns, readRecords, type Run, supersededBy } from "./run-store.ts";
+import { laneIds, listRuns, readAgentRuns, readRecords, type Run, supersededBy } from "./run-store.ts";
 import { readSessionRows } from "./sessions.ts";
 
 // Plan 28: what a finished run's own files say about how much it needed a person. Read-only.
@@ -68,6 +67,10 @@ export function runEnd(run: Run): number {
     .filter((t) => !Number.isNaN(t));
   return times.length ? Math.max(...times) : Date.parse(run.meta.createdAt);
 }
+
+/** Plan 28: the milestones the run's lane files name, in number order (a 1.5 or early 2.0 run's). */
+export const runMilestones = (run: Run): string[] =>
+  [...new Set(laneIds(run).map((lane) => lane.split(".")[0] as string))].sort(natural);
 
 /** The ms of the run, up to `end`, that it spent parked on the owner or paused; overlaps once. */
 export const pausedMs = (run: Run, end: number): number =>

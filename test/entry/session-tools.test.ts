@@ -46,12 +46,13 @@ describe("the session tools", () => {
     expect(readEvents(findRun(started.data.run)).map((e) => e.type)).toEqual(["run.started"]);
   });
 
-  it("refuses run_start's base until landing comes back (plan 50)", async () => {
+  it("takes run_start's base again: the run lands on a branch from it (plan 50)", async () => {
     withHome();
     const { repo } = repoWithOrigin();
     const c = await mcpClient(fakeDeps());
     const started = await call(c, "run_start", { repo, title: "wallet", a_lines: ["A1 x"], base: "main" });
-    expect(started.error?.code).toBe("E_INPUT_INVALID");
+    expect(started.isError).toBe(false);
+    expect(findRun(started.data.run).meta.base).toBe("main");
   });
 
   it("starts, shows, answers, cancels and reads a run through the client", async () => {

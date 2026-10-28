@@ -49,9 +49,7 @@ describe("--help matches the CLI (audit S5, S6, N3)", () => {
   });
 
   it("shows lock's command after --", () => {
-    expect(help("lock")).toContain(
-      "USAGE catherd lock [--slots N] [--role verifier [--run <run>]] -- <command> [args...]",
-    );
+    expect(help("lock")).toContain("USAGE catherd lock [--slots N] -- <command> [args...]");
   });
 
   it("documents init's --no-input, not an --input that defaults to true", () => {

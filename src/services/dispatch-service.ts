@@ -35,8 +35,7 @@ import {
 import { finalizeDispatch, finalizingElsewhere, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { isDaemonRun } from "./run-events-store.ts";
-import { currentRoute } from "../domain/route.ts";
-import { appendRoute, findRun, laneFile, readRecords, readRoutes, type Run } from "./run-store.ts";
+import { findRun, laneFile, readRecords, type Run } from "./run-store.ts";
 import { sessionKey } from "../domain/host.ts";
 import { claimRun, currentSession, ownsRun, runOwner, type SessionRef } from "./sessions.ts";
 import { pinChanges, runProfile } from "./run-pin.ts";
@@ -387,23 +386,13 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
   await claim(deps, run);
   const hints: string[] = [];
   if (thread !== null) hints.push(...(await stopLeftovers(deps, run, thread)));
-  let rung: string;
-  if (i.lane !== undefined) {
-    const lane = i.lane;
-    assertId("lane", lane);
-    // plan 44 D31: this path never decides. A lane runs at the rung passed, else at its current route's; a rung
-    // that is not its current route is recorded, once admitted, as the coordinator's pick
-    const picked = i.rung ?? currentRoute(readRoutes(run), lane)?.rung;
-    if (picked === undefined)
-      throw new CatherdError("E_INPUT_INVALID", `dispatch ${i.name}: lane ${lane} has no rung yet`, {
-        fix: "pass rung: the decision model decides it in a daemon run, the coordinator names it here",
-      });
-    rung = picked;
-  } else if (i.rung === undefined)
-    throw new CatherdError("E_INPUT_INVALID", `dispatch ${i.name}: a role outside a lane needs a rung`, {
-      fix: "pass rung: the coordinator names the rung of a role outside a lane",
+  if (i.lane !== undefined) assertId("lane", i.lane);
+  // plan 44 D31: this path never decides: the caller names the rung (plan 50: no route rows are kept)
+  if (i.rung === undefined)
+    throw new CatherdError("E_INPUT_INVALID", `dispatch ${i.name}: no rung`, {
+      fix: "pass rung: the coordinator names the rung of every dispatch",
     });
-  else rung = i.rung;
+  const rung = i.rung;
   // the rung that runs: a native rung is only launched from its own host
   assertNativeHost(rung, deps.host.host);
   const { d, specPath } = await admit(
@@ -429,8 +418,6 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
     // a launch that failed is still watched: its record (lost, after the start grace) is announced
     watch(deps, run, d);
   }
-  if (i.lane === undefined) recordRoleDispatch(deps, run, i.role, i.name, rung);
-  else recordLaneRoute(deps, run, i.lane, i.role, rung);
   // spec 1.5: a change since the run's pin is logged in state.md each time a role starts
   const changes = pinChanges(deps, run);
   if (changes.length)
@@ -439,55 +426,6 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
     );
   await refresh(run, { ...(i.next ? { next: i.next } : {}), pinChanges: changes }, hints);
   return { dispatched: dispatchedOf(d), hints };
-}
-
-/**
- * A lane's rung in routes.jsonl when it is not the rung of its current route (or it has none), so `land` writes
- * the lane's outcome and the protocol sees where the lane runs. A failed write is logged, never a failed dispatch.
- */
-function recordLaneRoute(deps: Deps, run: Run, lane: string, role: Role, rung: string): void {
-  try {
-    const current = currentRoute(readRoutes(run), lane);
-    if (current?.rung === rung) return;
-    appendRoute(run, {
-      at: new Date(deps.now()).toISOString(),
-      lane,
-      role,
-      rung,
-      ladder: [rung],
-      source: "route",
-      decidedBy: "orchestrator",
-      from: current?.rung ?? null,
-      reason: null,
-      kind: null,
-      difficulty: null,
-      why: "the coordinator's rung",
-    });
-  } catch (e) {
-    log("warn", "dispatch", { run: run.id, lane, routes: errorMessage(e) });
-  }
-}
-
-/**
- * A lane-less dispatch's rung in routes.jsonl, so every role's decision can be audited: the coordinator's own pick.
- * A failed write is logged, never a failed dispatch: the role is already running.
- */
-function recordRoleDispatch(deps: Deps, run: Run, role: Role, name: string, rung: string): void {
-  try {
-    appendRoute(run, {
-      at: new Date(deps.now()).toISOString(),
-      lane: null,
-      role,
-      name,
-      rung,
-      ladder: [rung],
-      source: "dispatch",
-      decidedBy: "orchestrator",
-      why: "the coordinator's rung",
-    });
-  } catch (e) {
-    log("warn", "dispatch", { run: run.id, name, routes: errorMessage(e) });
-  }
 }
 
 /** How long a settle waits for another process's failover of the same dispatch (a test seam). */

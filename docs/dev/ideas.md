@@ -16,14 +16,30 @@ judge on the role's exact brief (plan 44). Since 2.0 the daemon runs all of it (
 
 ## 2.0 follow-ups
 
+### From plan 50 (landing and the one verifier)
+
+Left out of plan 50 on purpose:
+
+- **Stage 2 is not here.** Per-writer worktrees, the merge into the run's tree, `check {ref}` on a writer's tree and
+  the memory-bound writer cap need spec D5's stage 2. `infra/memory.ts` stays for it.
+- **The run's tree gets no `.env*` files.** A repo that needs them names a copy in the plan's `Setup:` line.
+- **`land` cannot tell a squash merge.** The owner's answer to the merge question ends the run; catherd never merges
+  and never checks that the MR merged.
+- **`DispatchDetail.route` is always null** and the panel's route view shows nothing; plan 51's metric views drop it
+  with the other 2.0 fields. Climbs in the run index and lanes in the scorecard read 0 until then.
+- **`PARK_REASONS` keeps `push` and `land`.** A new run parks a land question as `land` on the run unit; the rest go
+  with plan 51's panel pass.
+- **The verifier's RAN rule is read from its reply only.** A PASS whose RAN lines name commands it did not run is not
+  caught; the check rows are the proof the land gate trusts.
+- **A forge CLI that is missing or not signed in** leaves the branch pushed and the MR unopened; the land message
+  gives the command. No token is read or stored.
+
 ### From plan 49 (ladders)
 
 Left out of plan 49 on purpose:
 
 - **The ui-reviewer still has its own ladder.** D16's migration drops it and appends an image-capable rung to the
   reviewer's ladder; that comes with the reviewer fold (plan 51).
-- **`route.ts`, `routes.jsonl` and `outcomes.jsonl` stay.** Their writers are `lane-service.ts` and `protocol.ts`,
-  which plan 50 deletes with landing.
 - **Listings refresh only at `doctor`, `init`, setup and `catalog refresh`.** The daily refresh at dispatch went with
   the decision model (`freshenDiscovery`); a listing can go stale between them. Fix: refresh at `run_start` if runs
   show a stale listing refusing a rung.
@@ -39,14 +55,10 @@ Left out of plan 49 on purpose:
 
 Left out of plan 48 on purpose:
 
-- **Dead 2.0 modules stay until their replacement.** `milestones.ts`, `milestone-tree.ts`, `preflight()`,
-  `lane-service.ts` (`land`), `gate-service.ts` (and the verifier role lock), `protocol.ts` and the land parks in
-  `questions.jsonl` serve only the 1.5 session tools and the land gate now; plan 50 deletes them with landing.
-  `run-client.ts` still mirrors an answer into `questions.jsonl` for a milestone park for that gate.
 - **`PARK_REASONS` keeps the 2.0 reasons** (`approval`, `judge`, `decision`, `push`, `land`, …) so the panel's
   generated types and older runs stay as they are; shrink it with plan 51's panel pass.
-- **The writer's, reviewer's and verifier's contracts still say lane and milestone.** The worker's is task-shaped;
-  the others change with the single verifier (plan 50) and converging reviews (plan 51).
+- **The reviewer's contract still says lane and milestone.** The writer's and verifier's lost them in plan 50; the
+  reviewer's changes with converging reviews (plan 51).
 - **Failover on a quota hold is not wired into the reducer.** A task on a held rung waits for the hold; plan 49's
   ladder never climbs on a quota limit (D7), so this is still open.
 - **The idle cap is still plan 47's two idle turns,** not D10's 15 minutes with nothing running; and the budget's 80%
@@ -72,14 +84,12 @@ Left out of plan 47 on purpose:
   catalog (spec D1).
 - **A fixed writer cap.** Four writers and four standing-role tasks at once (`WRITER_CAP`, `STANDING_CAP`); the
   memory-bound writer cap comes with per-writer trees (spec D5, stage 2).
-- **The run's checkout only.** A check runs on the repository as it stands and a base run is refused; the integration
-  tree, per-writer trees, `check {ref}` and landing come with plans 50 and 52 (spec D5, D11).
+- **One tree per run.** A base run's writers share its integration tree (plan 50); per-writer trees, `check {ref}`
+  and the merge into the integration tree come with stage 2 (spec D5).
 - **Messages do not wake the architect.** A worker's question rides the next digest; the turn that ends the worker's
   task wakes it. Make a `question` message a wake event if runs show workers idling on an answer.
 - **A researcher may write any research file.** `write_run_file` takes `research/<id>.md` for every role that has it,
   not only the task's own path (spec D12).
-- **Delegated workers and verifiers still get the 2.0 contracts.** Lanes, Owns and `team wait --lane` are in their
-  briefs on the architect engine.
 - **`ROLE_WRITABLE` also accepts `research/*.md` on 2.0 runs.** The widening is global, not scoped to the architect
   engine.
 - **Two tools take a nonsense argument.** `ask_owner` accepts a scope that names an unknown task, and `delegate_task`
@@ -98,7 +108,7 @@ Left out of plan 46 on purpose:
   because `withEventsLock` and admission hold it across awaits. Plan 48's reducer makes each write one transaction and
   drops the locks.
 - **Files still beside the database.** `outcomes.jsonl`, `routes.jsonl`, `state.json`, `sessions.jsonl`,
-  `agents.jsonl`, `harness.jsonl` and a workspace's `meta.json` stay files (R5): plan 49 deletes the first two, and
+  `agents.jsonl`, `harness.jsonl` and a workspace's `meta.json` stay files (R5): plan 50 deleted the first two, and
   the rest move when their mechanisms move or go.
 - **No metric views yet.** `sqlite3 <data dir>/catherd.db` answers an ad-hoc question; the idle, concurrency,
   blocked-time and check-share views and the per-task comparison come with plan 51 (R11).

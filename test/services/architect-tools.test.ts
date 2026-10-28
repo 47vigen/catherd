@@ -8,7 +8,7 @@ import { appendEvent, readEvents, replayRun, withEventsLock } from "../../src/se
 import type { Run } from "../../src/services/run-store.ts";
 import { endDispatch, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { fakeDeps, freshRun, insertEarlier, testView } from "./helpers.ts";
+import { branchRun, fakeDeps, freshRun, insertEarlier, testView } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -316,5 +316,17 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     const old = freshRun().run;
     insertEarlier(old);
     await expect(call(old, "capabilities", {})).rejects.toMatchObject({ code: "E_ROLE_SCOPE" });
+  });
+});
+
+describe("land (plan 50, spec D11)", () => {
+  it("appends land.requested with its why in a base run, and refuses a run without a base", async () => {
+    const run = await architectRun();
+    await expect(call(run, "land", { why: "w" })).rejects.toMatchObject({ code: "E_INPUT_INVALID" });
+    const { run: based } = branchRun();
+    await appendEvent(based, { type: "run.started", ...startedFields, base: "main" });
+    expect(await call(based, "land", { final: true, why: "ship it" })).toEqual({ landId: "L1" });
+    expect(last(based)).toMatchObject({ type: "land.requested", landId: "L1", final: true, why: "ship it" });
+    expect(await call(based, "land", { why: "checkpoint" })).toEqual({ landId: "L2" });
   });
 });

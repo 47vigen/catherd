@@ -24,7 +24,6 @@ const SHIPPED = [
   "src/cli.ts",
   "src/entry/supervise-bin.ts",
   "src/entry/daemon-bin.ts",
-  "src/entry/check-bin.ts",
   "web/dist/index.html",
   "catalog/models.json",
   "plugin/.claude-plugin/plugin.json",

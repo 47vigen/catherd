@@ -4,11 +4,10 @@ import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
 import { ID_PATTERN } from "../domain/ids.ts";
 import { FindingSchema, RUN_UNIT, type RunEvent } from "../domain/run-events.ts";
-import type { RoleRouteRow, RouteRow } from "../domain/route.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
 import { git } from "../infra/git.ts";
 import { readEvents } from "./run-events-store.ts";
-import { readRecords, readRoleRoutes, readRoutes, type Run, runPaths } from "./run-store.ts";
+import { readRecords, type Run, runPaths } from "./run-store.ts";
 
 /*
  * What the panel's drawer reads from a run's folder. Every name a caller sends is matched against what the run
@@ -150,22 +149,8 @@ export function dispatchDetail(run: Run, dispatchId: string): DispatchDetail {
   const role = started?.role ?? record?.role ?? "";
   const lane = started ? started.lane : (record?.lane ?? null);
   const startedAt = started?.at ?? record?.startedAt ?? "";
-  const t = Date.parse(startedAt);
-  let route: DispatchDetail["route"] = null;
-  if (!Number.isNaN(t)) {
-    const before = (r: { at: string }) => Date.parse(r.at) <= t;
-    const row: RouteRow | RoleRouteRow | undefined =
-      lane !== null
-        ? readRoutes(run).findLast((r) => r.lane === lane && before(r))
-        : readRoleRoutes(run).findLast((r) => r.role === role && before(r));
-    if (row)
-      route = {
-        source: row.source,
-        decidedBy: "decidedBy" in row ? row.decidedBy : "",
-        why: row.why ?? ("reason" in row ? (row.reason ?? "") : ""),
-        ladder: row.ladder,
-      };
-  }
+  // plan 50: route rows are gone; the field stays null until the panel's pass drops it (plan 51)
+  const route: DispatchDetail["route"] = null;
   return {
     dispatchId,
     name,

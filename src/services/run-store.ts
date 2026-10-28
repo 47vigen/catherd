@@ -5,13 +5,6 @@ import { CatherdError } from "../domain/errors.ts";
 import { runSlug } from "../domain/branch.ts";
 import { assertId } from "../domain/ids.ts";
 import { type RunRecord, RunRecordSchema } from "../domain/record.ts";
-import type {
-  FailoverRouteRow,
-  OutcomeRouteRow,
-  OutcomeRow,
-  RoleRouteRow,
-  RouteRow,
-} from "../domain/route.ts";
 import { isLaneId } from "../domain/lane.ts";
 import { cell, natural } from "../domain/util.ts";
 import { db, ensureRunRow, insertDispatch, storeOnFile } from "../infra/db.ts";
@@ -87,12 +80,10 @@ export function runPaths(dir: string) {
     state: join(dir, "state.md"),
     stateJson: join(dir, "state.json"),
     runs: join(dir, "runs.jsonl"),
-    routes: join(dir, "routes.jsonl"),
     /** plan 44 D18: per name and decision number, the brief an earlier build judged and sent: `<name>/<n>/brief.md` */
     decisions: join(dir, "decisions"),
     /** plan 44 D28: one row per decision made, beside the model calls' own rows */
     decisionsLog: join(dir, "decisions.jsonl"),
-    outcomes: join(dir, "outcomes.jsonl"),
     agents: join(dir, "agents.jsonl"),
     harness: join(dir, "harness.jsonl"),
     /** every session that has owned the run, in order (spec §3.3) */
@@ -160,7 +151,6 @@ export function createRun(o: {
   const p = runPaths(dir);
   for (const d of [p.lanes, p.roles, p.shots]) ensurePrivateDir(d);
   writeTextAtomic(p.ledger, `${LEDGER_HEADER}\n`);
-  ensureJsonlHeader(p.routes, "routes");
   ensureJsonlHeader(p.agents, "agents");
   const meta: RunMeta = {
     schema: 1,
@@ -295,55 +285,6 @@ export function appendRecord(run: Run, r: RunRecord): Promise<RunRecord> {
     }).immediate();
     return r;
   });
-}
-
-/** The run's lane rows (routes and climbs); a role's rows outside a lane are left out (`readRoleRoutes`). */
-export function readRoutes(run: Run): RouteRow[] {
-  return readJsonl<RouteRow>(runPaths(run.dir).routes).rows.filter(
-    (r) =>
-      typeof r?.lane === "string" &&
-      (r.source === "route" || r.source === "climb") &&
-      Array.isArray(r.ladder) &&
-      typeof r.rung === "string",
-  );
-}
-
-/** Spec 1.5 plan 24: the lanes' outcome rows of routes.jsonl, oldest first (the last per lane wins). */
-export function readOutcomeRoutes(run: Run): OutcomeRouteRow[] {
-  return readJsonl<OutcomeRouteRow>(runPaths(run.dir).routes).rows.filter(
-    (r) => typeof r?.lane === "string" && r.source === "outcome",
-  );
-}
-
-/** Spec 1.5 plan 24: the run's role decisions outside a lane, oldest first. */
-export function readRoleRoutes(run: Run): RoleRouteRow[] {
-  return readJsonl<RoleRouteRow>(runPaths(run.dir).routes).rows.filter(
-    (r) =>
-      r?.lane === null &&
-      (r.source === "route" || r.source === "dispatch") &&
-      typeof r.role === "string" &&
-      typeof r.rung === "string",
-  );
-}
-
-export function appendRoute(
-  run: Run,
-  row: RouteRow | RoleRouteRow | OutcomeRouteRow | FailoverRouteRow,
-): void {
-  const file = runPaths(run.dir).routes;
-  ensureJsonlHeader(file, "routes");
-  appendJsonl(file, row);
-}
-
-/** Appends; a lane may be written more than once and its last row wins (see `latestOutcomes`). */
-export function appendOutcome(run: Run, row: OutcomeRow): void {
-  const file = runPaths(run.dir).outcomes;
-  ensureJsonlHeader(file, "outcomes");
-  appendJsonl(file, row);
-}
-
-export function readOutcomes(run: Run): OutcomeRow[] {
-  return readJsonl<OutcomeRow>(runPaths(run.dir).outcomes).rows.filter((r) => typeof r?.lane === "string");
 }
 
 const AgentRunSchema = z.looseObject({

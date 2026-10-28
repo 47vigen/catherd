@@ -72,7 +72,6 @@ it("full debug distinguishes accepted unread from collected without claiming own
   expect(runOwner(run)).toEqual(before);
 });
 
-import { peek } from "../../src/services/peek.ts";
 import { status } from "../../src/services/summary.ts";
 
 it("drops a stall the role outlived before any send, but keeps one that was sent", async () => {
@@ -124,7 +123,6 @@ it("drops a stall the role outlived before any send, but keeps one that was sent
   expect(kinds("worker-M1.L4")).toEqual([]);
   expect(kinds("worker-M1.L2")).toEqual(["stalled"]);
   expect(status(deps, run.id).runs[0]!.delivery.map((e) => e.eventId)).toEqual([sentId]);
-  expect((await peek(fakeDeps(), {})).runs[0]!.delivery.map((e) => e.eventId)).toEqual([sentId]);
 });
 
 it("shows accepted stalled delivery while live without treating it as an unread result", async () => {
@@ -152,9 +150,6 @@ it("shows accepted stalled delivery while live without treating it as an unread 
   const expected = { eventId, delivery: "enqueue-accepted", receipt: { msgId: "stall-id" } };
   expect(runDebug(run)[0]).toMatchObject(expected);
   expect(status(deps, run.id).runs[0]!.delivery[0]).toMatchObject(expected);
-  const inspected = (await peek(fakeDeps(), {})).runs[0]!;
-  expect(inspected.delivery[0]).toMatchObject(expected);
-  expect(inspected.unread).toEqual([]);
   expect(awaitsCollect(d.dir)).toBe(true);
   await appendRecord(run, makeRecord({ runId: run.id, dispatchId: d.admit.dispatchId }));
   expect(runDebug(run)[0]!.deliveries.map((e) => JSON.parse(e.eventId)[2])).toEqual(["finished", "stalled"]);

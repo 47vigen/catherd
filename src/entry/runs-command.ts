@@ -69,10 +69,6 @@ export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
       `  decisions ${made.reduce((n, [, c]) => n + c, 0)}: ${made.map(([source, c]) => `${c} ${source}`).join(", ")}`,
     );
   for (const m of s.milestones) lines.push(`  landed ${m}`);
-  if (s.verifier)
-    lines.push(
-      `  verifier step ${s.verifier.item}${s.verifier.carried ? " (carried over)" : ""} at ${s.verifier.at.slice(11, 16)} · ${Math.floor(s.verifier.secs / 60)} min ago · ${s.verifier.open ? "open" : `closed (${s.verifier.closedBy})`}`,
-    );
   for (const d of s.delivery)
     lines.push(
       `  ${JSON.parse(d.eventId)[2] === "stalled" ? "stalled notice" : d.delivery === "collected" ? "collected" : "unread"} ${d.name} · delivery ${d.delivery}${d.receipt ? ` · queue receipt ${d.receipt.msgId}` : ""}`,

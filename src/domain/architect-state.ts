@@ -56,6 +56,14 @@ export interface ArchCheck {
   state: "queued" | "done";
 }
 
+/** Plan 50, spec D11: a land the architect asked for. */
+export interface ArchLand {
+  landId: string;
+  final: boolean;
+  why: string;
+  state: "queued" | "done";
+}
+
 /** One line of the next turn's digest; `wakes` false rides along without waking the architect. */
 export interface InboxItem {
   seq: number;
@@ -69,6 +77,9 @@ export type FinishVerdict = "done" | "impossible" | "stopped";
 export interface ArchState {
   tasks: Record<string, ArchTask>;
   checks: Record<string, ArchCheck>;
+  lands: Record<string, ArchLand>;
+  /** a final land asked the owner to merge: the owner's answer ends the run done (spec D11) */
+  mergeAsked: boolean;
   inbox: InboxItem[];
   /** architect turns started so far; the next is `architect-<turns + 1>` */
   turns: number;
@@ -95,6 +106,8 @@ export function emptyArch(): ArchState {
   return {
     tasks: {},
     checks: {},
+    lands: {},
+    mergeAsked: false,
     inbox: [],
     turns: 0,
     turn: null,
@@ -250,6 +263,7 @@ function idleNow(s: RunState, a: ArchState): boolean {
     liveDispatches(s).length === 0 &&
     !Object.values(a.tasks).some((t) => t.state === "queued") &&
     !Object.values(a.checks).some((c) => c.state === "queued") &&
+    !Object.values(a.lands).some((l) => l.state === "queued") &&
     !a.inbox.some((i) => i.wakes) &&
     Object.keys(s.questions).length === 0 &&
     a.finishing === null
@@ -441,6 +455,17 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       );
       return true;
     }
+    case "land.requested":
+      a.lands[e.landId] = { landId: e.landId, final: e.final, why: e.why, state: "queued" };
+      a.idle = 0;
+      return true;
+    case "land.done": {
+      const l = a.lands[e.landId];
+      if (l) l.state = "done";
+      if (e.final && e.outcome === "pushed") a.mergeAsked = true;
+      push(a, e, `${e.landId} (land${e.final ? ", final" : ""}) ${e.outcome}: ${e.message}`);
+      return true;
+    }
     case "ledger.changed":
       // writing progress names no task and is not news: the architect does it every turn
       for (const id of e.tasks) a.ledgerNews[id] = e.seq;
@@ -459,6 +484,9 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       delete s.questions[e.unit];
       recomputeWake(s);
       push(a, e, `the owner answered (${e.unit}): ${e.answer}`);
+      // spec D11: the merge question is the run's last; the run does not wait on the merge itself
+      if (e.unit === RUN_UNIT && a.mergeAsked)
+        a.finishing ??= { verdict: "done", why: `the owner answered the merge question: ${e.answer}` };
       return true;
     case "effect.failed": {
       if (e.action === "report" || e.action === "notify" || e.action === "remind") return true;
@@ -469,6 +497,10 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       if (e.action === "runCheck") {
         const c = a.checks[e.unit];
         if (c) c.state = "done";
+      }
+      if (e.action === "land") {
+        const l = a.lands[e.unit];
+        if (l) l.state = "done";
       }
       if (e.action === "dispatch" && e.unit === RUN_UNIT)
         failTurn(a, `your turn could not start: ${e.message}`);

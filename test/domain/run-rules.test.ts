@@ -2,37 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { budgetStatus, formatBudget } from "../../src/domain/budget.ts";
 import { changedPaths, parsePorcelainZ, splitChanges } from "../../src/domain/changes.ts";
 import { dispatchHints } from "../../src/domain/hints.ts";
-import { currentRoute, nextRung, type RouteRow } from "../../src/domain/route.ts";
 import { renderState } from "../../src/domain/state.ts";
 import { makeRecord } from "./make-record.ts";
-
-const row = (lane: string, rung: string, source: RouteRow["source"] = "route"): RouteRow => ({
-  at: "2026-09-25T10:00:00.000Z",
-  lane,
-  role: "worker",
-  rung,
-  ladder: ["codex:a#low", "codex:a#high"],
-  source,
-  decidedBy: "lane",
-  from: null,
-  reason: null,
-  kind: "repo_code",
-  difficulty: "build",
-});
-
-describe("routes", () => {
-  it("climbs one rung and stops at the top", () => {
-    expect(nextRung(["a", "b", "c"], "a")).toBe("b");
-    expect(nextRung(["a", "b", "c"], "c")).toBeNull();
-    expect(nextRung(["a", "b"], "x")).toBeNull();
-  });
-
-  it("takes a lane's last row as its current route", () => {
-    const rows = [row("L1", "codex:a#low"), row("L2", "codex:a#low"), row("L1", "codex:a#high", "climb")];
-    expect(currentRoute(rows, "L1")?.rung).toBe("codex:a#high");
-    expect(currentRoute(rows, "L9")).toBeNull();
-  });
-});
 
 describe("budgetStatus", () => {
   const spend = { minutes: 30, tokens: 500, usd: 1 };
@@ -173,18 +144,14 @@ describe("renderState", () => {
     running: [],
     lastCheck: null,
     next: "plan the milestones",
-    protocol: "plan: the architect writes plan.md and lanes/Mx.Ly.md (or you, for a fix run)",
   };
 
-  it("renders an idle run with the next step, then the protocol's next step on the last line", () => {
+  it("renders an idle run with the next step on the last line (plan 50: no protocol line)", () => {
     const text = renderState(base);
     expect(text.startsWith("# Add login\n\nHEAD abc1234\n")).toBe(true);
     expect(text).toContain("Dirty:\n- none");
     expect(text).toContain("Running:\n- none");
-    expect(text.trimEnd().split("\n").at(-2)).toBe("Next: plan the milestones");
-    expect(text.trimEnd().split("\n").at(-1)).toBe(
-      "Protocol next: plan: the architect writes plan.md and lanes/Mx.Ly.md (or you, for a fix run)",
-    );
+    expect(text.trimEnd().split("\n").at(-1)).toBe("Next: plan the milestones");
   });
 
   it("names dirty owners and running roles, and says their results arrive as messages", () => {
@@ -209,7 +176,7 @@ describe("renderState", () => {
     expect(text).toContain("- src/a.ts (worker-M1.L1)\n- b.md\n");
     expect(text).toContain("- worker-M1.L1 · codex:a#high · thread new · since 10:00 · roles/w/1/brief.md");
     expect(text).toContain("Last check: bun test 12/12");
-    expect(text.trimEnd().split("\n").at(-2)).toBe(
+    expect(text.trimEnd().split("\n").at(-1)).toBe(
       "Next: running worker-M1.L1 (results arrive as catherd messages; peek to check); then review M1",
     );
   });

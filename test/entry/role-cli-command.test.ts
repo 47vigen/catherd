@@ -4,14 +4,14 @@ import { join } from "node:path";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import { createRun, runPaths } from "../../src/services/run-store.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
-import { snapshotEnv, tempRepo } from "../helpers.ts";
+import { snapshotEnv, tempDir, tempRepo } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 import { fakeDispatch, freshRun } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 
 /** `catherd <args>` as a role's shell runs it: CATHERD_ROLE set, or not, and nothing else of catherd's. */
-function catherd(args: string[], o: { role?: string; stdin?: string } = {}) {
+function catherd(args: string[], o: { role?: string; stdin?: string; tmpdir?: string } = {}) {
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     NO_COLOR: "1",
@@ -21,6 +21,7 @@ function catherd(args: string[], o: { role?: string; stdin?: string } = {}) {
   delete env.CATHERD_DISPATCH_ID;
   delete env.TMPDIR;
   if (o.role) env.CATHERD_ROLE = o.role;
+  if (o.tmpdir) env.TMPDIR = o.tmpdir;
   const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), ...args], {
     env,
     stdin: o.stdin === undefined ? "ignore" : Buffer.from(o.stdin),
@@ -74,93 +75,6 @@ describe("the CLI forms any role can run (spec 1.5 plan 21)", () => {
     expect(catherd(["run-file", "read", other.id, "plan.md"]).out).toBe("secret plan\n");
   });
 
-  it("checks and records a verifier's gate items, and refuses them to any other role", async () => {
-    const { repo, run } = freshRun();
-    await fakeDispatch(run, {
-      name: "verifier-M1",
-      role: "verifier",
-      lane: null,
-      owns: [],
-      access: "read-only",
-    });
-    await fakeDispatch(run, { name: "worker-M1.L1" });
-    writeFileSync(join(repo, "a.txt"), "a\n");
-    const gate = ["--item", "unit", "--command", "bun test", "--paths", "a.txt"];
-    const verifier = `${run.id}/verifier-M1`;
-    const first = catherd(["gate", "check", run.id, ...gate, "--milestone", "M1"], { role: verifier });
-    expect(first.code).toBe(0);
-    // plan 23: with a milestone, the answer lists the milestone's recorded items
-    expect(JSON.parse(first.out)).toEqual({
-      carried: false,
-      recorded: [{ item: "unit", command: "bun test", passed: false }],
-    });
-    expect(
-      catherd(["gate", "pass", run.id, "--milestone", "M1", ...gate, "--evidence", "12 pass"], {
-        role: verifier,
-      }).code,
-    ).toBe(0);
-    // the list alone, as gate_check gives it
-    expect(
-      JSON.parse(catherd(["gate", "check", run.id, "--milestone", "M1"], { role: verifier }).out),
-    ).toMatchObject({ recorded: [{ item: "unit", command: "bun test", passed: true }] });
-    expect(JSON.parse(catherd(["gate", "check", run.id, ...gate], { role: verifier }).out)).toMatchObject({
-      carried: true,
-    });
-    expect(
-      catherd(["gate", "pass", run.id, "--milestone", "M1", ...gate, "--evidence", "x"], {
-        role: `${run.id}/worker-M1.L1`,
-      }).err,
-    ).toContain("error E_ROLE_SCOPE: worker-M1.L1 is a worker, which has no gate_pass");
-    // plan 30b: gate run is the verifier's too
-    expect(
-      catherd(["gate", "run", run.id, "--milestone", "M1", "--command", "true"], {
-        role: `${run.id}/worker-M1.L1`,
-      }).err,
-    ).toContain("error E_ROLE_SCOPE: worker-M1.L1 is a worker, which has no gate_run");
-  });
-
-  it("gate pass without --milestone fails", () => {
-    const { run } = freshRun();
-    const result = catherd([
-      "gate",
-      "pass",
-      run.id,
-      "--item",
-      "unit",
-      "--command",
-      "true",
-      "--paths",
-      ".",
-      "--evidence",
-      "ok",
-    ]);
-    expect(result.code).not.toBe(0);
-    expect(result.err).toContain("E_INPUT_INVALID");
-    expect(result.err).toContain("milestone");
-  });
-
-  it("runs the milestone check as the verifier, and exits 1 while the gate misses something", async () => {
-    const { run } = freshRun();
-    await fakeDispatch(run, {
-      name: "verifier-M1",
-      role: "verifier",
-      lane: null,
-      owns: [],
-      access: "workspace-write",
-    });
-    const verifier = `${run.id}/verifier-M1`;
-    const ok = catherd(["gate", "run", run.id, "--milestone", "M1", "--command", "echo ok"], {
-      role: verifier,
-    });
-    expect(ok.code).toBe(0);
-    expect(JSON.parse(ok.out)).toMatchObject({ running: false, record: { exit: 0 } });
-    const red = catherd(["gate", "run", run.id, "--milestone", "M1", "--command", "echo 'FAIL x'; exit 1"], {
-      role: verifier,
-    });
-    expect(red.code).toBe(1);
-    expect(JSON.parse(red.out).missing[0]).toContain("exits 1");
-  });
-
   it("calls an architect-engine tool with JSON on stdin, bound to the role's own tools (plan 47)", async () => {
     const { run } = freshRun();
     await appendEvent(run, { type: "run.started", ...startedFields });
@@ -181,5 +95,16 @@ describe("the CLI forms any role can run (spec 1.5 plan 21)", () => {
       why: "shipped",
     });
     expect(catherd(["call", run.id, "teleport"], { stdin: "{}" }).err).toContain("E_INPUT_INVALID");
+  });
+
+  it("takes a role that unset CATHERD_ROLE for what its scratch TMPDIR says, never for the owner", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    await fakeDispatch(run, { name: "T1", lane: null, owns: [] });
+    const tmpdir = join(tempDir("catherd-home-"), "runs", run.id, "scratch", "T1", "tmp");
+    const r = catherd(["call", run.id, "finish"], { tmpdir, stdin: '{"verdict":"done","why":"w"}' });
+    expect(r.code).not.toBe(0);
+    expect(r.err).toContain("E_ROLE_SCOPE");
+    expect(readEvents(run).some((e) => e.type === "run.finishing")).toBe(false);
   });
 });

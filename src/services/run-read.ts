@@ -7,7 +7,7 @@ import { log } from "../infra/log.ts";
 import { daemonAlive, ensureDaemon, readHeartbeat } from "./daemon.ts";
 import { liveDispatches as liveDispatchesOf } from "./dispatches.ts";
 import { ledgerOf } from "./ledger-store.ts";
-import { landedMilestones } from "./milestones.ts";
+import { landedMilestones } from "./run-history.ts";
 import type { Deps } from "./ports.ts";
 import { pauseSpans } from "./pause.ts";
 import { openQuestions } from "./questions.ts";

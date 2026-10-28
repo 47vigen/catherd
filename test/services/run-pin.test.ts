@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, expect, it } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { preflight } from "../../src/services/preflight.ts";
 import { admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { pinChanges, readPin, repin, runProfile } from "../../src/services/run-pin.ts";
@@ -98,21 +97,6 @@ it("reads the repo's profile for a run with no pin (before 1.5)", () => {
   expect(readPin(run)).toBeNull();
   expect(runProfile(deps, run)).toBe(deps.view);
   expect(pinChanges(deps, run)).toEqual([]);
-});
-
-it("preflight reads the pinned profile", async () => {
-  const { deps, run } = await pinnedRun();
-  const pinned = testView();
-  Object.assign(deps.view, { name: "other", preflight: { confirm: true } });
-  deps.profiles.get = (name) => ({
-    active: "other",
-    here: "other",
-    profiles: ["test", "other"],
-    profile: name === "test" ? pinned : deps.view,
-    enforcement: {},
-  });
-  writeLane(run, "M1.L1", ["src/a.ts"]);
-  expect((await preflight(deps, { run: run.id })).needsConfirmation).toBe(false);
 });
 
 it("reads the pin of a run an earlier build started, whose access names the judge (plan 49)", async () => {

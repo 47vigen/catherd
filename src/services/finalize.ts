@@ -23,7 +23,7 @@ import {
 import { dispatchPaths, readClaimant, readExit, tryClaim } from "../infra/dispatch-dir.ts";
 import { isAlive } from "../infra/proc.ts";
 import { withFileLock } from "../infra/filelock.ts";
-import { gitLimits, statusSnapshot } from "../infra/git.ts";
+import { git, gitLimits, statusSnapshot } from "../infra/git.ts";
 import {
   appendJsonl,
   ensureJsonlHeader,
@@ -36,6 +36,7 @@ import { loadCatalog } from "./catalog-service.ts";
 import { currentOwns } from "./lane-edit.ts";
 import { tail } from "./run-debug.ts";
 import { appendRecord, readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
+import { runTree } from "./tree-path.ts";
 
 const text = (file: string): string => {
   try {
@@ -142,6 +143,27 @@ export async function settled(
   }
 }
 
+/**
+ * A verifier's HEAD line is its own word. It counts (R5) only when it is a prefix of the run tree's real HEAD and the
+ * tree is clean; else it is dropped, and the PASS does not name a commit.
+ */
+async function provenHead(run: Run, role: string, said: string | null): Promise<string | null> {
+  if (!said || role !== "verifier") return said;
+  let tree: string;
+  try {
+    tree = runTree(run);
+  } catch {
+    return null;
+  }
+  const [real, dirty] = await Promise.all([
+    git(tree, ["rev-parse", "HEAD"]),
+    git(tree, ["status", "--porcelain"]),
+  ]);
+  return real.kind === "ok" && dirty.kind === "ok" && !dirty.out.trim() && real.out.trim().startsWith(said)
+    ? said
+    : null;
+}
+
 async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
   const a = d.admit;
   const p = dispatchPaths(d.dir);
@@ -221,7 +243,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     : { changedOwned: [], violations: [] };
   const reported = parseReplyStatus(replyText);
   const environment = parseReplyEnvironment(replyText);
-  const head = parseReplyHead(replyText);
+  const head = await provenHead(run, a.role, parseReplyHead(replyText));
   const extras = parseReplyExtras(replyText);
   const rejected = parseReplyRejections(replyText);
   const design = parseReplyDesign(replyText);

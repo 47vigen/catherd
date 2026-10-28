@@ -6,7 +6,6 @@ import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import {
   bunBinary,
   daemonEnv,
-  CHECK_ENTRY,
   DAEMON_ENTRY,
   launchDetached,
   launchSupervisor,
@@ -150,7 +149,6 @@ describe("the detached entries", () => {
   it.each([
     ["supervise", SUPERVISE_ENTRY, "entry/supervise-bin.ts", "entry/supervise-command.ts"],
     ["daemon", DAEMON_ENTRY, "entry/daemon-bin.ts", null],
-    ["check worker", CHECK_ENTRY, "entry/check-bin.ts", null],
   ])("runs a thin %s entry that never reaches the panel, cli.ts or react", (_name, entry, file, uses) => {
     expect(relative(SRC, entry)).toBe(file);
     const g = importGraph(entry);

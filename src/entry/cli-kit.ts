@@ -27,7 +27,7 @@ export const exitCodeOf = (e: unknown): number =>
 
 /**
  * Spec 1.5 plan 21: a role's shell (CATHERD_ROLE, or its scratch TMPDIR) never runs a command that writes the
- * orchestrator's state (pause, runs cancel, profile set, …): E_ROLE_SCOPE, as `catherd run-file` and `catherd gate`
+ * orchestrator's state (pause, runs cancel, profile set, …): E_ROLE_SCOPE, as `catherd run-file` and `catherd call`
  * refuse an operation the role has not. `command` is the command as typed, like `catherd pause`.
  */
 export function refuseInRole(env: Record<string, string | undefined>, command: string): void {

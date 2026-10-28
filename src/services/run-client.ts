@@ -18,7 +18,6 @@ import {
   replayRun,
   withEventsLock,
 } from "./run-events-store.ts";
-import { answer, openQuestions } from "./questions.ts";
 import { runProfile } from "./run-pin.ts";
 import { findRun, type Run } from "./run-store.ts";
 import { result, startRun } from "./run-service.ts";
@@ -75,11 +74,6 @@ export async function runStart(
   const top = await gitToplevel(i.repo);
   // a repo outside git is startRun's refusal
   const plan = top ? resolvePlanInputs(top, [...(i.plan ?? []), ...planInputPaths(i.aLines)]) : [];
-  // plan 47: the architect works in the repository's checkout; a branch and its MR come with landing (plan 50)
-  if (i.base)
-    throw new CatherdError("E_INPUT_INVALID", "a run does not take a base yet", {
-      fix: "start without base: the run works in the repository's checkout",
-    });
   const started = await startRun(deps, { repo: i.repo, title: i.title, aLines: i.aLines, base: i.base });
   const run = findRun(started.run);
   copyPlanInputs(run, plan);
@@ -136,9 +130,6 @@ export async function answerUnit(
       });
     // the owner answers when they have fixed the plan: the roles read the copies, so copy again
     if (state.plan.length) copyPlanInputs(run, state.plan);
-    // a milestone's park is in questions.jsonl too, which land's gate reads (both go in plan 50)
-    if (openQuestions(run).some((q) => q.milestone === i.unit))
-      await answer(deps, { run: run.id, milestone: i.unit, answer: i.answer });
     add({ type: "question.answered", unit: i.unit, answer: i.answer, by: "owner" }, new Date(deps.now()));
   });
   ensureDaemon(run);

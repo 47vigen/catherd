@@ -47,7 +47,6 @@ export const main: Command = defineCommand({
     workspace: () => import("./entry/workspace-command.ts").then((m) => m.workspaceCommand),
     lock: () => import("./entry/lock-command.ts").then((m) => m.lockCommand),
     "run-file": () => import("./entry/role-cli-command.ts").then((m) => m.runFileCommand),
-    gate: () => import("./entry/role-cli-command.ts").then((m) => m.gateCommand),
     team: () => import("./entry/role-cli-command.ts").then((m) => m.teamCommand),
     call: () => import("./entry/role-cli-command.ts").then((m) => m.callCommand),
     answer: () => import("./entry/answer-command.ts").then((m) => m.answerCommand),

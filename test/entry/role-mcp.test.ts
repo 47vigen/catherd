@@ -47,7 +47,7 @@ describe("dispatch-scoped role MCP", () => {
     const { run } = freshRun();
     const cases: [Role, string[]][] = [
       ["researcher", ["read_run_file", "read_knowledge", "write_run_file"]],
-      ["verifier", ["read_run_file", "read_knowledge", "gate_check", "gate_pass", "gate_run"]],
+      ["verifier", ["read_run_file", "read_knowledge"]],
     ];
     for (const [role, allowed] of cases) {
       const client = await roleClient(run.id, role);
@@ -136,97 +136,6 @@ describe("dispatch-scoped role MCP", () => {
         ).toBe("E_IO_PATH");
       expect(existsSync(join(repo, "plan.md"))).toBe(false);
       expect(existsSync(join(other.dir, "plan.md"))).toBe(false);
-    } finally {
-      await client.close();
-    }
-  });
-
-  it("requires the milestone argument of gate_pass", async () => {
-    const { run } = freshRun();
-    const client = await roleClient(run.id, "verifier");
-    try {
-      const pass = (await client.listTools()).tools.find((tool) => tool.name === "gate_pass");
-      expect(pass?.inputSchema.required).toContain("milestone");
-      expect(
-        (
-          await call(client, "gate_pass", {
-            run: run.id,
-            item: "unit",
-            command: "true",
-            paths: ["."],
-            evidence: "ok",
-          })
-        ).error?.code,
-      ).toBe("E_INPUT_INVALID");
-    } finally {
-      await client.close();
-    }
-  });
-
-  it("lists the verifier's own run's recorded items for a milestone, and only that run's (plan 23)", async () => {
-    const { run } = freshRun();
-    const other = createRun({
-      repo: tempRepo(),
-      title: "other",
-      aLines: ["A1 works"],
-      version: "0.0.0-test",
-    });
-    const client = await roleClient(run.id, "verifier");
-    try {
-      expect((await call(client, "gate_check", { run: run.id, milestone: "M1" })).data).toEqual({
-        recorded: [],
-        env: [],
-      });
-      expect((await call(client, "gate_check", { run: other.id, milestone: "M1" })).error?.code).toBe(
-        "E_INPUT_INVALID",
-      );
-      expect((await call(client, "gate_check", { run: run.id })).error?.code).toBe("E_INPUT_INVALID");
-    } finally {
-      await client.close();
-    }
-  });
-
-  it("runs the verifier's milestone check through gate_run, bound to its own run", async () => {
-    const { run } = freshRun();
-    const other = createRun({ repo: tempRepo(), title: "other", aLines: ["A1"], version: "0.0.0-test" });
-    const client = await roleClient(run.id, "verifier");
-    try {
-      const r = await call(client, "gate_run", { run: run.id, milestone: "M1", command: "echo ok" });
-      expect(r.error).toBeNull();
-      expect(r.data).toMatchObject({ running: false, cached: false, record: { exit: 0 } });
-      expect(
-        (await call(client, "gate_run", { run: other.id, milestone: "M1", command: "echo ok" })).error?.code,
-      ).toBe("E_INPUT_INVALID");
-    } finally {
-      await client.close();
-    }
-  });
-
-  it("rejects another run before recording verifier gate evidence", async () => {
-    const { run } = freshRun();
-    const other = createRun({
-      repo: tempRepo(),
-      title: "other",
-      aLines: ["A1 works"],
-      version: "0.0.0-test",
-    });
-    const client = await roleClient(run.id, "verifier");
-    try {
-      for (const tool of ["gate_check", "gate_pass"])
-        expect(
-          (
-            await call(client, tool, {
-              run: other.id,
-              item: "unit",
-              command: "bun test",
-              paths: ["src"],
-              evidence: "passed",
-            })
-          ).error?.code,
-        ).toBe("E_INPUT_INVALID");
-      expect(
-        (await call(client, "write_run_file", { run: run.id, path: "plan.md", content: "blocked" })).isError,
-      ).toBe(true);
     } finally {
       await client.close();
     }

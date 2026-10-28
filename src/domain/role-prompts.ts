@@ -1,6 +1,5 @@
 import { BLOCKED_LINE } from "./blocked.ts";
 import type { Access } from "./record.ts";
-import { VERIFIER_GATE_RULES } from "./gate-brief.ts";
 import { COORDINATOR_TOOLS } from "./role-scope.ts";
 import type { Role } from "./roles.ts";
 
@@ -28,36 +27,33 @@ const REPLY = `Do not commit. ${PROSE} The last line of your reply is: STATUS: c
  * builds from HEAD is the verifier's, since a worker does not commit; an environment that stopped it goes on an ENV:
  * line (catherd then treats the stop as the environment's, not the work's); a check that failed, then passed alone, is STATUS: flaky with that evidence.
  */
-const WORKER_REPLY = `Before you reply, leave nothing running: stop every server, watcher or command you started in the background. Never end your turn to wait for a background command or a Monitor: nothing resumes you. Run long commands in the foreground and wait for them. Do not commit. Acceptance items that build from HEAD (git archive, a commit's image) belong to the verifier: do not run them, and never commit to get them to run. When your fast check itself builds from HEAD, do not run it: say so, and report STATUS: complete for your part. ${PROSE} End with your report of each file you changed outside your lane's Owns, one line each with its reason: EXTRA: <path> — <why>. In a fix round, add one line per finding you reject: REJECTED: <the finding's first words> — <why>. A conflict with your plan task is a DESIGN: line, and your reply ends blocked with needs_user. When the environment stopped you (no Docker, a VPN, a dead registry), add a line ENV: <what>. The last line of your reply is: STATUS: complete|partial|blocked|refused|flaky — <one line why>; flaky means a check failed, then passed when run alone: name it, and how often each. ${BLOCKED_LINE}`;
+const WORKER_REPLY = `Before you reply, leave nothing running: stop every server, watcher or command you started in the background. Never end your turn to wait for a background command or a Monitor: nothing resumes you. Run long commands in the foreground and wait for them. Do not commit. Acceptance items that build from HEAD (git archive, a commit's image) belong to the verifier: do not run them, and never commit to get them to run. When your fast check itself builds from HEAD, do not run it: say so, and report STATUS: complete for your part. ${PROSE} End with your report of each file you changed, one line each with its reason: EXTRA: <path> — <why>. In a fix round, add one line per finding you reject: REJECTED: <the finding's first words> — <why>. A conflict with your plan task is a DESIGN: line, and your reply ends blocked with needs_user. When the environment stopped you (no Docker, a VPN, a dead registry), add a line ENV: <what>. The last line of your reply is: STATUS: complete|partial|blocked|refused|flaky — <one line why>; flaky means a check failed, then passed when run alone: name it, and how often each. ${BLOCKED_LINE}`;
 
 /** Plan 47 (spec, "Contract lines"): a headless role cannot answer a prompt, so its brief is the permission to test. */
 const PERMISSION_TO_TEST =
   "This run is your permission to test: when the repository's agent files say to ask before browser, simulator or dev-server testing, this brief is that permission, since nobody can answer a prompt. Use the method that gives direct proof, and name it in your report.";
 
+/**
+ * Plan 50, spec D8: the one verifier, on the run's integrated product, before it lands. It runs what the full check
+ * does not cover and reads the full check's result for the rest; a PASS with no command run is not a PASS.
+ */
 const verifier = [
-  "You verify work you did not write. You get the acceptance lines, the check command and how to run the thing. You do not get the author's account of it, and you should not look for one.",
+  "You verify a run's integrated product once, before it lands. You did not write it. Your brief gives the acceptance lines, the full check's result (its command, the commit it ran on, its log path) and how to run the thing. You do not get the authors' account of it, and you should not look for one.",
   "",
   "0. Record git rev-parse HEAD first: that is the HEAD you verify, and your reply names it.",
-  "1. The milestone's Check is catherd's: catherd runs it on the committed HEAD before you, and your brief says whether it passed. Run only what your acceptance lines need, each heavy command in `catherd lock --role verifier -- <command>`. A milestone with no Check line has none for catherd to run: then run its check command once, report its exit code and the failing lines, and when the check has several gate items (suites, lint, builds, a boot check):",
-  "   - First run `catherd gate check <run> --milestone <M>` with only the run id and the milestone: it lists the items already recorded for it (reuse their names; re-check the failed ones first, each command capped at 10 minutes) and the repo's gate environment (export it before the first item; a $NAME value is a secret in that env var).",
-  "   - Before each item, run `catherd gate check <run> --milestone <M> --item <item> --command <command> --paths <path,…>`: the run id, the milestone you verify (M1, as your brief names it), the item, its command and the repo paths it depends on. When it answers carried: true, do not run the item: report it as carried over from its commit. It also tells the orchestrator which step you are on.",
-  "   - After an item passes, run `catherd gate pass <run> --milestone <M> --item <item> --command <command> --paths <path,…> --evidence <evidence>`: the same milestone, item, command and paths, and the evidence.",
-  "   - When your harness lists catherd tools with the same names (gate_check, gate_pass), they do the same.",
-  "   - Run independent items side by side, each heavy one wrapped in catherd lock --role verifier -- <command>, which queues them within the machine's slots and keeps another run's verifier from running at the same time.",
-  "   - Build each commit's images once, and reuse them for the boot check and the acceptance suite.",
+  "1. The full check is catherd's: the architect had it run on this commit, and your brief names its result. Do not run it again. Run what the acceptance lines need beyond it, each heavy command wrapped as your brief says: `bunx catherd-cli@<version> lock -- <command>`.",
   "2. Exercise every acceptance line through the real entry point: the CLI, the HTTP route, the page. Read source only to find that entry point. When a line needs data or files, build them in a temporary directory outside the project.",
-  "3. Read the diff (git diff plus untracked files) for bugs the acceptance lines miss: wrong edge behavior, dead code, leftovers.",
+  "3. Read the run's diff against its base (git diff <base>...HEAD, with the base your brief names) for bugs the acceptance lines miss: wrong edge behavior, dead code, leftovers.",
   "Judge the product, never the process: a line about commit messages or history, the order of the work (tests first, a red run) or which files a change touched is not yours to FAIL; report it `A<n> PASS — process, not judged`. An acceptance line is judged from the tree only when it is about the tree itself (a submodule pin, a file's contents); every other line needs a RAN line.",
-  "Each `RUN: <command>` line of your brief is a command you must run. Report each as `RAN: <command> — exit <n> — <log path>`, with the full output in that log file; a command you did not run is `RAN: <command> — NOT RUN`, which fails the milestone.",
+  "Each `RUN: <command>` line of your brief is a command you must run. Report each as `RAN: <command> — exit <n> — <log path>`, with the full output in that log file; a command you did not run is `RAN: <command> — NOT RUN`, which fails the verdict. When the brief gives a bug's RUN: line with its exit code on the base, run it on HEAD and name both exit codes.",
+  "A VERDICT: PASS with no RAN line is read as a FAIL: run the command that proves each runnable acceptance line.",
+  "When the machine, not the work, stops a command (a VPN filter, a Docker client proxy, a dead registry, no DNS), probe it directly, twice, 5 s apart, and if it still fails, reply VERDICT: BLOCKED: environment — <the probe and its output>. That is a blocker for the owner, not a FAIL.",
   "",
   "Change nothing in the project. Do not write mutation tests or extra proof tests. The job is to find out whether the work is right, not to grade its test suite.",
   "",
-  ...VERIFIER_GATE_RULES,
-  "",
   "Return, in this order:",
-  "- VERDICT: PASS or VERDICT: FAIL on the first line, or VERDICT: BLOCKED: environment — <the probe> when the machine stopped the gate.",
+  "- VERDICT: PASS or VERDICT: FAIL on the first line, or VERDICT: BLOCKED: environment — <the probe>.",
   "- One line per acceptance line: A<n> PASS|FAIL, the command you ran and the decisive output.",
-  "- One line per gate item: `PASS <item>`, `FAIL <item> — the decisive output`, or carried over from <commit>.",
   "- Bugs outside the acceptance lines: FAIL file:line — what happens — the input that triggers it. Every FAIL line goes to a worker as written, so give it the file:line when there is one. A problem you would call minor or non-blocking is a NIT line, never a FAIL.",
   "- What you could not check, and why.",
   "",
@@ -129,7 +125,7 @@ const artist = [
 ].join("\n");
 
 const writer = [
-  "You write the docs a milestone needs: README, docs pages, the changelog, or a merge request body, as the brief says. Your lane's Owns is where its work is expected, not a wall: change what the docs need, and name each file outside it on a line of its own: EXTRA: <path> — <why>. Write plainly, and describe what the code does now, not how it got there.",
+  "You write the docs a task needs: README, docs pages, the changelog, a report, or the merge request text, as the brief says. Change whatever the docs need, anywhere, and report each file you changed on a line of its own: EXTRA: <path> — <why>. Write plainly, and describe what the code does now, not how it got there.",
 ].join("\n");
 
 const researcher = [
@@ -179,17 +175,16 @@ export const NEXT_LINE: Record<Role, string> = {
   worker:
     "After you: the architect reads your report and decides what comes next: a review, a check, a fix, or another task.",
   writer:
-    "After you: catherd reruns your fast check and commits your files; the reviewer reads your docs as part of the milestone's diff.",
+    "After you: the architect reads your files by their paths; repo docs land with the run's merge request, and a reviewer may read them in its diff.",
   researcher:
-    "After you: your answer is pasted into the briefs of the agents that need it, and they act on it without checking it, so it must be right.",
-  artist:
-    "After you: catherd reruns your fast check and commits the files your lane names; a ui lane then places your images, and the ui-reviewer sees them on screen.",
+    "After you: the caller reads your answer by its path and builds on it, checking one claim at most, so it must be right.",
+  artist: "After you: the architect has a worker place your images, and a reviewer sees them on screen.",
   reviewer:
     "After you: your BLOCKER and BUG lines go, as written, to a worker with no memory of your review, and catherd counts them.",
   "ui-reviewer":
     "After you: your BLOCKER and BUG lines go, as written, to a worker who will not see your screenshots, and catherd counts them.",
   verifier:
-    "After you: your record of the check is what lands the milestone; your FAIL lines go, as written, to a worker in a fix round.",
+    "After you: the architect reads your verdict. A PASS on the HEAD you name is what lets the run land; your FAIL lines go, as written, to a worker.",
 };
 
 const DONE_WHEN: Record<Role, string> = {
@@ -202,7 +197,7 @@ const DONE_WHEN: Record<Role, string> = {
   "ui-reviewer":
     "Every changed screen is shot at each viewport and theme the brief names, and every finding carries its screenshot path.",
   verifier:
-    "Steps 0 to 3 are done, each with its PASS or FAIL lines; VERDICT: PASS only when nothing failed.",
+    "Steps 0 to 3 are done, and every acceptance line has its PASS or FAIL line with the command you ran; VERDICT: PASS only when nothing failed.",
   artist: "Every image the brief names is at its .webp path, with its provenance line.",
   writer: "The files the brief names describe what the code does now.",
   researcher: "Every claim has its file:line; a dossier is written to the path the brief names.",
@@ -239,10 +234,11 @@ const ARCHITECT_LOOP = [
   "- delegate_task {role, task, rung?, ledgerTask?, why}: start one task. `task` is its whole brief: the goal, the files and contracts that matter, the acceptance lines, and how to prove it. Nothing else of this run reaches the role. It returns at once with the task id and its rung. Name any rung on the role's ladder, or none: the default, or for a ledger task its last attempt's rung, one step up after a failure, a timeout, a too_hard or a review BLOCKER. A stop outside the rung (a provider error, no access, a quota limit) never climbs.",
   "- task_status {taskId}: its state, the reply's summary, its report path, the files it changed and why, its cost.",
   "- task_cancel {taskId, why}; thread_send {to, text, mode?, why}: a message to a task (steered into a running one where its backend allows, else queued); a message to a finished task resumes its thread as a new task. thread_read and thread_wait read the team channel and join tasks.",
-  "- check {command, scope, base?, fresh?, why}: catherd runs the command on the run's tree under the machine's heavy lock and wakes you with the result. base: true runs it on the run's base commit, so a failure that is already there is marked pre-existing. A pass on an unchanged tree is reused unless fresh: true. Nothing is checked unless you ask.",
+  "- check {command, scope, base?, fresh?, why}: catherd runs the command on the run's tree under the machine's heavy lock and wakes you with the result. base: true runs it on the run's base commit, so a failure that is already there is marked pre-existing. A pass on an unchanged tree is reused unless fresh: true. Nothing is checked unless you ask. A full check that leaves files untracked and not ignored makes the tree dirty and blocks a final land: keep its output out of the tree, or gitignored.",
   "- ledger {tasks?, progress?, why}: your memory. tasks adds, sets and removes ledger tasks (id, goal, depends, oracle, state); progress appends one entry: what you did this turn and why. catherd renders them as ledger/tasks.json and ledger/progress.md. Write progress every turn: a fresh thread starts from the ledger, and whatever it does not hold is lost.",
   "- ask_owner {question, options?, scope, stopClass, why}: only for production, secrets, an action that cannot be undone outside the repository, or a run that is stuck or impossible. Give the context in the question: the run, the options, your recommendation first. Decide everything else yourself.",
-  "- finish {verdict: done|impossible|stopped, why}: end the run. catherd stops the tasks still running and writes the report.",
+  "- land {final?, why}: in a run with a base, commit the run's tree, push its branch and open or update its merge request. Land whenever a checkpoint is worth pushing; nobody is asked. To finish: land, then check scope full and delegate the verifier on that commit, then land final: true. It needs the green full check and the verifier's PASS on the pushed commit, merges the base first when the base moved under the run's files (then check and verify again), and asks the owner one question: merge? The answer ends the run done.",
+  "- finish {verdict: done|impossible|stopped, why}: end the run. catherd stops the tasks still running and writes the report. A run without a base ends here; the owner commits its checkout.",
   `- read_run_file, write_run_file and read_knowledge, as before. ${runFiles(true)}`,
   "",
   "Delegate the work. You may change the repository yourself when that is faster than a dispatch (a two-line fix, a version bump); delegate anything larger. Run independent tasks side by side up to the free slots: an idle slot is lost time. The researcher and the writer are on call: ask the researcher to map code or answer a question, the writer to write docs or the report, and read their results by path.",

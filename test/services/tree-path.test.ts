@@ -5,10 +5,9 @@ import type { Run } from "../../src/services/run-store.ts";
 const run = (base: string | null) => ({ id: "20261024-225710-x", meta: { base } }) as unknown as Run;
 
 describe("composeProjectOf", () => {
-  it("a base run's milestone has its own compose project", () => {
-    expect(composeProjectOf(run("main"), "M20")).toBe("catherd-20261024225710-m20");
-    expect(composeProjectOf(run("main"), "M20", true)).toBe("catherd-20261024225710-m20-base");
-    expect(composeProjectOf(run(null), "M20")).toBeNull();
-    expect(composeProjectOf(run("main"), null)).toBeNull();
+  it("a base run's tree has its own compose project (plan 50: one tree per run)", () => {
+    expect(composeProjectOf(run("main"))).toBe("catherd-20261024225710");
+    expect(composeProjectOf(run("main"), true)).toBe("catherd-20261024225710-base");
+    expect(composeProjectOf(run(null))).toBeNull();
   });
 });

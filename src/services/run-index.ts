@@ -6,12 +6,12 @@ import { liveDispatches, replay } from "../domain/run-state.ts";
 import { coveredMs } from "../domain/util.ts";
 import { log } from "../infra/log.ts";
 import { ledgerOf } from "./ledger-store.ts";
-import { landedMilestones } from "./milestones.ts";
+import { landedMilestones } from "./run-history.ts";
 import { pauseSpans } from "./pause.ts";
 import type { Deps } from "./ports.ts";
 import { openQuestions } from "./questions.ts";
 import { isDaemonRun, lastEventSeq, readEvents } from "./run-events-store.ts";
-import { listRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
+import { listRuns, readRecords, type Run, runPaths } from "./run-store.ts";
 import { interventionsOf, runEnd } from "./scorecard-metrics.ts";
 
 /**
@@ -147,7 +147,8 @@ function compute(deps: Deps, run: Run): RunCard {
       // shortcut: superseded counts refresh with the run's own files only, upgrade if the scorecard needs them live
       interventions: interventionsOf(run, endMs ?? deps.now(), 0).total,
       failovers: records.filter((r) => r.failoverFrom !== null).length,
-      climbs: readRoutes(run).filter((r) => r.source === "climb").length,
+      // shortcut: route rows are gone (plan 50); plan 51's views count a ladder climb per task
+      climbs: 0,
       // shortcut: plan 51's rounds per task replace this count; an architect run has no review rounds yet
       rounds: 0,
     },

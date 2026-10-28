@@ -27,15 +27,13 @@ export interface LockWait {
  * Spec 2.0 decision 18: heavy slots wait while the load is above twice the cores, up to 15 minutes.
  * CATHERD_HEAVY_LOAD_WAIT_MS overrides the wait (0 = none); the test preload sets 0, since a busy CI runner
  * would otherwise stall every lock in the suite, spawned `catherd lock` processes included.
- * Plan 40: the same wait also holds a slot while free disk is under `diskReserveMb` (D14), and a role waiter
- * enters anyway after `roleWaitMs` (D7).
+ * Plan 40: the same wait also holds a slot while free disk is under `diskReserveMb` (D14).
  */
 export const heavyLimits = {
   loadWaitMs: envLoadWaitMs >= 0 ? envLoadWaitMs : 900_000,
   loadPollMs: 15_000,
   load: (): number => loadavg()[0] ?? 0,
   cores: (): number => availableParallelism(),
-  roleWaitMs: 1_800_000,
   diskReserveMb: 4096,
   /** Free space an unprivileged write can still use on the disk that holds catherd's locks, in MB. */
   freeMb: (): number => {
@@ -65,13 +63,12 @@ export function heavySlots(setting: number | "cpus/2" | undefined): number {
   return Math.max(1, Math.floor(availableParallelism() / 2));
 }
 
-/** A waiter in a queue file: who (so a dead one is dropped), a token, when it joined, and the role owner it waits for. */
+/** A waiter in a queue file: who (so a dead one is dropped), a token and when it joined. */
 const TicketSchema = z.object({
   pid: z.number(),
   startTime: z.string().nullable(),
   token: z.string(),
   at: z.number(),
-  owner: z.string().optional(),
 });
 
 type Ticket = z.infer<typeof TicketSchema>;
@@ -243,104 +240,4 @@ export async function withHeavySlotWithin<T>(
     rmSync(tmp, { recursive: true, force: true });
     slot.release();
   }
-}
-
-/** A process inside a role lock: who, so a dead one is dropped, and a token, so one process can hold twice. */
-interface RoleHolder {
-  pid: number;
-  startTime: string | null;
-  token: string;
-}
-
-const RoleLockSchema = z.looseObject({
-  schema: z.literal(1).optional(),
-  /** whose the lock is: a run id (holders of one run share it), or a lone process's own key */
-  owner: z.string(),
-  holders: z.array(z.object({ pid: z.number(), startTime: z.string().nullable(), token: z.string() })),
-});
-
-type RoleLockState = z.infer<typeof RoleLockSchema>;
-
-function readRoleState(file: string): RoleLockState | null {
-  try {
-    return readVersioned(file, RoleLockSchema, 1);
-  } catch (error) {
-    if (error instanceof CatherdError && error.code === "E_CONFIG_NEWER_SCHEMA") throw error;
-    return null;
-  }
-}
-
-/**
- * Spec 1.5 "Cross-run verifier contention": one owner at a time machine-wide holds the lock of `role`.
- * Commands of the same owner (one run's verifier, side by side within its slots) share it; another owner's
- * wait until the last of them ends, so two runs' verifiers never overlap. A dead holder is dropped.
- * Plan 40 D7: waiters queue in arrival order. A waiter enters a free lock, or joins its owner's holders, only
- * when no waiter of another owner is ahead of it; past `heavyLimits.roleWaitMs` it enters anyway, beside them.
- */
-export async function withRoleLock<T>(
-  role: string,
-  owner: string,
-  fn: () => T | Promise<T>,
-  o: { pollMs?: number; onWait?: (w: LockWait) => void } = {},
-): Promise<T> {
-  const dir = locksDir();
-  ensurePrivateDir(dir);
-  const file = join(dir, `role-${role}.json`);
-  const queue = join(dir, `queue-role-${role}.json`);
-  const me: Ticket = { ...selfIdentity(), token: randomUUID(), at: Date.now(), owner };
-  const self: RoleHolder = { pid: me.pid, startTime: me.startTime, token: me.token };
-  // one try, under both locks: the decision, the ticket's leaving the queue and the holder's entry are one step
-  const attempt = (): { entered: boolean; wait: LockWait } => {
-    const state = readRoleState(file);
-    const live = (state?.holders ?? []).filter((h) => isAlive(h.pid, h.startTime));
-    const queued = joinQueue(queue, me);
-    const ahead = queued.slice(
-      0,
-      queued.findIndex((t) => t.token === me.token),
-    );
-    const waitedMs = Date.now() - me.at;
-    const wait: LockWait = {
-      lock: `role-${role}`,
-      holder: live.length ? (state?.owner ?? null) : null,
-      ahead: ahead.length,
-      waitedMs,
-    };
-    const free = live.length === 0 || state?.owner === owner;
-    const allowed = free && ahead.every((t) => t.owner === owner);
-    if (!allowed && waitedMs < heavyLimits.roleWaitMs) return { entered: false, wait };
-    // past the bound it enters beside whoever holds the lock: say so before the lock records it
-    if (!allowed) o.onWait?.(wait);
-    leaveQueue(queue, me.token);
-    writeJsonAtomic(file, { schema: 1, owner, holders: [...live, self] } satisfies RoleLockState);
-    return { entered: true, wait };
-  };
-  try {
-    for (;;) {
-      const r = await withFileLock(file, () => withFileLock(queue, attempt));
-      if (r.entered) break;
-      o.onWait?.(r.wait);
-      await Bun.sleep(o.pollMs ?? 500);
-    }
-  } finally {
-    await withFileLock(queue, () => leaveQueue(queue, me.token));
-  }
-  try {
-    return await fn();
-  } finally {
-    await withFileLock(file, () => {
-      const state = readRoleState(file);
-      if (state)
-        writeJsonAtomic(file, {
-          ...state,
-          schema: 1,
-          holders: state.holders.filter((h) => h.token !== me.token),
-        });
-    });
-  }
-}
-
-/** Who holds the role lock now, or null. */
-export function roleLockOwner(role: string): string | null {
-  const state = readRoleState(join(locksDir(), `role-${role}.json`));
-  return state && state.holders.some((h) => isAlive(h.pid, h.startTime)) ? state.owner : null;
 }

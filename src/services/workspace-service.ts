@@ -11,7 +11,7 @@ import { readIndexFile } from "../infra/slopalytics.ts";
 import { readVersioned, writeTextAtomic } from "../infra/store.ts";
 import { writeRunIndex } from "./catalog-service.ts";
 import { listDispatches } from "./dispatches.ts";
-import { landedCommits, landedMilestones } from "./milestones.ts";
+import { landedCommits, landedMilestones } from "./run-history.ts";
 import { assertNotPaused, pausesOver } from "./pause.ts";
 import { writePin } from "./run-pin.ts";
 import type { Deps } from "./ports.ts";

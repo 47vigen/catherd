@@ -108,4 +108,45 @@ describe("a check the architect asks for (plan 47, spec D6)", () => {
       expect(existsSync(join(r.dir, done.logPath))).toBe(true);
     }
   });
+
+  it("names the commit it ran on, and not a commit the check itself made", async () => {
+    const r = await run();
+    const deps = fakeDeps();
+    const head = async () => {
+      const h = await git(r.meta.repo, ["rev-parse", "HEAD"]);
+      return h.kind === "ok" ? h.out.trim() : "";
+    };
+    const ref = (id: string) =>
+      (db().query("SELECT ref FROM checks WHERE check_id = ?").get(id) as { ref: string }).ref;
+    const start = await head();
+    await runArchitectCheck(deps, r, check("C1", "true"), opts);
+    expect(ref("C1")).toBe(start);
+    await runArchitectCheck(
+      deps,
+      r,
+      check("C2", "git -c user.name=t -c user.email=t@t commit -q --allow-empty -m made", { fresh: true }),
+      opts,
+    );
+    expect(await head()).not.toBe(start);
+    expect(ref("C2")).toBe("worktree");
+  });
+
+  it("records a full check against the commit when the repo has a clean initialized submodule", async () => {
+    const r = await run();
+    const source = tempRepo();
+    const sub = (cwd: string, ...a: string[]) => git(cwd, ["-c", "protocol.file.allow=always", ...a]);
+    await git(r.meta.repo, ["config", "user.name", "t"]);
+    await git(r.meta.repo, ["config", "user.email", "t@t"]);
+    await sub(r.meta.repo, "submodule", "add", "-q", source, "lib");
+    await git(r.meta.repo, ["commit", "-qm", "add lib"]);
+    const head = await git(r.meta.repo, ["rev-parse", "HEAD"]);
+    const sha = head.kind === "ok" ? head.out.trim() : "";
+    const ref = (id: string) =>
+      (db().query("SELECT ref FROM checks WHERE check_id = ?").get(id) as { ref: string }).ref;
+    await runArchitectCheck(fakeDeps(), r, check("C1", "true"), opts);
+    expect(ref("C1")).toBe(sha);
+    writeFileSync(join(r.meta.repo, "lib", "dirty.txt"), "x");
+    await runArchitectCheck(fakeDeps(), r, check("C2", "true"), opts);
+    expect(ref("C2")).toBe("worktree");
+  });
 });

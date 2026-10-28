@@ -1,44 +1,41 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { milestoneBranch, planSetup } from "../domain/branch.ts";
+import { planSetup, runBranch } from "../domain/branch.ts";
 import { CatherdError } from "../domain/errors.ts";
-import { availableMemoryMb } from "../infra/memory.ts";
 import { currentBranch, fetchBase, git, gitRun, updateSubmodules } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { ensurePrivateDir } from "../infra/store.ts";
-import { checkBase } from "./milestone-check.ts";
 import type { Deps } from "./ports.ts";
 import { planDocs } from "./plan-input.ts";
-import { checkEnvFor, runCheck } from "./preflight.ts";
+import { checkEnvFor, runCheck } from "./check-command.ts";
 import { runProfile } from "./run-pin.ts";
 import { type Run, runPaths } from "./run-store.ts";
-import { readyFile, treeDir, treeOf } from "./tree-path.ts";
+import { readyFile, treeDir } from "./tree-path.ts";
 
 /** How long a plan's `Setup:` command may run (tests shorten it: it is the seam for a slow install). */
 export const treeLimits = { setupMs: 15 * 60_000 };
 
-/** The machine's available memory in MB; tests replace it. */
-export const memoryReader = { read: (): number => availableMemoryMb() };
-
 const PUSH_MS = 120_000;
 const TAIL = 1_500;
 
-/** `git -C <tree> push -u origin <branch>`: the one push catherd makes, on the owner's word. Tests replace it. */
+/**
+ * `git -C <tree> push origin <sha>:refs/heads/<branch>`, never forced: the one push catherd makes (spec D11). The
+ * sha and the full refspec are what `land` judged: a commit made since, or a `remote.origin.push` config, moves
+ * nothing. Tests replace it.
+ */
 export const branchPusher = {
-  push: async (tree: string, branch: string): Promise<void> => {
-    const r = await gitRun(tree, ["push", "-u", "origin", branch], PUSH_MS);
+  push: async (tree: string, branch: string, sha: string): Promise<void> => {
+    const r = await gitRun(tree, ["push", "origin", `${sha}:refs/heads/${branch}`], PUSH_MS);
     if (r.code !== 0)
       throw new CatherdError(
         "E_TREE",
         `git push of ${branch} failed: ${r.timedOut ? `timed out after ${PUSH_MS / 1000} s` : tail(`${r.out}${r.err}`)}`,
-        { fix: "fix the remote or push it yourself, then answer" },
+        { fix: "fix the remote (a rejected push is never forced), then land again" },
       );
   },
 };
 
 const tail = (s: string): string => s.trim().slice(-TAIL);
-
-export { treeDir, treeOf };
 
 export interface TreeClaim {
   tree: string;
@@ -93,20 +90,26 @@ async function setUp(deps: Deps, run: Run, tree: string): Promise<void> {
 }
 
 /**
- * Makes (or finds again) milestone `m`'s worktree: a branch from `origin/<base>` after a fetch, set up once. A claim a
- * crash interrupted reuses the folder and runs Setup: again, since `.ready` was never written. `known` says a
- * `tree.ready` happened for `m` before, so a branch of its name is this run's own.
+ * Spec D5, stage 1: makes (or finds again) a base run's integration tree, one per run: the run's branch from
+ * `origin/<base>` after a fetch, set up once. A claim a crash interrupted reuses the folder and runs Setup: again,
+ * since `.ready` was never written. A branch of the run's name that this run did not make is refused.
  */
-export async function claimTree(deps: Deps, run: Run, m: string, o: { known: boolean }): Promise<TreeClaim> {
+export async function claimRunTree(deps: Deps, run: Run): Promise<TreeClaim> {
   const base = run.meta.base;
   if (!base)
     throw new CatherdError("E_INPUT_INVALID", `run ${run.id} has no base branch`, {
       fix: "start the run with run_start base",
     });
   const repo = run.meta.repo;
-  const branch = milestoneBranch(run.meta.title, m);
-  const tree = treeDir(run, m);
+  const branch = runBranch(run.meta.title);
+  const tree = treeDir(run);
   const hints: string[] = [];
+  if (branch === base)
+    throw tree_(
+      `the run's branch ${branch} is the base`,
+      "start the run with a title that is not the base's name",
+    );
+  if (existsSync(readyFile(run)) && existsSync(tree)) return { tree, branch, base, hints };
   if (!(await fetchBase(repo, base)))
     hints.push(`fetch of origin/${base} failed: using the copy from the last fetch`);
   if (existsSync(tree)) {
@@ -117,20 +120,17 @@ export async function claimTree(deps: Deps, run: Run, m: string, o: { known: boo
         "move the folder away, then answer",
       );
     // a `git worktree add` cut off mid-checkout leaves the right HEAD and a part of the files: not complete
-    if (!existsSync(readyFile(run, m))) {
-      const r = await gitRun(tree, ["reset", "--hard", "-q", "HEAD"]);
-      if (r.code !== 0)
-        throw tree_(
-          `git reset of ${tree} failed: ${tail(`${r.out}${r.err}`)}`,
-          "fix the folder, then answer",
-        );
-    }
+    const r = await gitRun(tree, ["reset", "--hard", "-q", "HEAD"]);
+    if (r.code !== 0)
+      throw tree_(`git reset of ${tree} failed: ${tail(`${r.out}${r.err}`)}`, "fix the folder, then answer");
   } else {
     // a registered entry whose folder is gone blocks `worktree add`; clear only this tree's, never the owner's others
     await gitRun(repo, ["worktree", "remove", tree]);
     ensurePrivateDir(join(run.dir, "trees"));
     const exists = await git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
-    if (exists.kind === "ok" && !o.known)
+    // a branch of the run's name is its own only when this run's tree was set up before (its folder since lost)
+    const ours = existsSync(readyFile(run));
+    if (exists.kind === "ok" && !ours)
       throw tree_(
         `branch ${branch} exists and is not this run's`,
         `rename it (git branch -m ${branch} ${branch}-old) or delete it, then answer`,
@@ -146,64 +146,7 @@ export async function claimTree(deps: Deps, run: Run, m: string, o: { known: boo
         "fix the repository, then answer",
       );
   }
-  if (!existsSync(readyFile(run, m))) {
-    await setUp(deps, run, tree);
-    mkdirSync(join(run.dir, "trees"), { recursive: true });
-    writeFileSync(readyFile(run, m), "");
-  }
+  await setUp(deps, run, tree);
+  writeFileSync(readyFile(run), "");
   return { tree, branch, base, hints };
-}
-
-/**
- * Removes a merged milestone's worktree with `git worktree remove` (never `--force`), keeping its branch. A tree with
- * uncommitted or untracked files stays, with a hint that says so.
- */
-export async function removeTree(run: Run, m: string): Promise<{ removed: boolean; hint: string | null }> {
-  const tree = treeDir(run, m);
-  if (!existsSync(tree)) return { removed: false, hint: null };
-  const r = await gitRun(run.meta.repo, ["worktree", "remove", tree]);
-  if (r.code !== 0)
-    return {
-      removed: false,
-      hint: `kept ${tree}: ${tail(`${r.err}${r.out}`)}; git worktree remove it once that is settled`,
-    };
-  rmSync(readyFile(run, m), { force: true });
-  return { removed: true, hint: null };
-}
-
-/**
- * Plan 40 D13: a detached worktree of the commit `checkBase(run, m)` names, under the run's scratch and set up as a
- * milestone's own is. A failing item's baseline check runs there; `remove` takes it away, files and all.
- */
-export async function baseTree(
-  deps: Deps,
-  run: Run,
-  m: string,
-): Promise<{ dir: string; remove: () => Promise<void> }> {
-  const base = await checkBase(run, m);
-  if (!base)
-    throw tree_(`no base commit to check ${m} against`, "start the run in a git checkout, then answer");
-  const repo = run.meta.repo;
-  const scratch = runPaths(run.dir).scratch;
-  const dir = join(scratch, `base-${m}`);
-  const remove = async (): Promise<void> => {
-    await gitRun(repo, ["worktree", "remove", "--force", dir]);
-    rmSync(dir, { recursive: true, force: true });
-    await gitRun(repo, ["worktree", "prune"]);
-  };
-  ensurePrivateDir(scratch);
-  await remove(); // a folder a cut-off run left behind
-  const r = await gitRun(repo, ["worktree", "add", "--detach", dir, base]);
-  if (r.code !== 0)
-    throw tree_(
-      `git worktree add failed for ${base.slice(0, 12)}: ${tail(`${r.out}${r.err}`)}`,
-      "fix the repository, then answer",
-    );
-  try {
-    await setUp(deps, run, dir);
-  } catch (e) {
-    await remove();
-    throw e;
-  }
-  return { dir, remove };
 }

@@ -3,7 +3,6 @@ import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
 import { assertLaneHeader, LANE_HEADER_FIX } from "../../src/domain/lane.ts";
 import { admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
-import { preflight } from "../../src/services/preflight.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDeps, freshRun, writeLane } from "./helpers.ts";
@@ -71,18 +70,5 @@ describe("lane headers (spec 1.1 §6)", () => {
       }),
     );
     expect([e.code, e.message]).toEqual(["E_LANE_INVALID", "lanes/M1.L1.md: no Difficulty: line"]);
-  });
-
-  it("preflight refuses before running any check, naming every bad lane", async () => {
-    const { run } = freshRun();
-    writeLane(run, "M1.L1", ["src/a.ts"], "touch ran-l1");
-    writeLane(run, "M1.L2", ["src/b.ts"], "true", "Kind: code\nDifficulty: build\n");
-    writeLane(run, "M1.L3", ["src/c.ts"], "true", "Difficulty: build\n");
-    const e = await refused(preflight(fakeDeps(), { run: run.id }));
-    expect(e.code).toBe("E_LANE_INVALID");
-    expect(e.message).toBe(
-      'lanes/M1.L2.md: Kind "code" is not one the catalog knows; lanes/M1.L3.md: no Kind: line',
-    );
-    expect(await Bun.file(`${run.meta.repo}/ran-l1`).exists()).toBe(false);
   });
 });

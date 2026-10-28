@@ -420,6 +420,27 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
       return { tasks: tasks.length };
     },
   ),
+  land: spec(
+    "Land the run (a base run only): commit what its tree holds, push its branch (never forced, never the base) and open or update its merge request. final: true also needs a green full check (check scope: full) and a verifier PASS on the pushed commit; it fetches the base first, merging it when it moved under the run's files, and then asks the owner one question: merge? The owner's answer ends the run done. It returns at once; the result wakes you.",
+    { final: z.boolean().optional(), why },
+    false,
+    async (c, a) => {
+      if (!c.run.meta.base)
+        throw invalid(
+          `run ${c.run.id} has no base: it works in the repository's checkout`,
+          "commit and push it yourself, or start the run with base",
+        );
+      const landId = await withEventsLock(c.run, (add) => {
+        const id = `L${Object.keys(replayRun(c.run).arch?.lands ?? {}).length + 1}`;
+        add(
+          { type: "land.requested", landId: id, final: a.final ?? false, by: c.caller.name, why: a.why },
+          at(c),
+        );
+        return id;
+      });
+      return { landId };
+    },
+  ),
   ask_owner: spec(
     "Ask the owner one question, only in a stop class: production, secrets, an irreversible action outside the repository, or a stuck or impossible run. Put the run, the options and your recommendation first in the question. Only that scope waits; the answer wakes you.",
     {

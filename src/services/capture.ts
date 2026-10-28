@@ -13,7 +13,7 @@ import { killGroup } from "../infra/proc.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
 import { readyAdapter } from "./backends.ts";
 import { settled } from "./finalize.ts";
-import { collect, DRAIN_MS } from "./preflight.ts";
+import { collect, DRAIN_MS } from "./check-command.ts";
 
 interface CaptureCase {
   backend: string;

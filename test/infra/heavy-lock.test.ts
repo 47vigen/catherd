@@ -4,17 +4,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFile
 import { join } from "node:path";
 import { tryLock } from "../../src/infra/filelock.ts";
 import { roleScopeOfScratch } from "../../src/domain/role-scope.ts";
-import {
-  heavyLimits,
-  heavySlots,
-  type LockWait,
-  roleLockOwner,
-  slotTmpDir,
-  withHeavySlot,
-  withRoleLock,
-} from "../../src/infra/heavy-lock.ts";
+import { heavyLimits, heavySlots, slotTmpDir, withHeavySlot } from "../../src/infra/heavy-lock.ts";
 import { locksDir } from "../../src/infra/paths.ts";
-import { selfIdentity } from "../../src/infra/proc.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 
 const limits = { ...heavyLimits };
@@ -154,75 +145,6 @@ describe("heavy lock", () => {
     expect(await withHeavySlot(1, (slot) => slot, { pollMs: 5 })).toBe(0);
   });
 
-  it("keeps another run's verifier out until the last command of the holding run ends", async () => {
-    withHome();
-    const log: string[] = [];
-    let releaseA!: () => void;
-    const heldA = new Promise<void>((resolve) => (releaseA = resolve));
-    let enteredA!: () => void;
-    const insideA = new Promise<void>((resolve) => (enteredA = resolve));
-    const a = withRoleLock(
-      "verifier",
-      "run:A",
-      async () => {
-        log.push("A+");
-        enteredA();
-        await heldA;
-        log.push("A-");
-      },
-      { pollMs: 5 },
-    );
-    await insideA;
-    expect(roleLockOwner("verifier")).toBe("run:A");
-    // the same run shares it: its second command runs side by side
-    await withRoleLock("verifier", "run:A", () => log.push("A2"), { pollMs: 5 });
-    const b = withRoleLock("verifier", "run:B", () => log.push("B"), { pollMs: 5 });
-    await Bun.sleep(50);
-    expect(log).toEqual(["A+", "A2"]);
-    releaseA();
-    await Promise.all([a, b]);
-    expect(log).toEqual(["A+", "A2", "A-", "B"]);
-    expect(roleLockOwner("verifier")).toBeNull();
-  });
-
-  it("writes the role lock with schema 1, reads one written without it, and refuses a newer one", async () => {
-    withHome();
-    const file = join(locksDir(), "role-verifier.json");
-    await withRoleLock("verifier", "run:A", () => {
-      expect(JSON.parse(readFileSync(file, "utf8")).schema).toBe(1);
-    });
-    expect(JSON.parse(readFileSync(file, "utf8")).schema).toBe(1);
-    const legacy = { owner: "run:A", holders: [{ ...selfIdentity(), token: "t" }] };
-    writeFileSync(file, JSON.stringify(legacy));
-    expect(roleLockOwner("verifier")).toBe("run:A");
-    writeFileSync(file, JSON.stringify({ ...legacy, schema: 2 }));
-    expect(() => roleLockOwner("verifier")).toThrow(
-      expect.objectContaining({ code: "E_CONFIG_NEWER_SCHEMA" }),
-    );
-  });
-
-  it("treats damaged role-lock files as free", () => {
-    withHome();
-    mkdirSync(locksDir(), { recursive: true });
-    const file = join(locksDir(), "role-verifier.json");
-    for (const contents of ["{", "null", JSON.stringify({ owner: "run:A", holders: [null] })]) {
-      writeFileSync(file, contents);
-      expect(roleLockOwner("verifier")).toBeNull();
-    }
-  });
-
-  it("drops a role-lock holder that died", async () => {
-    withHome();
-    mkdirSync(locksDir(), { recursive: true });
-    const dead = Bun.spawn(["true"]);
-    await dead.exited;
-    writeFileSync(
-      join(locksDir(), "role-verifier.json"),
-      JSON.stringify({ owner: "run:A", holders: [{ pid: dead.pid, startTime: "gone", token: "t" }] }),
-    );
-    expect(await withRoleLock("verifier", "run:B", () => "in", { pollMs: 5 })).toBe("in");
-  });
-
   it("tryLock refuses a lock this live process already holds, and releases only its own", () => {
     withHome();
     const target = join(locksDir(), "x");
@@ -258,110 +180,6 @@ describe("heavy lock", () => {
     hold.fire();
     await Promise.all([first, b, c]);
     expect(log).toEqual(["B", "C"]);
-  });
-
-  it("a busy run cannot keep the role lock from an earlier waiter", async () => {
-    withHome();
-    const log: string[] = [];
-    const inside = signal();
-    const hold = signal();
-    const first = withRoleLock(
-      "verifier",
-      "run:a",
-      async () => {
-        log.push("a1+");
-        inside.fire();
-        await hold.done;
-        log.push("a1-");
-      },
-      { pollMs: 5 },
-    );
-    await inside.done;
-    const bQueued = signal();
-    const b = withRoleLock("verifier", "run:b", () => log.push("b"), {
-      pollMs: 5,
-      onWait: () => bQueued.fire(),
-    });
-    await bQueued.done;
-    const aQueued = signal();
-    // run:a's second command could join its own lock at once, but run:b's waiter is ahead of it
-    const second = withRoleLock("verifier", "run:a", () => log.push("a2"), {
-      pollMs: 5,
-      onWait: () => aQueued.fire(),
-    });
-    await aQueued.done;
-    hold.fire();
-    await Promise.all([first, b, second]);
-    expect(log).toEqual(["a1+", "a1-", "b", "a2"]);
-  });
-
-  it("a role wait past roleWaitMs enters anyway", async () => {
-    withHome();
-    Object.assign(heavyLimits, { roleWaitMs: 50 });
-    const inside = signal();
-    const hold = signal();
-    let aDone = false;
-    const a = withRoleLock(
-      "verifier",
-      "run:a",
-      async () => {
-        inside.fire();
-        await hold.done;
-        aDone = true;
-      },
-      { pollMs: 5 },
-    );
-    await inside.done;
-    const seen: LockWait[] = [];
-    // run:b runs while run:a still holds the lock; its last report names the holder it entered beside
-    await withRoleLock("verifier", "run:b", () => expect(aDone).toBe(false), {
-      pollMs: 5,
-      onWait: (w) => seen.push(w),
-    });
-    expect(seen.at(-1)).toMatchObject({ lock: "role-verifier", holder: "run:a" });
-    expect(seen.at(-1)?.waitedMs).toBeGreaterThanOrEqual(50);
-    hold.fire();
-    await a;
-  });
-
-  it("onWait names the holder and the queue ahead", async () => {
-    withHome();
-    const inside = signal();
-    const hold = signal();
-    const a = withRoleLock(
-      "verifier",
-      "run:a",
-      async () => {
-        inside.fire();
-        await hold.done;
-      },
-      { pollMs: 5 },
-    );
-    await inside.done;
-    const bReports: LockWait[] = [];
-    const bQueued = signal();
-    const b = withRoleLock("verifier", "run:b", () => {}, {
-      pollMs: 5,
-      onWait: (w) => {
-        bReports.push(w);
-        bQueued.fire();
-      },
-    });
-    await bQueued.done;
-    const cReports: LockWait[] = [];
-    const cQueued = signal();
-    const c = withRoleLock("verifier", "run:c", () => {}, {
-      pollMs: 5,
-      onWait: (w) => {
-        cReports.push(w);
-        cQueued.fire();
-      },
-    });
-    await cQueued.done;
-    expect(bReports[0]).toMatchObject({ lock: "role-verifier", holder: "run:a", ahead: 0 });
-    expect(cReports[0]).toMatchObject({ lock: "role-verifier", holder: "run:a", ahead: 1 });
-    hold.fire();
-    await Promise.all([a, b, c]);
   });
 
   it("low disk holds a slot within the load deadline", async () => {
@@ -404,12 +222,7 @@ describe("heavy lock", () => {
     await dead.exited;
     const ticket = { pid: dead.pid, startTime: "gone", token: "t", at: 0 };
     writeFileSync(join(locksDir(), "queue-heavy.json"), JSON.stringify({ schema: 1, tickets: [ticket] }));
-    writeFileSync(
-      join(locksDir(), "queue-role-verifier.json"),
-      JSON.stringify({ schema: 1, tickets: [{ ...ticket, owner: "run:A" }] }),
-    );
     expect(await withHeavySlot(1, () => "ran", { pollMs: 5 })).toBe("ran");
-    expect(await withRoleLock("verifier", "run:B", () => "in", { pollMs: 5 })).toBe("in");
     expect(JSON.parse(readFileSync(join(locksDir(), "queue-heavy.json"), "utf8")).tickets).toEqual([]);
   });
 });
