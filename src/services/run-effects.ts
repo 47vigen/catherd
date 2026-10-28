@@ -8,7 +8,7 @@ import { headlessRung, tryParseRung } from "../domain/ids.ts";
 import { parseRanLines, parseRunLines, verifierShortfall } from "../domain/ran-lines.ts";
 import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
-import type { RunEventInput } from "../domain/run-events.ts";
+import { RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
 import { type Action, type DispatchAction, unitOf } from "../domain/run-machine.ts";
 import { taskAttempts } from "../domain/architect-state.ts";
 import type { RunState } from "../domain/run-state.ts";
@@ -20,10 +20,12 @@ import { admit } from "./admission.ts";
 import { cancel, launcher } from "./dispatch-service.ts";
 import { type Dispatch, listDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
-import { blockedByEnvironment, replyVerdict } from "./milestones.ts";
+import { blockedByEnvironment, replyVerdict } from "./verifier-reply.ts";
 import { sendRunNotice } from "./notify-service.ts";
 import type { Deps } from "./ports.ts";
 import { runArchitectCheck } from "./architect-check.ts";
+import { runLand } from "./land.ts";
+import { claimRunTree } from "./run-tree.ts";
 import { writeArchitectReport } from "./architect-run.ts";
 import { renderLedger } from "./ledger-store.ts";
 import { renderBrief } from "./run-briefs.ts";
@@ -322,6 +324,9 @@ export function realEffects(deps: Deps, run: Run): Effects {
   }
 
   async function perform(a: Action, s: RunState): Promise<void> {
+    // spec D5, stage 1: a base run works in its own tree, made before the first thing that needs it
+    if (run.meta.base && (a.type === "dispatch" || a.type === "runCheck" || a.type === "land"))
+      await claimRunTree(deps, run);
     switch (a.type) {
       case "dispatch":
         if (a.brief === "wake") return wake(a, s);
@@ -335,6 +340,21 @@ export function realEffects(deps: Deps, run: Run): Effects {
             onWait: waitingOnce(a.checkId),
           }),
         ));
+      }
+      case "land": {
+        const l = s.arch.lands[a.landId];
+        if (!l) throw new Error(`no land ${a.landId} was asked for`);
+        const r = await runLand(run, l);
+        await append(r.done);
+        if (r.question)
+          await append({
+            type: "question.parked",
+            unit: RUN_UNIT,
+            question: r.question,
+            reason: "land",
+            why: l.why,
+          });
+        return;
       }
       case "watch": {
         const v = s.dispatches[a.dispatchId];

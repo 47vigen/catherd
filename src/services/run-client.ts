@@ -74,11 +74,6 @@ export async function runStart(
   const top = await gitToplevel(i.repo);
   // a repo outside git is startRun's refusal
   const plan = top ? resolvePlanInputs(top, [...(i.plan ?? []), ...planInputPaths(i.aLines)]) : [];
-  // plan 47: the architect works in the repository's checkout; a branch and its MR come with landing (plan 50)
-  if (i.base)
-    throw new CatherdError("E_INPUT_INVALID", "a run does not take a base yet", {
-      fix: "start without base: the run works in the repository's checkout",
-    });
   const started = await startRun(deps, { repo: i.repo, title: i.title, aLines: i.aLines, base: i.base });
   const run = findRun(started.run);
   copyPlanInputs(run, plan);

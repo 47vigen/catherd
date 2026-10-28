@@ -4,7 +4,7 @@ import { sessionKey } from "../domain/host.ts";
 import { type Interventions, interventionTotal } from "../domain/scorecard.ts";
 import type { RunEvent } from "../domain/run-events.ts";
 import { coveredMs, natural } from "../domain/util.ts";
-import { landedMilestones } from "./milestones.ts";
+import { landedMilestones } from "./run-history.ts";
 import { pauseSpans } from "./pause.ts";
 import { parkedSpans, questionCounts } from "./questions.ts";
 import { replay } from "../domain/run-state.ts";

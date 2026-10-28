@@ -1,6 +1,6 @@
 import { type Catalog, rungInfo } from "../domain/catalog.ts";
 import type { Kind } from "../domain/lane.ts";
-import { replyVerdict } from "./milestones.ts";
+import { replyVerdict } from "./verifier-reply.ts";
 import { listRuns, readAgentRuns, readRecords } from "./run-store.ts";
 
 /** Spec 1.2 §8: what catherd's own runs say about a rung, for one kind or every kind (`*`). */

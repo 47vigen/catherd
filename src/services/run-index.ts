@@ -6,7 +6,7 @@ import { liveDispatches, replay } from "../domain/run-state.ts";
 import { coveredMs } from "../domain/util.ts";
 import { log } from "../infra/log.ts";
 import { ledgerOf } from "./ledger-store.ts";
-import { landedMilestones } from "./milestones.ts";
+import { landedMilestones } from "./run-history.ts";
 import { pauseSpans } from "./pause.ts";
 import type { Deps } from "./ports.ts";
 import { openQuestions } from "./questions.ts";

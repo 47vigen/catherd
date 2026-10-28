@@ -16,6 +16,7 @@ export const ARCHITECT_TOOLS = [
   "thread_wait",
   "check",
   "ledger",
+  "land",
   "ask_owner",
   "finish",
 ] as const;

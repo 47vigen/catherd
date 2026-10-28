@@ -28,7 +28,7 @@ import { assetPath } from "../infra/assets.ts";
 import { git, gitHead } from "../infra/git.ts";
 import { dataDir } from "../infra/paths.ts";
 import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
-import { landedMilestones, reviewRounds } from "./milestones.ts";
+import { landedMilestones, reviewRounds } from "./run-history.ts";
 import { pauseSpans } from "./pause.ts";
 import { checkEnvFor, runCheck } from "./check-command.ts";
 import { openQuestions } from "./questions.ts";

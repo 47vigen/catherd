@@ -41,7 +41,8 @@ export type Action =
       /** a finish that failed MAX_TRIES times: the run ends with no report */
       bare?: true;
     }
-  | { type: "runCheck"; checkId: string };
+  | { type: "runCheck"; checkId: string }
+  | { type: "land"; landId: string };
 
 // every action type is one `effect.failed` can name, and the other way round
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
@@ -66,6 +67,8 @@ export function actionKey(a: Action): string {
       return "finish:run";
     case "runCheck":
       return `runCheck:${a.checkId}`;
+    case "land":
+      return `land:${a.landId}`;
   }
 }
 
@@ -84,6 +87,8 @@ export function unitOf(a: Action, s?: RunState): string {
       return RUN_UNIT;
     case "runCheck":
       return a.checkId;
+    case "land":
+      return a.landId;
   }
 }
 
@@ -108,6 +113,8 @@ export function confirms(e: RunEvent): string[] {
       return [`${e.action}@${e.unit}`];
     case "check.done":
       return [`runCheck:${e.checkId}`];
+    case "land.done":
+      return [`land:${e.landId}`];
     default:
       return [];
   }

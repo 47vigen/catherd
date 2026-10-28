@@ -15,7 +15,7 @@ import { indexPath, runsDir } from "../../src/infra/paths.ts";
 import { readIndexFile, writeIndexFile } from "../../src/infra/slopalytics.ts";
 import { pairOf } from "../../src/domain/catalog.ts";
 import { loadCatalog } from "../../src/services/catalog-service.ts";
-import { landedCommitOf } from "../../src/services/milestones.ts";
+import { landedCommitOf } from "../../src/services/run-history.ts";
 import { appendRecord, createRun, listRuns, readRecords, runPaths } from "../../src/services/run-store.ts";
 import { withWorkspaceAdmission } from "../../src/services/workspace-admission.ts";
 import {

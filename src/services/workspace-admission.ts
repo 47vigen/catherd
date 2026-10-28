@@ -7,7 +7,7 @@ import { gitToplevel, isAncestor } from "../infra/git.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
 import { pendingDispatches } from "./dispatches.ts";
-import { landedCommitOf, landedMilestones } from "./milestones.ts";
+import { landedCommitOf, landedMilestones } from "./run-history.ts";
 import { readRecords, type Run, runPaths } from "./run-store.ts";
 import {
   findWorkspace,

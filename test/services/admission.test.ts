@@ -8,6 +8,7 @@ import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { type AdmitInput, admit, fullBriefPath } from "../../src/services/admission.ts";
+import { claimRunTree } from "../../src/services/run-tree.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { setGateEnv } from "../../src/services/gate-env.ts";
 import { latestDispatch } from "../../src/services/dispatches.ts";
@@ -79,6 +80,7 @@ async function refusal(p: Promise<unknown>): Promise<string> {
 describe("admission in a worktree (plan 35)", () => {
   it("a role's env names its run tree's compose project (plan 50: one per run)", async () => {
     const { repo, run } = branchRun();
+    await claimRunTree(fakeDeps(), run);
     process.env.PATH = simPath();
     Object.assign(process.env, withScenario({}).env, { TYPESAFE_API_KEY: "secret" });
     writeLane(run, "M1.L1", ["src/a.ts"]);

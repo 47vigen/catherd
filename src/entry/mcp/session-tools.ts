@@ -53,7 +53,7 @@ export function registerSessionTools(server: McpServer, deps: Deps): void {
             "The reviewed plan files the run implements as written (paths, relative to repo or absolute). Without one, the architect writes a plan and the run waits for your approval.",
           ),
         base: BaseBranchSchema.optional().describe(
-          "A branch on origin (main, staging): each milestone then gets its own branch and worktree from origin/<base>, and independent milestones run side by side; without it the run works in the repo.",
+          "A branch on origin (main, staging): the run then works on its own branch, in its own worktree from origin/<base>, and lands it as one merge request; without it the run works in the repo's checkout and does not land.",
         ),
       },
     },

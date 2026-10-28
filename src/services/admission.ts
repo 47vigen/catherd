@@ -48,7 +48,7 @@ import type { Deps } from "./ports.ts";
 import { laneFile, readRecords, recordsOnThread, type Run, runPaths, supersededBy } from "./run-store.ts";
 
 import { currentSession } from "./sessions.ts";
-import { composeProjectOf } from "./tree-path.ts";
+import { composeProjectOf, runTree } from "./tree-path.ts";
 import { withRunAdmission } from "./workspace-admission.ts";
 
 export interface AdmitInput {
@@ -246,7 +246,7 @@ export async function admit(
   // spec 1.5 plan 21 (#42 findings 1, 2): the role server goes in whether the harness is isolated or not, so no
   // role is refused for isolation, and a thread an isolated run started resumes as it started
   const roleServer = ROLE_SERVER_BACKENDS.includes(rung.backend);
-  const cwd = i.cwd ?? run.meta.repo;
+  const cwd = i.cwd ?? runTree(run);
   await prepared(adapter, {
     rung,
     access: rc.access,

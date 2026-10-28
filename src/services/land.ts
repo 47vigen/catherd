@@ -1,0 +1,260 @@
+import { join } from "node:path";
+import type { ArchLand } from "../domain/architect-state.ts";
+import { isGithub, landSubject, mrCommand, runBranch } from "../domain/branch.ts";
+import { errorMessage } from "../domain/errors.ts";
+import { isTestPath, mrBody, SKIP_LINE } from "../domain/mr-body.ts";
+import { describeEvent, type RunEvent, type RunEventInput } from "../domain/run-events.ts";
+import { db } from "../infra/db.ts";
+import { fetchBase, gitOrigin, gitRun } from "../infra/git.ts";
+import { ensurePrivateDir, writeTextAtomic } from "../infra/store.ts";
+import { ledgerTasks } from "./ledger-store.ts";
+import { readEvents } from "./run-events-store.ts";
+import type { Run } from "./run-store.ts";
+import { branchPusher } from "./run-tree.ts";
+import { runTree } from "./tree-path.ts";
+
+type LandDone = Extract<RunEventInput, { type: "land.done" }>;
+
+const FORGE_MS = 120_000;
+const TAIL = 600;
+const tail = (s: string): string => s.trim().slice(-TAIL);
+const lastUrl = (s: string): string | null => s.match(/https?:\/\/\S+/g)?.at(-1) ?? null;
+
+async function cli(cwd: string, argv: string[]): Promise<{ code: number; out: string }> {
+  const p = Bun.spawn(argv, { cwd, env: process.env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const timer = setTimeout(() => p.kill("SIGKILL"), FORGE_MS);
+  try {
+    const [out, err, code] = await Promise.all([
+      new Response(p.stdout).text(),
+      new Response(p.stderr).text(),
+      p.exited,
+    ]);
+    return { code, out: `${out}${err}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Opens a run's MR, or updates its body when it is open already, with gh (github.com) or glab (any other host), in
+ * the run's tree with catherd's own environment. Returns its URL, or null when the CLI printed none. Tests replace it.
+ */
+export const forge = {
+  open: async (o: {
+    tree: string;
+    originUrl: string;
+    base: string;
+    branch: string;
+    title: string;
+    body: string;
+    bodyFile: string;
+  }): Promise<string | null> => {
+    const gh = isGithub(o.originUrl);
+    const created = gh
+      ? await cli(o.tree, [
+          "gh",
+          "pr",
+          "create",
+          "--base",
+          o.base,
+          "--head",
+          o.branch,
+          "--title",
+          o.title,
+          "--body-file",
+          o.bodyFile,
+        ])
+      : await cli(o.tree, [
+          "glab",
+          "mr",
+          "create",
+          "--source-branch",
+          o.branch,
+          "--target-branch",
+          o.base,
+          "--title",
+          o.title,
+          "--description",
+          o.body,
+          "--yes",
+        ]);
+    if (created.code === 0) return lastUrl(created.out);
+    if (!/already exists/i.test(created.out)) throw new Error(tail(created.out) || `exit ${created.code}`);
+    const updated = gh
+      ? await cli(o.tree, ["gh", "pr", "edit", o.branch, "--body-file", o.bodyFile])
+      : await cli(o.tree, ["glab", "mr", "update", o.branch, "--description", o.body]);
+    if (updated.code !== 0) throw new Error(tail(updated.out) || `exit ${updated.code}`);
+    return lastUrl(created.out) ?? lastUrl(updated.out);
+  },
+};
+
+const lines = (s: string): string[] =>
+  s
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+async function out(tree: string, args: string[]): Promise<string> {
+  const r = await gitRun(tree, args);
+  if (r.code !== 0) throw new Error(`git ${args[0]} failed: ${tail(`${r.out}${r.err}`)}`);
+  return r.out;
+}
+
+/** The base branch's default on origin, else null. */
+async function originDefault(tree: string): Promise<string | null> {
+  const r = await gitRun(tree, ["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"]);
+  return r.code === 0 ? r.out.trim().replace(/^origin\//, "") || null : null;
+}
+
+/** A green full check of this run on `sha` (spec D11), with its command and log. */
+function greenFull(run: Run, sha: string): { command: string; log: string } | null {
+  const r = db()
+    .query(
+      "SELECT check_id, command FROM checks WHERE run_id = ? AND scope = 'full' AND base = 0 AND ref = ? AND exit = 0 ORDER BY id DESC LIMIT 1",
+    )
+    .get(run.id, sha) as { check_id: string; command: string } | null;
+  return r ? { command: r.command, log: `checks/${r.check_id}.log` } : null;
+}
+
+/** A verifier PASS whose HEAD line names `sha` (a full sha, or a prefix of at least 7). */
+const verified = (events: readonly RunEvent[], sha: string): boolean =>
+  events.some(
+    (e) =>
+      e.type === "dispatch.ended" &&
+      e.verdict === "pass" &&
+      !!e.head &&
+      e.head.length >= 7 &&
+      sha.startsWith(e.head),
+  );
+
+const WHY_EVENTS = new Set([
+  "task.delegated",
+  "task.cancelled",
+  "check.requested",
+  "ledger.changed",
+  "thread.sent",
+  "run.finishing",
+  "land.requested",
+]);
+
+/**
+ * Plan 50, spec D11: lands the run's tree. It commits what the tree holds, pushes the run's branch (never forced, never
+ * the base or origin's default branch) and opens or updates its MR. `final` also needs a green full check and a
+ * verifier PASS on the pushed commit; it fetches the base first, and when base commits since the run's merge base touch
+ * the run's files it merges the base, pushes, and asks for the check and the verifier again. A final land that passes
+ * returns the owner's one question: merge?
+ */
+export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; question: string | null }> {
+  const base = run.meta.base as string;
+  const branch = runBranch(run.meta.title);
+  let sha: string | null = null;
+  let mr: string | null = null;
+  const done = (outcome: "pushed" | "refused", message: string): LandDone => ({
+    type: "land.done",
+    landId: l.landId,
+    final: l.final,
+    outcome,
+    branch,
+    sha,
+    mr,
+    message,
+  });
+  const refused = (message: string) => ({ done: done("refused", message), question: null });
+  try {
+    const tree = runTree(run);
+    const protectedBranch = [base, "main", "master", await originDefault(tree)];
+    if (protectedBranch.includes(branch))
+      return refused(`${branch} is a protected branch: catherd never pushes it`);
+    if ((await out(tree, ["status", "--porcelain"])).trim()) {
+      await out(tree, ["add", "-A"]);
+      await out(tree, ["commit", "-q", "-m", landSubject(run.meta.title)]);
+    }
+    sha = (await out(tree, ["rev-parse", "HEAD"])).trim();
+    let moved: string | null = null;
+    if (l.final) {
+      if (!(await fetchBase(tree, base)))
+        return refused(`fetch of origin/${base} failed: land final needs the base as it is now`);
+      const mb = (await out(tree, ["merge-base", "HEAD", `origin/${base}`])).trim();
+      const theirs = new Set(lines(await out(tree, ["diff", "--name-only", mb, `origin/${base}`])));
+      const overlap = lines(await out(tree, ["diff", "--name-only", mb, "HEAD"])).filter((f) =>
+        theirs.has(f),
+      );
+      if (overlap.length) {
+        const merged = await gitRun(tree, ["merge", "--no-edit", "-q", `origin/${base}`]);
+        if (merged.code !== 0) {
+          await gitRun(tree, ["merge", "--abort"]);
+          return refused(
+            `the base moved and does not merge cleanly into ${overlap.join(", ")}: ${tail(`${merged.out}${merged.err}`)}`,
+          );
+        }
+        sha = (await out(tree, ["rev-parse", "HEAD"])).trim();
+        moved = `the base moved under ${overlap.join(", ")}: merged origin/${base} as ${sha.slice(0, 12)}`;
+      }
+    }
+    await branchPusher.push(tree, branch);
+    const mb = (await out(tree, ["merge-base", "HEAD", `origin/${base}`])).trim();
+    const events = readEvents(run);
+    const tasks = ledgerTasks(run);
+    const proof = greenFull(run, sha);
+    const body = mrBody({
+      title: run.meta.title,
+      aLines: run.meta.aLines,
+      done: tasks.filter((t) => t.state === "done").map((t) => `${t.id} ${t.goal}`),
+      proof: proof ? { ...proof, sha } : null,
+      audit: events
+        .filter((e) => WHY_EVENTS.has(e.type) || (e.type === "question.parked" && e.why))
+        .map((e) => describeEvent(e)),
+      knownIssues: tasks
+        .filter((t) => t.state === "impossible" || t.state === "blocked")
+        .map((t) => `${t.id} ${t.state}: ${t.goal}`),
+      tests: {
+        deleted: lines(await out(tree, ["diff", "--name-only", "--diff-filter=D", mb, "HEAD"])).filter(
+          isTestPath,
+        ),
+        skipped: (await out(tree, ["diff", "-U0", mb, "HEAD"]))
+          .split("\n")
+          .filter((x) => x.startsWith("+") && !x.startsWith("+++") && SKIP_LINE.test(x))
+          .map((x) => x.slice(1).trim())
+          .slice(0, 20),
+      },
+    });
+    ensurePrivateDir(join(run.dir, "land"));
+    const bodyFile = join(run.dir, "land", "mr.md");
+    writeTextAtomic(bodyFile, body);
+    const originUrl = (await gitOrigin(tree)) ?? "";
+    let note = "";
+    try {
+      mr = await forge.open({ tree, originUrl, base, branch, title: run.meta.title, body, bodyFile });
+    } catch (e) {
+      note = `; the MR was not opened (${errorMessage(e)}): open it with ${mrCommand({ originUrl, base, branch, body: bodyFile })}`;
+    }
+    const pushed = `pushed ${branch} at ${sha.slice(0, 12)}${mr ? `, MR ${mr}` : ""}${note}`;
+    if (!l.final) return { done: done("pushed", pushed), question: null };
+    if (moved)
+      return {
+        done: done("refused", `${pushed}; ${moved}: run check full and the verifier on it, then land final`),
+        question: null,
+      };
+    const missing = [
+      ...(proof
+        ? []
+        : [`a green full check on ${sha.slice(0, 12)} (check scope: full on the committed tree)`]),
+      ...(verified(events, sha) ? [] : [`a verifier PASS whose HEAD line names ${sha.slice(0, 12)}`]),
+    ];
+    if (missing.length)
+      return {
+        done: done("refused", `${pushed}; land final needs ${missing.join(" and ")}`),
+        question: null,
+      };
+    return {
+      done: done("pushed", pushed),
+      question: [
+        `Merge ${mr ?? branch} into ${base}? Run ${run.id}: ${run.meta.title}. The full check and the verifier passed on ${sha.slice(0, 12)}. Recommendation: merge.`,
+        "- merge",
+        "- not yet",
+      ].join("\n"),
+    };
+  } catch (e) {
+    return refused(errorMessage(e));
+  }
+}

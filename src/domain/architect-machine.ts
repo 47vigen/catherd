@@ -68,6 +68,8 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
   if (strays.length) out.push({ type: "cancel", dispatchIds: strays.map((d) => d.dispatchId) });
   for (const c of Object.values(a.checks))
     if (c.state === "queued") out.push({ type: "runCheck", checkId: c.checkId });
+  for (const l of Object.values(a.lands))
+    if (l.state === "queued") out.push({ type: "land", landId: l.landId });
   if (s.paused !== null || s.held !== null) return out;
   const running = Object.values(a.tasks).filter((t) => t.state === "working");
   let standing = running.filter((t) => isStanding(t.role)).length;

@@ -82,12 +82,13 @@ describe("runStart", () => {
     expect(r.next).toContain("architect drives the run");
   });
 
-  it("refuses a base, creating no run (landing returns in plan 50)", async () => {
+  it("takes a base again: the run records it and lands on its own branch (plan 50)", async () => {
     withHome();
     const { repo } = repoWithOrigin();
-    const before = listRuns().runs.length;
-    const e = await refusal(runStart(fakeDeps(), { repo, title: "w", aLines: ["A1 x"], base: "main" }));
-    expect([e.code, listRuns().runs.length]).toEqual(["E_INPUT_INVALID", before]);
+    const r = await runStart(fakeDeps(), { repo, title: "w", aLines: ["A1 x"], base: "main" });
+    const run = findRun(r.run);
+    expect(run.meta.base).toBe("main");
+    expect(readEvents(run)[0]).toMatchObject({ type: "run.started", base: "main" });
   });
 
   it("run_start returns the run when the daemon launch fails", async () => {

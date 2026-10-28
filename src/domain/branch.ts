@@ -5,8 +5,8 @@ import { BaseRefSchema } from "./workspace.ts";
 /** The run title as a folder and branch stem: at most 40 characters, `run` when nothing is left. */
 export const runSlug = (title: string): string => slug(title).slice(0, 40) || "run";
 
-/** A milestone's branch: the run's slug and the milestone, lower case (`wallet-split-m1`). */
-export const milestoneBranch = (title: string, m: string): string => `${runSlug(title)}-${m.toLowerCase()}`;
+/** Spec D11: a base run's one branch, its slug (`wallet-split`); one MR per repo per run. */
+export const runBranch = (title: string): string => runSlug(title);
 
 /** A branch on origin as `run_start`'s base: a plain name, never a remote ref (`origin/…`) or a full ref. */
 export const BaseBranchSchema = BaseRefSchema.refine(
@@ -36,21 +36,19 @@ export function planSetup(planText: string): string | null {
   return null;
 }
 
-/** Whether the owner's answer to a landed milestone's question is the word that has catherd push its branch. */
-export const isPushAnswer = (answer: string): boolean => answer.trim().toLowerCase() === "push";
+/** The subject of the commit `land` makes of the run's tree: conventional, lower case, at most 100 characters. */
+export const landSubject = (title: string): string =>
+  `chore: ${title.replace(/\s+/g, " ").trim() || "catherd run"}`.toLowerCase().slice(0, 100);
 
-/** The subject of the merge commit that lands a milestone on the base: the run's slug, lower case, at most 100 characters. */
-export function mergeSubject(runId: string, milestone: string, title: string): string {
-  const stem = runId.replace(/^\d{8}-\d{6}-/, "");
-  return `chore: merge ${stem} ${milestone} ${title}`.toLowerCase().slice(0, 100);
-}
-
-/** The command that opens a milestone's MR, for the origin's host: gh on github.com, else glab. */
+/** Spec D11: the command that opens a run's MR on the origin's host, for the owner when catherd could not: gh on github.com, else glab. */
 export function mrCommand(o: { originUrl: string; base: string; branch: string; body: string }): string {
-  return /(^|[@/.])github\.com[:/]/.test(o.originUrl)
+  return isGithub(o.originUrl)
     ? `gh pr create --base ${o.base} --head ${o.branch} --body-file ${o.body}`
-    : `glab mr create --source-branch ${o.branch} --target-branch ${o.base} --description-file ${o.body}`;
+    : `glab mr create --source-branch ${o.branch} --target-branch ${o.base} --description "$(cat ${o.body})"`;
 }
+
+/** Whether an origin URL is on github.com (gh), else a GitLab host (glab). */
+export const isGithub = (originUrl: string): boolean => /(^|[@/.])github\.com[:/]/.test(originUrl);
 
 /** The milestone a unit (`run`, `M1`, `M1.L2`) belongs to; null for the run itself. */
 export const unitMilestone = (unit: string): string | null =>
