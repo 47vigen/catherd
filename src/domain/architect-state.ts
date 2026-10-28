@@ -213,7 +213,10 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
           return true;
         }
         a.failedTurns = 0;
-        if (!idleNow(s, a)) return true;
+        if (!idleNow(s, a)) {
+          a.idle = 0;
+          return true;
+        }
         a.idle += 1;
         if (a.idle >= 2)
           a.finishing = { verdict: "stopped", why: "idle: two turns in a row ended with nothing running" };
@@ -297,9 +300,10 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
     }
     case "ledger.changed":
     case "thread.sent":
-      a.idle = 0;
+      // writing progress or steering a thread is not work: the architect does both every turn
       return true;
     case "run.finishing":
+      a.idle = 0;
       a.finishing ??= { verdict: e.verdict, why: e.why };
       return true;
     case "question.parked":

@@ -121,6 +121,29 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     expect(after(log)).toContainEqual({ type: "finish", outcome: "failed" });
   });
 
+  it("two idle turns in a row stop the run even when each writes a progress ledger entry", () => {
+    const log = architectRun();
+    const progress = () =>
+      log.add("ledger.changed", { tasks: [], progress: true, by: "architect", why: "progress" });
+    const a1 = turn(log, 1);
+    progress();
+    endDispatch(log, a1, { name: "architect-1", unit: "run", thread: "th-a" });
+    expect(wakeOf(after(log))).toMatchObject({ name: "architect-2" });
+    const a2 = turn(log, 2, "th-a");
+    progress();
+    endDispatch(log, a2, { name: "architect-2", unit: "run", thread: "th-a" });
+    expect(after(log)).toContainEqual({ type: "finish", outcome: "failed" });
+  });
+
+  it("an idle turn between busy turns does not count: idle turns must be consecutive", () => {
+    const log = architectRun();
+    endDispatch(log, turn(log, 1), { name: "architect-1", unit: "run", thread: "th-a" });
+    const a2 = turn(log, 2, "th-a");
+    log.add("effect.failed", { action: "runCheck", unit: "C9", message: "boom" });
+    endDispatch(log, a2, { name: "architect-2", unit: "run", thread: "th-a" });
+    expect(log.state().arch?.idle).toBe(0);
+  });
+
   it("starts a fresh thread after a failed turn or a daemon restart, and stops after three failed turns", () => {
     const log = architectRun();
     endDispatch(log, turn(log, 1), { name: "architect-1", unit: "run", status: "timeout", thread: "th-a" });
