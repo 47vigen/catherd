@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { ArchitectTool } from "../../src/domain/role-tools.ts";
 import { callArchitectTool, type ToolCaller } from "../../src/services/architect-tools.ts";
 import { ledgerTasks } from "../../src/services/ledger-store.ts";
-import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
+import { appendEvent, readEvents, replayRun, withEventsLock } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
 import { endDispatch, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
@@ -253,6 +253,28 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     await expect(work("codex:gpt-6-sol#high")).rejects.toMatchObject({
       message: expect.stringContaining("has had its 2 attempts"),
     });
+  });
+
+  it("checks the attempts cap under the events lock, not before it (plan 48, R20)", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { type: "run.started", ...startedFields, caps: { wallMin: 720, attempts: 1 } });
+    await call(run, "ledger", { tasks: { add: [{ id: "L1", goal: "the parser" }] }, why: "w" });
+    let late!: Promise<unknown>;
+    // a delegation that starts while another holds the lock must see that one's attempt once it gets in
+    await withEventsLock(run, (add) => {
+      late = call(run, "delegate_task", { role: "worker", task: "parse it", ledgerTask: "L1", why: "w" });
+      add({
+        type: "task.delegated",
+        taskId: "T1",
+        role: "worker",
+        rung: "codex:gpt-6-sol#high",
+        thread: null,
+        ledgerTask: "L1",
+        by: "architect-1",
+        why: "w",
+      });
+    });
+    await expect(late).rejects.toMatchObject({ message: expect.stringContaining("has had its 1 attempts") });
   });
 
   it("capabilities names each role's rungs, the slots and the budget; an earlier build's run has none of these tools", async () => {

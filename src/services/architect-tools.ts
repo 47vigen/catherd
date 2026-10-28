@@ -119,23 +119,25 @@ async function delegate(
   if (i.ledgerTask !== undefined) {
     if (!ledgerTasks(c.run).some((t) => t.id === i.ledgerTask))
       throw invalid(`the ledger has no task ${i.ledgerTask}`, "add it with ledger first");
-    // spec D10: a ledger task's attempts cap, and no same-rung retry without new information
-    const s = replayRun(c.run);
-    const cap = s.caps.attempts;
-    if (attemptsOn(s.arch, i.ledgerTask).length >= cap)
-      throw invalid(
-        `ledger task ${i.ledgerTask} has had its ${cap} attempts`,
-        `replan or split it, ask the owner, or set it impossible with ledger`,
-      );
-    const last = stalled(s, i.ledgerTask, rung);
-    if (last)
-      throw invalid(
-        `stalled: ${last.taskId} on ${i.ledgerTask} ended ${last.outcome} on ${rung}, and nothing new came in since`,
-        `change the rung, edit the ledger with what you learned, ask the owner, or set ${i.ledgerTask} impossible`,
-      );
   }
   const id = await withEventsLock(c.run, (add) => {
-    const id = `T${Object.keys(replayRun(c.run).arch?.tasks ?? {}).length + 1}`;
+    const s = replayRun(c.run);
+    if (i.ledgerTask !== undefined) {
+      // spec D10: a ledger task's attempts cap, and no same-rung retry without new information
+      const cap = s.caps.attempts;
+      if (attemptsOn(s.arch, i.ledgerTask).length >= cap)
+        throw invalid(
+          `ledger task ${i.ledgerTask} has had its ${cap} attempts`,
+          `replan or split it, ask the owner, or set it impossible with ledger`,
+        );
+      const last = stalled(s, i.ledgerTask, rung);
+      if (last)
+        throw invalid(
+          `stalled: ${last.taskId} on ${i.ledgerTask} ended ${last.outcome} on ${rung}, and nothing new came in since`,
+          `change the rung, edit the ledger with what you learned, ask the owner, or set ${i.ledgerTask} impossible`,
+        );
+    }
+    const id = `T${Object.keys(s.arch?.tasks ?? {}).length + 1}`;
     writeTextAtomic(join(c.run.dir, taskBriefFile(id)), `${i.task.trim()}\n`);
     add(
       {
