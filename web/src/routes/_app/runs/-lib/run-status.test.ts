@@ -20,6 +20,7 @@ const run = (over: Partial<RunView>): RunView => ({
   elapsedSec: 0,
   waitingSec: 0,
   countingSince: null,
+  metrics: null,
   ...over,
 });
 const parked = {

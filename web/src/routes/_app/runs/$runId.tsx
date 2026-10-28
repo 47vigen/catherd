@@ -22,7 +22,7 @@ import { RunGraph } from "./-components/graph/RunGraph";
 import { NodeList } from "./-components/NodeList";
 import { RunDocs } from "./-components/RunDocs";
 import { RunHeader } from "./-components/RunHeader";
-import { Milestones, Models } from "./-components/RunSide";
+import { Metrics, Milestones, Models } from "./-components/RunSide";
 import { Timeline, TimelineFilter } from "./-components/Timeline";
 import { useIsDesktop } from "./-hooks/useIsDesktop";
 import { type LiveFrame, useLiveRun } from "./-hooks/useLiveRun";
@@ -283,6 +283,7 @@ function RunDetail({ runId }: { runId: string }) {
           <div className="flex min-w-0 flex-col gap-4 lg:col-span-4">
             <Milestones milestones={r.milestones} />
             <Models dispatches={model.data?.dispatches ?? []} />
+            {r.metrics ? <Metrics metrics={r.metrics} /> : null}
           </div>
         ) : null}
         <Tile

@@ -15,6 +15,7 @@ import { cancel } from "../services/dispatch-service.ts";
 import { runDebug } from "../services/run-debug.ts";
 import { cleanScratch } from "../services/scratch.ts";
 import { repin } from "../services/run-pin.ts";
+import { metricsOf, reviewerReport } from "../services/run-metrics.ts";
 import { supersedeRun } from "../services/run-service.ts";
 import { findRun, listRuns, readRecords, type Run } from "../services/run-store.ts";
 import { groupRuns, type RunSession, type SessionGroup } from "../services/session-view.ts";
@@ -380,11 +381,55 @@ const pin = defineCommand({
 });
 
 /** Spec §8 `catherd runs list|show [--debug]|cancel`; a bare `catherd runs` lists them, as `status` needs no run. */
+const pct = (x: number | null): string => (x === null ? "–" : `${Math.round(x)}%`);
+const counts = (m: Record<string, number>): string =>
+  Object.entries(m)
+    .map(([k, v]) => `${k} ${v}`)
+    .join(", ") || "none";
+
+const metricsCmd = defineCommand({
+  meta: {
+    name: "metrics",
+    description:
+      "Where each run's time went (spec D17), and each reviewer rung's findings and misses (spec D8)",
+  },
+  args: { id: { type: "positional", required: false, description: "one run (default: every run)" }, ...json },
+  run({ args }) {
+    const runs = args.id ? [findRun(assertId("run", args.id))] : listRuns().runs;
+    const now = Date.now();
+    const rows = runs.map((r) => ({ id: r.id, title: r.meta.title, metrics: metricsOf(r, now) }));
+    const reviewers = reviewerReport(runs);
+    if (args.json) return printJson({ runs: rows, reviewers });
+    for (const { id, title, metrics: m } of rows)
+      console.log(
+        `${id}  wall ${Math.round(m.wallMin)} min  idle ${pct(m.idlePct)}  concurrency ${m.concurrency.toFixed(2)}  blocked ${counts(m.blockedMin)}  checks ${pct(m.checkShare === null ? null : m.checkShare * 100)}  rounds ${m.rounds.total} (max ${m.rounds.max})  climbs ${m.climbs}  ${title}`,
+      );
+    console.log("reviewer rungs:");
+    if (reviewers.rungs.length === 0) console.log("  no review yet");
+    for (const r of reviewers.rungs)
+      console.log(
+        `  ${r.rung}  ${r.reviews} review(s)  findings ${counts(r.findings)}  handled ${counts(r.handled)}  missed ${r.missed}`,
+      );
+    console.log(`reviewer eval set: ${reviewers.missed.length} missed bug(s)`);
+    for (const b of reviewers.missed) console.log(`  ${b.run} ${b.ledgerTask} (${b.caughtBy}): ${b.bug}`);
+  },
+});
+
 export const runsCommand = defineCommand({
   meta: {
     name: "runs",
-    description: "Runs: list them (the default), show one, cancel a live role, supersede or re-pin one",
+    description:
+      "Runs: list them (the default), show one or its metrics, cancel a live role, supersede or re-pin one",
   },
-  subCommands: { list, show, cancel: cancelCmd, clean, "retry-push": retryPush, supersede, pin },
+  subCommands: {
+    list,
+    show,
+    metrics: metricsCmd,
+    cancel: cancelCmd,
+    clean,
+    "retry-push": retryPush,
+    supersede,
+    pin,
+  },
   default: "list",
 });

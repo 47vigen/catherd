@@ -88,3 +88,43 @@ export function Models({ dispatches }: { dispatches: RunModel["dispatches"] }) {
     </Tile>
   );
 }
+
+const pct = (n: number): string => `${Math.round(n)}%`;
+const mins = (n: number): string => `${Math.round(n)} min`;
+
+/** Spec D17: where the run's time went, the numbers each stage is measured on. */
+export function Metrics({ metrics }: { metrics: NonNullable<RunView["metrics"]> }) {
+  const blocked = Object.entries(metrics.blockedMin).sort((a, b) => b[1] - a[1]);
+  const rows: [string, string, string | null][] = [
+    ["Idle", pct(metrics.idlePct), "no role running"],
+    ["Concurrency", metrics.concurrency.toFixed(2), "roles at once, on average"],
+    [
+      "Blocked",
+      mins(blocked.reduce((n, [, m]) => n + m, 0)),
+      blocked.length ? blocked.map(([why, m]) => `${why} ${mins(m)}`).join(" · ") : null,
+    ],
+    ["Checks", metrics.checkShare === null ? "–" : pct(metrics.checkShare * 100), "of the wall time"],
+    ["Review rounds", String(metrics.rounds.total), `at most ${metrics.rounds.max} on one task`],
+    ["Climbs", String(metrics.climbs), "a retry on another rung"],
+    [
+      "Standing start",
+      metrics.standingStartSec === null ? "–" : `${Math.round(metrics.standingStartSec)} s`,
+      "researcher or writer, call to start",
+    ],
+  ];
+  return (
+    <Tile title="Metrics">
+      <ul aria-label="Metrics" className="divide-separator divide-y">
+        {rows.map(([label, value, hint]) => (
+          <li key={label} className="flex items-center gap-3 px-4 py-2.5">
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="text-[13px] font-medium">{label}</span>
+              {hint ? <span className="text-muted truncate text-[11px]">{hint}</span> : null}
+            </span>
+            <span className="shrink-0 font-mono text-[13px] tabular-nums">{value}</span>
+          </li>
+        ))}
+      </ul>
+    </Tile>
+  );
+}

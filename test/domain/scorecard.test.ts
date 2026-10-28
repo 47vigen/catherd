@@ -6,10 +6,12 @@ import {
   type Interventions,
   INJECTED_TASK,
   passBar,
+  runsOf,
   SCORECARD_TASKS,
   type ScorecardFile,
   ScorecardTaskSchema,
   type ScorecardTaskId,
+  stageBar,
   type TaskScore,
 } from "../../src/domain/scorecard.ts";
 
@@ -176,5 +178,69 @@ describe("scorecard", () => {
       ]),
     );
     expect(passBar(file("x", tasks), file("1.5.0", all(60))).pass).toBe(true);
+  });
+});
+
+describe("the stage comparison, per task (plan 51, spec D17)", () => {
+  const metrics = {
+    wallMin: 60,
+    idlePct: 20,
+    concurrency: 1.2,
+    blockedMin: { needs_user: 4 },
+    checkShare: 0.25,
+    rounds: { perTask: { L1: 2 }, max: 2, total: 2 },
+    climbs: 1,
+    costUsd: null,
+    standingStartSec: null,
+    ownerQuestions: 0,
+    verifierFails: 0,
+  };
+  const twice = (label: string, wall: (t: ScorecardTaskId) => number[]): ScorecardFile => ({
+    schema: 1,
+    label,
+    tasks: {},
+    runs: Object.fromEntries(
+      SCORECARD_TASKS.map((t) => [
+        t,
+        wall(t).map((w, i) => score(t, { run: `${t}-${i}`, wallMinutes: w, metrics })),
+      ]),
+    ),
+  });
+
+  it("passes when every task ran twice, finished, and kept its median wall time within 10 %", () => {
+    const v = stageBar(
+      twice("stage-1", () => [50, 70]),
+      file("stage-0", all(60)),
+    );
+    expect(v.failures).toEqual([]);
+    expect(v.rows[0]).toMatchObject({
+      runs: 2,
+      wallMin: 60,
+      baselineWallMin: 60,
+      idlePct: 20,
+      blockedMin: 4,
+      rounds: 2,
+    });
+  });
+
+  it("fails a task with one run, an unfinished run, or a slower median, even when the total is better", () => {
+    const current = twice("stage-1", (t) => (t === "catherd-findings" ? [80, 80] : [10, 10]));
+    (current.runs as Record<string, unknown[]>)["raqam-myanmar"] = [
+      score("raqam-myanmar", { finished: false }),
+    ];
+    expect(
+      stageBar(
+        current,
+        twice("stage-0", () => [60, 60]),
+      ).failures,
+    ).toEqual([
+      "raqam-myanmar: 1 run(s); a stage is compared on 2 or more per task",
+      "raqam-myanmar: 1 of 1 runs did not finish",
+      "catherd-findings: median wall 80 min against stage-0's 60 min (more than 10 % slower)",
+    ]);
+  });
+
+  it("reads a file written before plan 51 as one run per task", () => {
+    expect(runsOf(file("1.5.0", all(60)), "raqam-myanmar")).toHaveLength(1);
   });
 });

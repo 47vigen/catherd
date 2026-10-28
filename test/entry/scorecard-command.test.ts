@@ -239,3 +239,32 @@ describe("catherd scorecard", () => {
     expect(catherd(["--help"]).out).toContain("scorecard");
   });
 });
+
+describe("catherd scorecard stage (plan 51, spec D17)", () => {
+  it("keeps every recorded run of a task, and compares two stages task by task", async () => {
+    withHome();
+    const results = tempDir("scorecard-results-");
+    const put = async (label: string, run: string, min: number) => {
+      for (const t of SCORECARD_TASKS)
+        await saveTaskScore(
+          join(results, `${label}.json`),
+          label,
+          score(t, { run: `${t}-${run}`, wallMinutes: min }),
+        );
+    };
+    await put("stage-0", "a", 60);
+    await put("stage-0", "b", 60);
+    await put("stage-1", "a", 50);
+    const stage = () =>
+      catherd(["scorecard", "stage", "stage-1", "--baseline", "stage-0", "--results", results]);
+    const one = stage();
+    expect([one.code, one.out]).toEqual([1, expect.stringContaining("FAIL: raqam-myanmar: 1 run(s)")]);
+    await put("stage-1", "b", 54);
+    // recording a run again replaces it
+    await put("stage-1", "b", 54);
+    const two = stage();
+    expect(two.code).toBe(0);
+    expect(two.out).toContain("raqam-myanmar  runs 2 (2 finished)  wall 52 min (60 min)");
+    expect(two.out).toEndWith("PASS\n");
+  });
+});

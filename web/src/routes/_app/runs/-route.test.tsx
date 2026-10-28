@@ -93,6 +93,19 @@ const run = (over: object = {}) => ({
   elapsedSec: 0,
   waitingSec: 0,
   countingSince: now(),
+  metrics: {
+    wallMin: 60,
+    idlePct: 12.5,
+    concurrency: 1.4,
+    blockedMin: { needs_user: 3 },
+    checkShare: 0.2,
+    rounds: { perTask: { L1: 2 }, max: 2, total: 2 },
+    climbs: 1,
+    costUsd: 1.73,
+    standingStartSec: 4,
+    ownerQuestions: 0,
+    verifierFails: 0,
+  },
   ...over,
 });
 const card = (over: object = {}) => ({
@@ -168,7 +181,6 @@ const detail = (over: object = {}) => ({
   replyStatus: null,
   why: null,
   record: null,
-  route: { source: "routes.jsonl", decidedBy: "jev", why: "The cheapest rung that passed before", ladder: [] },
   brief: "# Build M1.L1\n\nSplit the wallet ids.",
   reply: "All three files moved.",
   stderr: null,
@@ -330,6 +342,15 @@ test("the header sums tokens and cost and names the run's time", async () => {
   ).toBeInTheDocument();
 });
 
+test("the run's metrics show where its time went (plan 51, spec D17)", async () => {
+  renderRoute("/runs/r1", api);
+  await screen.findByRole("heading", { name: "wallet split" });
+  const metrics = await screen.findByRole("list", { name: "Metrics" }, { timeout: 5000 });
+  expect(within(metrics).getByText("Idle").closest("li")).toHaveTextContent("13%");
+  expect(within(metrics).getByText("Blocked").closest("li")).toHaveTextContent("needs_user 3 min");
+  expect(within(metrics).getByText("Checks").closest("li")).toHaveTextContent("20%");
+});
+
 test("the header's time leaves pauses out and stands still while paused", async () => {
   const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000).toISOString();
   runBody = run({ startedAt: twoHoursAgo, paused: now(), elapsedSec: 600, countingSince: null });
@@ -434,9 +455,8 @@ test("clicking a node opens its drawer and deep-links it", async () => {
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByRole("heading", { name: "M1.L1 worker" })).toBeInTheDocument();
   expect(router.state.location.searchStr).toContain("node=M1%2Flane%2FM1.L1&tab=overview");
-  // the overview explains the step, names the rung and says why it was chosen
-  expect(await within(dialog).findByText("The cheapest rung that passed before")).toBeInTheDocument();
-  expect(within(dialog).getByRole("list", { name: "Attempts" })).toBeInTheDocument();
+  // the overview explains the step and lists its attempts
+  expect(await within(dialog).findByRole("list", { name: "Attempts" })).toBeInTheDocument();
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(router.state.location.searchStr).not.toContain("node="));
 });

@@ -43,6 +43,27 @@ export type RunView = {
     elapsedSec: number;
     waitingSec: number;
     countingSince: string | null;
+    metrics: {
+        wallMin: number;
+        idlePct: number;
+        concurrency: number;
+        blockedMin: {
+            [key: string]: number;
+        };
+        checkShare: number | null;
+        rounds: {
+            perTask: {
+                [key: string]: number;
+            };
+            max: number;
+            total: number;
+        };
+        climbs: number;
+        costUsd: number | null;
+        standingStartSec: number | null;
+        ownerQuestions: number;
+        verifierFails: number;
+    } | null;
 };
 
 export type RunCard = {
@@ -247,12 +268,6 @@ export type DispatchDetail = {
         access: string;
         isolated: boolean;
         cliVersion: string | null;
-    } | null;
-    route: {
-        source: string;
-        decidedBy: string;
-        why: string;
-        ladder: Array<string>;
     } | null;
     brief: string | null;
     reply: string | null;

@@ -210,7 +210,6 @@ export function NodeDrawer({
                       <OverviewTab
                         node={node}
                         attempt={attempt}
-                        dispatch={dispatch.data}
                         now={now}
                         onAttempt={(id) => onChange({ attempt: id })}
                       />

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import { formatCost, formatTokens, tokenTotal } from "../../-lib/format";
 import { formatDuration, modelName, nodeSecs, nowLine, parseRung } from "../../-lib/node-view";
-import type { Attempt, DispatchDetail, RunNode } from "../../../../../client";
+import type { Attempt, RunNode } from "../../../../../client";
 import { backendName, ProviderIcon } from "../../../../../components/provider-icon/ProviderIcon";
 import { StatusChip } from "../../../../../components/status-chip/StatusChip";
 import { Term } from "../../../../../components/term/Term";
@@ -32,7 +32,7 @@ const HELP: Record<RunNode["kind"], ReactNode> = {
     </>
   ),
   commit: "The changes of the milestone are committed once every lane has passed its fast check.",
-  review: "A reviewer reads the commit and lists findings as BLOCKER, BUG or NIT.",
+  review: "A reviewer reads the work and lists findings as IMPORTANT, NIT or PRE-EXISTING, each with its bug class.",
   verify: (
     <>
       The <Term name="verifier">verifier</Term> checks the finished work against the plan and its{" "}
@@ -81,13 +81,11 @@ const mono = "font-mono tabular-nums";
 export function OverviewTab({
   node,
   attempt,
-  dispatch,
   now,
   onAttempt,
 }: {
   node: RunNode;
   attempt: Attempt | undefined;
-  dispatch: DispatchDetail | undefined;
   now: number;
   onAttempt: (id: string) => void;
 }) {
@@ -129,14 +127,6 @@ export function OverviewTab({
         {rung ? (
           <Cell label="Model" wide>
             <RungLine rung={rung} />
-          </Cell>
-        ) : null}
-        {dispatch?.route ? (
-          <Cell label="Why this model" wide>
-            {dispatch.route.why}
-            <span className="text-muted block text-xs">
-              Chosen by {dispatch.route.decidedBy} from {dispatch.route.source}.
-            </span>
           </Cell>
         ) : null}
         {attempt?.failoverFrom ? (
