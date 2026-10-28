@@ -165,7 +165,9 @@ export const attemptsOn = (a: ArchState, ledgerTask: string): ArchTask[] =>
  */
 export function stalled(s: RunState, ledgerTask: string, rung: string): ArchTask | null {
   const last = attemptsOn(s.arch, ledgerTask).findLast((t) => t.state === "ended");
-  if (!last || last.endedSeq === null || last.outcome === "ok/complete") return null;
+  // a quota end (`limit`) is transient, not a failure the same rung would repeat
+  if (!last || last.endedSeq === null || last.outcome === "ok/complete" || last.outcome?.startsWith("limit/"))
+    return null;
   const news = Math.max(s.arch.newsSeq, s.arch.ledgerNews[ledgerTask] ?? 0);
   return last.rung === rung && news < last.endedSeq ? last : null;
 }

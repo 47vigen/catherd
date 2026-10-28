@@ -103,6 +103,14 @@ describe("spec D10: stall and impossible", () => {
     expect(stalled(log.state(), "L1", RUNG)).toBeNull();
   });
 
+  it("a quota end is not a stall", () => {
+    const log = capped(720);
+    delegate(log, "T1", "L1");
+    const id = startDispatch(log, { name: "T1", unit: "T1" });
+    endDispatch(log, id, { name: "T1", unit: "T1", status: "limit", replyStatus: null, why: "quota" });
+    expect(stalled(log.state(), "L1", RUNG)).toBeNull();
+  });
+
   it("a clean end never stalls, and each end names its attempt against the cap", () => {
     const log = capped(720);
     delegate(log, "T1", "L1");
