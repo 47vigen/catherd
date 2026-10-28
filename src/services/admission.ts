@@ -286,7 +286,7 @@ export async function admit(
       briefPath: p.brief,
       replyPath: p.reply,
       dispatchDir: dir,
-      ...(roleServer ? { roleMcp: { run: run.id, role: i.role } } : {}),
+      ...(roleServer ? { roleMcp: { run: run.id, role: i.role, engine: runEngine(run) } } : {}),
       ...(scratch ? { scratch } : {}),
     });
     // A dispatch blocks until its record is written, not only while it runs: its finalizer diffs the

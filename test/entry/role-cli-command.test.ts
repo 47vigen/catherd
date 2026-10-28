@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import { createRun, runPaths } from "../../src/services/run-store.ts";
+import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv, tempRepo } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 import { fakeDispatch, freshRun } from "../services/helpers.ts";
@@ -157,5 +159,27 @@ describe("the CLI forms any role can run (spec 1.5 plan 21)", () => {
     });
     expect(red.code).toBe(1);
     expect(JSON.parse(red.out).missing[0]).toContain("exits 1");
+  });
+
+  it("calls an architect-engine tool with JSON on stdin, bound to the role's own tools (plan 47)", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { type: "run.started", ...startedFields, engine: "architect" });
+    await fakeDispatch(run, { name: "T1", lane: null, owns: [] });
+    const worker = catherd(["call", run.id, "finish"], {
+      role: `${run.id}/T1`,
+      stdin: '{"verdict":"done","why":"w"}',
+    });
+    expect(worker.code).not.toBe(0);
+    expect(worker.err).toContain("E_ROLE_SCOPE");
+    const owner = catherd(["call", run.id, "finish"], { stdin: '{"verdict":"done","why":"shipped"}' });
+    expect(owner).toMatchObject({ code: 0 });
+    expect(JSON.parse(owner.out)).toEqual({ finishing: "done" });
+    expect(readEvents(run).at(-1)).toMatchObject({
+      type: "run.finishing",
+      verdict: "done",
+      by: "owner",
+      why: "shipped",
+    });
+    expect(catherd(["call", run.id, "teleport"], { stdin: "{}" }).err).toContain("E_INPUT_INVALID");
   });
 });

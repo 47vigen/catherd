@@ -7,6 +7,9 @@ import type { Role } from "../../src/domain/roles.ts";
 import { buildRoleServer } from "../../src/entry/mcp/role-server.ts";
 import { codexRoleMcpArgs, probeRoleServer, ROLE_MCP_STARTUP_SEC } from "../../src/infra/role-mcp.ts";
 import { createRun } from "../../src/services/run-store.ts";
+import { ARCHITECT_TOOLS } from "../../src/domain/role-tools.ts";
+import { appendEvent } from "../../src/services/run-events-store.ts";
+import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv, tempRepo } from "../helpers.ts";
 import { call } from "../mcp-helpers.ts";
 import { fakeDeps, freshRun } from "../services/helpers.ts";
@@ -56,6 +59,51 @@ describe("dispatch-scoped role MCP", () => {
       } finally {
         await client.close();
       }
+    }
+  });
+
+  it("an architect run's architect gets the loop's tools; its workers and writers the standing-role ones (plan 47)", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { type: "run.started", ...startedFields, engine: "architect" });
+    const names = async (role: Role) => {
+      const client = await roleClient(run.id, role);
+      try {
+        return (await client.listTools()).tools.map((t) => t.name).sort();
+      } finally {
+        await client.close();
+      }
+    };
+    expect(await names("architect")).toEqual(
+      [
+        "read_run_file",
+        "read_knowledge",
+        "write_run_file",
+        "team_send",
+        "team_read",
+        ...ARCHITECT_TOOLS,
+      ].sort(),
+    );
+    expect(await names("worker")).toEqual(
+      [
+        "read_run_file",
+        "read_knowledge",
+        "team_send",
+        "team_read",
+        "team_wait",
+        "delegate_task",
+        "task_status",
+        "thread_wait",
+      ].sort(),
+    );
+    expect(await names("writer")).toContain("write_run_file");
+    const client = await roleClient(run.id, "architect");
+    try {
+      const r = await call(client, "delegate_task", { role: "worker", task: "write it", why: "first" });
+      expect(r.isError).toBe(false);
+      expect(r.data).toMatchObject({ taskId: "T1" });
+      expect((await call(client, "delegate_task", { role: "worker", task: "x" })).isError).toBe(true);
+    } finally {
+      await client.close();
     }
   });
 
