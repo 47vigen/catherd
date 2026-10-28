@@ -122,10 +122,37 @@ describe("branchPusher", () => {
   it("pushes the branch to a local origin, and names git's failure", async () => {
     const { repo, origin, run } = branchRun();
     const a = await claimRunTree(deps, run);
-    await branchPusher.push(a.tree, a.branch);
+    await branchPusher.push(a.tree, a.branch, sh(a.tree, "rev-parse", "HEAD"));
     expect(sh(origin, "rev-parse", "--verify", "t")).toBe(sh(a.tree, "rev-parse", "HEAD"));
     sh(repo, "remote", "set-url", "origin", join(run.dir, "nonexistent"));
-    const e = await refusal(branchPusher.push(a.tree, a.branch));
+    const e = await refusal(branchPusher.push(a.tree, a.branch, sh(a.tree, "rev-parse", "HEAD")));
     expect([e.code, e.message.startsWith("git push of t failed")]).toEqual(["E_TREE", true]);
+  });
+  it("pushes the sha it was given, not what HEAD became since", async () => {
+    const { origin, run } = branchRun();
+    const a = await claimRunTree(deps, run);
+    const judged = sh(a.tree, "rev-parse", "HEAD");
+    sh(a.tree, "commit", "-q", "--allow-empty", "-m", "after the judgement");
+    await branchPusher.push(a.tree, a.branch, judged);
+    expect(sh(origin, "rev-parse", "--verify", "t")).toBe(judged);
+    expect(sh(a.tree, "rev-parse", "HEAD")).not.toBe(judged);
+  });
+
+  it("is neither forced nor retargeted by a push config of the repo", async () => {
+    const { repo, origin, run } = branchRun();
+    const a = await claimRunTree(deps, run);
+    const first = sh(a.tree, "rev-parse", "HEAD");
+    await branchPusher.push(a.tree, a.branch, first);
+    sh(repo, "config", "remote.origin.push", "+refs/heads/*:refs/heads/other/*");
+    sh(a.tree, "commit", "-q", "--allow-empty", "-m", "second");
+    const second = sh(a.tree, "rev-parse", "HEAD");
+    await branchPusher.push(a.tree, a.branch, second);
+    expect(sh(origin, "rev-parse", "--verify", "t")).toBe(second);
+    expect(sh(origin, "for-each-ref", "refs/heads/other")).toBe("");
+    // a rewritten branch is rejected, not forced
+    sh(a.tree, "reset", "-q", "--hard", first);
+    sh(a.tree, "commit", "-q", "--allow-empty", "-m", "rewrite");
+    await refusal(branchPusher.push(a.tree, a.branch, sh(a.tree, "rev-parse", "HEAD")));
+    expect(sh(origin, "rev-parse", "--verify", "t")).toBe(second);
   });
 });

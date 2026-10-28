@@ -139,4 +139,20 @@ describe("land (plan 50, spec D11)", () => {
       "the MR was not opened (glab: not logged in): open it with glab mr create",
     );
   });
+
+  it("refuses a tree that is not on the run's branch, and keeps a push config from retargeting the push", async () => {
+    const { run, tree: t, origin } = await tree();
+    sh(run.meta.repo, "config", "remote.origin.push", "+refs/heads/*:refs/heads/other/*");
+    writeFileSync(join(t, "a.ts"), "export const a = 1;\n");
+    const pushed = await runLand(run, land(false));
+    expect(pushed.done.outcome).toBe("pushed");
+    expect(sh(origin, "rev-parse", "t")).toBe(sh(t, "rev-parse", "HEAD"));
+    expect(sh(origin, "for-each-ref", "refs/heads/other")).toBe("");
+    sh(t, "checkout", "-q", "--detach");
+    writeFileSync(join(t, "b.ts"), "export const b = 1;\n");
+    const r = await runLand(run, land(false, 2));
+    expect(r.done).toMatchObject({ outcome: "refused", sha: null });
+    expect(r.done.message).toContain("no branch checked out, not t");
+    expect(sh(t, "status", "--porcelain")).toContain("b.ts"); // nothing was committed
+  });
 });

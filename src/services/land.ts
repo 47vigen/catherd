@@ -5,7 +5,7 @@ import { errorMessage } from "../domain/errors.ts";
 import { isTestPath, mrBody, SKIP_LINE } from "../domain/mr-body.ts";
 import { describeEvent, type RunEvent, type RunEventInput } from "../domain/run-events.ts";
 import { db } from "../infra/db.ts";
-import { fetchBase, gitOrigin, gitRun } from "../infra/git.ts";
+import { currentBranch, fetchBase, gitOrigin, gitRun } from "../infra/git.ts";
 import { ensurePrivateDir, writeTextAtomic } from "../infra/store.ts";
 import { ledgerTasks } from "./ledger-store.ts";
 import { readEvents } from "./run-events-store.ts";
@@ -165,6 +165,11 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
     const protectedBranch = [base, "main", "master", await originDefault(tree)];
     if (protectedBranch.includes(branch))
       return refused(`${branch} is a protected branch: catherd never pushes it`);
+    const on = await currentBranch(tree);
+    if (on !== branch)
+      return refused(
+        `the run's tree has ${on ?? "no branch"} checked out, not ${branch}: check out ${branch}`,
+      );
     if ((await out(tree, ["status", "--porcelain"])).trim()) {
       await out(tree, ["add", "-A"]);
       await out(tree, ["commit", "-q", "-m", landSubject(run.meta.title)]);
@@ -191,7 +196,7 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
         moved = `the base moved under ${overlap.join(", ")}: merged origin/${base} as ${sha.slice(0, 12)}`;
       }
     }
-    await branchPusher.push(tree, branch);
+    await branchPusher.push(tree, branch, sha);
     const mb = (await out(tree, ["merge-base", "HEAD", `origin/${base}`])).trim();
     const events = readEvents(run);
     const tasks = ledgerTasks(run);

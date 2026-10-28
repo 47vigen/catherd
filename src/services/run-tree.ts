@@ -18,10 +18,14 @@ export const treeLimits = { setupMs: 15 * 60_000 };
 const PUSH_MS = 120_000;
 const TAIL = 1_500;
 
-/** `git -C <tree> push -u origin <branch>`, never forced: the one push catherd makes (spec D11). Tests replace it. */
+/**
+ * `git -C <tree> push origin <sha>:refs/heads/<branch>`, never forced: the one push catherd makes (spec D11). The
+ * sha and the full refspec are what `land` judged: a commit made since, or a `remote.origin.push` config, moves
+ * nothing. Tests replace it.
+ */
 export const branchPusher = {
-  push: async (tree: string, branch: string): Promise<void> => {
-    const r = await gitRun(tree, ["push", "-u", "origin", branch], PUSH_MS);
+  push: async (tree: string, branch: string, sha: string): Promise<void> => {
+    const r = await gitRun(tree, ["push", "origin", `${sha}:refs/heads/${branch}`], PUSH_MS);
     if (r.code !== 0)
       throw new CatherdError(
         "E_TREE",
