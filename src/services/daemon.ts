@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { errorMessage } from "../domain/errors.ts";
@@ -14,7 +14,7 @@ import type { RunEvent } from "../domain/run-events.ts";
 import { type Action, actionKey, confirms, failKey, next } from "../domain/run-machine.ts";
 import { reduce, replay, type RunState } from "../domain/run-state.ts";
 import { type Effects, realEffects } from "./run-effects.ts";
-import { appendEvent, eventsFile, isDaemonRun, readEvents } from "./run-events-store.ts";
+import { appendEvent, hasRunEnded, isDaemonRun, readEvents } from "./run-events-store.ts";
 import { pausesFor } from "./pause.ts";
 import { findRun, type Run } from "./run-store.ts";
 
@@ -62,25 +62,16 @@ export const daemonAlive = (run: Run): boolean => lockHeld(daemonLockTarget(run)
 /** How the daemon is started; tests replace it so no process is spawned. */
 export const daemonLauncher = { launch: launchDaemon };
 
-/** Whether the run's events say it ended (`run.ended`). A `"type":"run.ended"` never occurs inside a JSON string. */
-function hasEnded(run: Run): boolean {
-  try {
-    return readFileSync(eventsFile(run), "utf8").includes('"type":"run.ended"');
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Makes sure a 2.0 run that has not ended has a daemon: one that is alive is left alone, a dead one is
  * started again at most once per revive window. A 1.5 run has none.
  */
 export function ensureDaemon(run: Run): "alive" | "revived" | "ended" | "1.5" {
   if (!isDaemonRun(run)) return "1.5";
-  if (hasEnded(run)) return "ended";
+  if (hasRunEnded(run)) return "ended";
   if (daemonAlive(run)) return "alive";
   return withFileLockSync(launchStamp(run), () => {
-    if (hasEnded(run)) return "ended";
+    if (hasRunEnded(run)) return "ended";
     if (daemonAlive(run)) return "alive";
     // A daemon that died within reviveMs most likely fails at start: one launch per window, not per read.
     const last = existsSync(launchStamp(run)) ? statSync(launchStamp(run)).mtimeMs : 0;
@@ -166,7 +157,7 @@ export async function runDaemon(
   const inFlight = new Set<Promise<void>>();
   const watches = new Set<Promise<void>>();
   try {
-    if (!isDaemonRun(run) || hasEnded(run)) return "ended";
+    if (!isDaemonRun(run) || hasRunEnded(run)) return "ended";
     const clock = o.clock ?? REAL_CLOCK;
     const effects = o.effects ?? realEffects(deps, run);
     let state: RunState = replay(readEvents(run), run.id);

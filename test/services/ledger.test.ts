@@ -1,11 +1,12 @@
 import { afterEach, expect, it } from "bun:test";
+import { db } from "../../src/infra/db.ts";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { coveredMs } from "../../src/domain/util.ts";
 import { land } from "../../src/services/lane-service.ts";
 import { pauseMachine, resumeMachine } from "../../src/services/pause.ts";
 import { answer, park } from "../../src/services/questions.ts";
-import { appendAgentRun, appendLedger, createRun, runPaths } from "../../src/services/run-store.ts";
+import { appendAgentRun, appendLedger, createRun } from "../../src/services/run-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { claimTree } from "../../src/services/milestone-tree.ts";
 import { milestoneCommits, milestoneFiles } from "../../src/services/milestones.ts";
@@ -62,14 +63,9 @@ it("refuses a milestone whose only verifier verdicts carry a longer name", async
   const { run, landing } = setup();
   await passGate(run, "M2", at(1));
   // drop the exact row passGate wrote: keep only verifier-M2-gate3
-  const records = runPaths(run.dir).runs;
-  writeFileSync(
-    records,
-    readFileSync(records, "utf8")
-      .split("\n")
-      .filter((l) => !l.includes('"name":"verifier-M2"'))
-      .join("\n"),
-  );
+  db()
+    .query("DELETE FROM dispatches WHERE run_id = ? AND json_extract(body, '$.name') = 'verifier-M2'")
+    .run(run.id);
   appendAgentRun(run, {
     at: at(2),
     name: "verifier-M2-gate3",

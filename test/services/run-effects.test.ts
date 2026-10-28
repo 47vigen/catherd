@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { db } from "../../src/infra/db.ts";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dataDir } from "../../src/infra/paths.ts";
 import { dirname, join } from "node:path";
 import { mergeSubject } from "../../src/domain/branch.ts";
 import { newDispatchId } from "../../src/domain/ids.ts";
@@ -34,7 +36,7 @@ import {
 } from "../../src/services/milestone-check.ts";
 import { heavyLimits } from "../../src/infra/heavy-lock.ts";
 import { addKnowledge, knowledgePath } from "../../src/services/run-service.ts";
-import { appendEvent, eventsFile, readEvents, replayRun } from "../../src/services/run-events-store.ts";
+import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
 import { appendRecord, type Run, runPaths } from "../../src/services/run-store.ts";
 import { commitInClone, repoWithOrigin, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
@@ -2169,6 +2171,10 @@ describe("parking, reporting, finishing", () => {
       reportPath: join(run.dir, "report.md"),
     });
     expect(readFileSync(join(run.dir, "report.md"), "utf8")).toContain("# wallet");
+    // plan 46: the run's end backs the database up
+    expect(readdirSync(join(dataDir(), "backups"))).toEqual([
+      expect.stringMatching(/^catherd-\d{4}-\d{2}-\d{2}\.db$/),
+    ]);
   });
 
   it("finishes with the rules proposals in the report and writes knowledge.md never (plan 34)", async () => {
@@ -2279,11 +2285,13 @@ describe("parking, reporting, finishing", () => {
   it("rethrows when the effect.failed event cannot be written, so the daemon hears of it", async () => {
     const { run, fx } = setup();
     await seed(run);
-    chmodSync(eventsFile(run), 0o444);
+    db().run(
+      "CREATE TEMP TRIGGER no_events BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT, 'read-only'); END",
+    );
     try {
       await expect(fx.run({ type: "integrate", milestone: "M1" }, replayRun(run))).rejects.toThrow();
     } finally {
-      chmodSync(eventsFile(run), 0o644);
+      db().run("DROP TRIGGER no_events");
     }
     expect(types(run)).not.toContain("effect.failed");
   });

@@ -101,6 +101,18 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
 - `CURSOR_API_KEY` is no longer read.
 - Old runs keep their records: their `cursor:` rungs are still read, and nothing runs them.
 
+### Run state moves to one database (plan 46)
+
+- A run this build starts keeps its events in `<data dir>/catherd.db` (SQLite, WAL) and writes no `events.jsonl`.
+- A run an earlier build started keeps its `events.jsonl` and finishes as before.
+- `catherd run-file read <run> events.jsonl` still prints a run's events, one JSON line each.
+- Dispatch records and team messages are in the database too. `runs.jsonl` and `team.jsonl` are written only for a
+  run an earlier build started; `catherd run-file read <run> runs.jsonl` still prints its records.
+- At a session's start, every finished run an earlier build kept on files is copied into the database as `legacy`, so
+  cross-run queries see it. The import only reads: the run's folder is not changed, and the run is still read from
+  its files. A folder that cannot be read is named on stderr (`catherd: not imported <id>: <reason>`) and skipped.
+- Each run's end copies the whole database to `<data dir>/backups/catherd-<date>.db`; the last 7 are kept.
+
 ### Grok Build and Antigravity are removed
 
 - Grok Build (`grok:`) and Antigravity (`antigravity:`) are removed. A profile that names one fails `profile

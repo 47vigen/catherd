@@ -109,6 +109,8 @@ describe("doctor's Docker rows (plan 23)", () => {
     process.env.DOCKER_CONFIG = tempDir("catherd-dockercfg-");
     const root = tempDir("catherd-dockerroot-");
     fakeDocker({ failures: 0, root });
+    // the root is a real temp dir, so the host's free space must not decide the first half
+    dockerDisk.minFreeBytes = 0;
     expect((await dockerChecks({ probe: true })).find((c) => c.id === "docker-disk")).toBeUndefined();
     dockerDisk.minFreeBytes = Number.MAX_SAFE_INTEGER;
     expect((await dockerChecks({ probe: true })).find((c) => c.id === "docker-disk")).toMatchObject({

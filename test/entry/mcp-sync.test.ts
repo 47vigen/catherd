@@ -7,6 +7,7 @@ import { bootLockTarget } from "../../src/infra/boot-lock.ts";
 import { locksDir } from "../../src/infra/paths.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
 import { watching, watchersSettled } from "../../src/services/dispatch-service.ts";
+import * as legacyImport from "../../src/services/legacy-import.ts";
 import * as reconcile from "../../src/services/reconcile.ts";
 import { createRun, readRecords } from "../../src/services/run-store.ts";
 import { claimRun } from "../../src/services/sessions.ts";
@@ -54,6 +55,26 @@ describe("one MCP server runs the boot sync and reconcile (plan 22, single-fligh
       await third.close();
     } finally {
       reconciles.mockRestore();
+    }
+  });
+
+  it("reconciles even when the legacy import fails, and says so", async () => {
+    withHome();
+    const imports = spyOn(legacyImport, "importLegacyRuns").mockImplementation(() => {
+      throw new Error("disk full");
+    });
+    const reconciles = spyOn(reconcile, "reconcileAll");
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const client = await server([], "only");
+      await waitFor(() => reconciles.mock.calls.length === 1);
+      expect(imports).toHaveBeenCalled();
+      expect(errors.mock.calls.flat().join("\n")).toContain("legacy import failed: disk full");
+      await client.close();
+    } finally {
+      imports.mockRestore();
+      reconciles.mockRestore();
+      errors.mockRestore();
     }
   });
 

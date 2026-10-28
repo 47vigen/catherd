@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { CatherdError, UPGRADE } from "../domain/errors.ts";
 import { EVENTS_SCHEMA, RunEventSchema, type RunEvent, type RunEventInput } from "../domain/run-events.ts";
 import { type RunState, replay } from "../domain/run-state.ts";
+import { db, ensureRunRow, insertEvent, storeOnFile } from "../infra/db.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
 import { appendJsonlBatch } from "../infra/store.ts";
@@ -11,11 +12,15 @@ import type { Run } from "./run-store.ts";
 /** What the reads need of a run: its id for messages, its folder for the file. */
 type RunRef = Pick<Run, "id" | "dir">;
 
-/** `<run>/events.jsonl`: one fact per line, dense `seq`, the only state a 2.0 run keeps. */
+/** `<run>/events.jsonl`: one fact per line, dense `seq`; the store of a run an earlier 2.0 build started. */
 export const eventsFile = (run: RunRef): string => join(run.dir, "events.jsonl");
 
-/** A 2.0 run has an events.jsonl; a run without one is a 1.5 run, and the daemon never drives it. */
-export const isDaemonRun = (run: RunRef): boolean => existsSync(eventsFile(run));
+/** Plan 46: a run keeps its events in the database (D13), unless an earlier build gave it an events.jsonl. */
+const onFile = (run: RunRef): boolean => storeOnFile(run, eventsFile(run), "events");
+
+/** A 2.0 run has events; a run without any is a 1.5 run, and the daemon never drives it. */
+export const isDaemonRun = (run: RunRef): boolean =>
+  onFile(run) || db().query("SELECT 1 FROM events WHERE run_id = ? LIMIT 1").get(run.id) !== null;
 
 const corrupt = (run: RunRef, after: number, why: string): CatherdError =>
   new CatherdError("E_RUN_CORRUPT", `${eventsFile(run)} is corrupt after seq ${after}: ${why}`, {
@@ -50,6 +55,7 @@ function decode(run: RunRef, line: string): RunEvent | null {
  * Lines before `fromSeq` are skipped unread: the caller replayed them already.
  */
 export function readEvents(run: RunRef, fromSeq = 1): RunEvent[] {
+  if (!onFile(run)) return readRows(run, fromSeq);
   let text: string;
   try {
     text = readFileSync(eventsFile(run), "utf8");
@@ -76,13 +82,53 @@ export function readEvents(run: RunRef, fromSeq = 1): RunEvent[] {
   return out;
 }
 
+/** The database's events of `run` from `fromSeq`; a row that is not an event refuses the read (E_RUN_CORRUPT). */
+function readRows(run: RunRef, fromSeq: number): RunEvent[] {
+  const rows = db()
+    .query("SELECT seq, body FROM events WHERE run_id = ? AND seq >= ? ORDER BY seq")
+    .all(run.id, fromSeq) as { seq: number; body: string }[];
+  const out: RunEvent[] = [];
+  for (const r of rows) {
+    const e = decode(run, r.body);
+    if (e === null) throw corrupt(run, r.seq - 1, "a row is not an event");
+    out.push(e);
+  }
+  return out;
+}
+
+/** The last seq written, 0 for none: what a reader compares to see whether the run moved. */
+export function lastEventSeq(run: Run): number {
+  if (onFile(run)) return lastSeq(run);
+  const r = db().query("SELECT MAX(seq) AS seq FROM events WHERE run_id = ?").get(run.id) as {
+    seq: number | null;
+  };
+  return r.seq ?? 0;
+}
+
+/** Whether the run's events say it ended (`run.ended`). */
+export function hasRunEnded(run: Run): boolean {
+  if (!onFile(run))
+    return (
+      db().query("SELECT 1 FROM events WHERE run_id = ? AND type = 'run.ended' LIMIT 1").get(run.id) !== null
+    );
+  try {
+    // a `"type":"run.ended"` never occurs inside a JSON string
+    return readFileSync(eventsFile(run), "utf8").includes('"type":"run.ended"');
+  } catch {
+    return false;
+  }
+}
+
 export const replayRun = (run: Run): RunState => replay(readEvents(run), run.id);
 
-/** The last seq of the file; a torn tail is cut off first, so the next line starts clean. Under the file's lock. */
-function lastSeq(run: Run): number {
+/**
+ * The last seq of the file. With `repair` (only under the file's lock, before an append) a torn tail is cut off
+ * first, so the next line starts clean; a reader never writes.
+ */
+function lastSeq(run: Run, repair = false): number {
   const file = eventsFile(run);
   if (!existsSync(file)) return 0;
-  const fd = openSync(file, "r+");
+  const fd = openSync(file, repair ? "r+" : "r");
   try {
     const size = fstatSync(fd).size;
     let chunk = 64 * 1024;
@@ -99,7 +145,7 @@ function lastSeq(run: Run): number {
         chunk *= 4;
         continue;
       }
-      if (tail && decode(run, tail) === null) {
+      if (repair && tail && decode(run, tail) === null) {
         // a torn append: not an event, never will be one
         ftruncateSync(fd, size - Buffer.byteLength(tail));
         log("warn", "events", { run: run.id, tornTail: Buffer.byteLength(tail) });
@@ -125,12 +171,22 @@ export function withEventsLock<T>(
 
 /** The events with the next dense seqs, validated all before the one write that appends them. */
 function writeEvents(run: Run, es: RunEventInput[], now: Date = new Date()): RunEvent[] {
-  const first = lastSeq(run) + 1;
-  const out = es.map((e, i) =>
-    RunEventSchema.parse({ v: EVENTS_SCHEMA, seq: first + i, at: now.toISOString(), ...e }),
-  );
-  appendJsonlBatch(eventsFile(run), out);
-  return out;
+  const stamp = (first: number) =>
+    es.map((e, i) => RunEventSchema.parse({ v: EVENTS_SCHEMA, seq: first + i, at: now.toISOString(), ...e }));
+  if (onFile(run)) {
+    const out = stamp(lastSeq(run, true) + 1);
+    appendJsonlBatch(eventsFile(run), out);
+    return out;
+  }
+  const d = db();
+  return d
+    .transaction(() => {
+      ensureRunRow(d, run);
+      const out = stamp(lastEventSeq(run) + 1);
+      for (const e of out) insertEvent(d, run.id, e);
+      return out;
+    })
+    .immediate();
 }
 
 /** Appends one event under the file's lock, with the next dense `seq`, and returns it as written. */

@@ -23,8 +23,10 @@ import {
   knowledgeFile,
   listRuns,
   readAgentRuns,
+  readRecords,
   runPaths,
 } from "../../src/services/run-store.ts";
+import { appendEvent } from "../../src/services/run-events-store.ts";
 import { readNotes } from "../../src/services/state.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { fakeDeps, fakeDispatch, freshRun, makeRecord, passGate, route, writeLane } from "./helpers.ts";
@@ -208,6 +210,16 @@ describe("a failed state.md refresh at run start", () => {
 });
 
 describe("run files, result and agent runs", () => {
+  it("reads a run's events and records as the files an earlier build kept (plan 46)", async () => {
+    const { run } = freshRun();
+    const e = await appendEvent(run, { type: "tick" });
+    await appendRecord(run, makeRecord({ dispatchId: "D1" }));
+    expect(readRunFile({ run: run.id, path: "events.jsonl" })).toBe(`${JSON.stringify(e)}\n`);
+    expect(readRunFile({ run: run.id, path: "runs.jsonl" })).toBe(
+      `${JSON.stringify(readRecords(run).records[0])}\n`,
+    );
+  });
+
   it("writes and reads run files through the guard", async () => {
     const { run } = freshRun();
     writeRunFile({ run: run.id, path: "lanes/M1.L1.md", content: "# M1.L1" });

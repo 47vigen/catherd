@@ -31,7 +31,7 @@ test("the graph advances live", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(drawer).toBeHidden();
 
-  appendEvent(live.events, {
+  await appendEvent(live.events, {
     type: "dispatch.ended",
     dispatchId: "D0101",
     name: "worker-M1.L1",
@@ -49,7 +49,7 @@ test("the graph advances live", async ({ page }) => {
     replyPath: "roles/worker-M1.L1/D0101/reply.md",
   });
   await expect(lane).toHaveAccessibleName(/^M1\.L1 worker\. Done/);
-  appendEvent(live.events, { type: "check.ran", lane: "M1.L1", exit: 0, tail: "1 pass", foreign: [] });
+  await appendEvent(live.events, { type: "check.ran", lane: "M1.L1", exit: 0, tail: "1 pass", foreign: [] });
   await expect(page.getByRole("button", { name: /^M1\.L1 fast check\. Done/ })).toBeVisible();
   expect(errors).toEqual([]);
 });

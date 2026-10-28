@@ -16,6 +16,26 @@ judge on the role's exact brief (plan 44). Since 2.0 the daemon runs all of it (
 
 ## 2.0 follow-ups
 
+### From plan 46 (the run-state database)
+
+Left out of plan 46 on purpose:
+
+- **The lock files beside the transactions.** `events.jsonl.lock`, `runs.jsonl.lock` and `team.jsonl.lock` still give
+  the writers their mutual exclusion, and each write is one transaction inside the lock (R4). The lock is needed
+  because `withEventsLock` and admission hold it across awaits. Plan 48's reducer makes each write one transaction and
+  drops the locks.
+- **Files still beside the database.** `outcomes.jsonl`, `routes.jsonl`, `state.json`, `sessions.jsonl`,
+  `agents.jsonl`, `harness.jsonl` and a workspace's `meta.json` stay files (R5): plan 49 deletes the first two, and
+  the rest move when their mechanisms move or go.
+- **No metric views yet.** `sqlite3 <data dir>/catherd.db` answers an ad-hoc question; the idle, concurrency,
+  blocked-time and check-share views and the per-task comparison come with plan 51 (R11).
+- **One backup per day.** `backups/catherd-<date>.db` is replaced by every run that ends the same day, so a busy day
+  keeps only its last end (R9). Keep one per run end if a bad write ever needs an hour-level restore.
+- **The run index and the session view read every record of every run per poll.** That defeats the run index cache.
+  Key the cache on `count(*)` / `max(id)` for a run's rows and on the file stamp for a run's files.
+- **Runs started by an M1-only build are never imported.** Their records stay in `runs.jsonl` and their events in the
+  database, so the import (events.jsonl with `run.ended`) does not see them; they stay readable on their own files.
+
 ### From plan 45 (outcome gates)
 
 Left out of plan 45 on purpose:

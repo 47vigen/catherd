@@ -38,6 +38,7 @@ import {
   worktreeIdentity,
 } from "../infra/git.ts";
 import { heavyLimits, heavySlots, LOCK_HELD_ENV, type LockWait, withHeavySlot } from "../infra/heavy-lock.ts";
+import { backupDb } from "../infra/db.ts";
 import { log } from "../infra/log.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import { admit } from "./admission.ts";
@@ -1414,6 +1415,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
         const reportPath = writeRunReport(run, s, readEvents(run), audits, a.proposals);
         await append({ type: "run.ended", outcome: a.outcome, reportPath });
         await refreshState(run, { next: outcomeNext(a.outcome), parked: [] });
+        try {
+          backupDb();
+        } catch (e) {
+          log("warn", "backup", { run: run.id, error: errorMessage(e) });
+        }
         return;
       }
       case "classify":

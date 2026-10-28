@@ -16,7 +16,7 @@ import { readIndexFile, writeIndexFile } from "../../src/infra/slopalytics.ts";
 import { pairOf } from "../../src/domain/catalog.ts";
 import { loadCatalog } from "../../src/services/catalog-service.ts";
 import { landedCommitOf } from "../../src/services/milestones.ts";
-import { appendRecord, createRun, listRuns, runPaths } from "../../src/services/run-store.ts";
+import { appendRecord, createRun, listRuns, readRecords, runPaths } from "../../src/services/run-store.ts";
 import { withWorkspaceAdmission } from "../../src/services/workspace-admission.ts";
 import {
   inspectWorkspace,
@@ -284,17 +284,14 @@ it("status preserves stored metadata, child state and dispatch evidence", async 
   const { workspace, dir } = await startWorkspace(deps, input);
   await startWorkspaceChild(deps, { workspace: workspace.id, step: "api" });
   const api = workspaceChildren(workspace)[0]!;
-  const files = [
-    workspacePaths(dir).meta,
-    runPaths(api.dir).stateJson,
-    runPaths(api.dir).state,
-    runPaths(api.dir).runs,
-  ];
+  const files = [workspacePaths(dir).meta, runPaths(api.dir).stateJson, runPaths(api.dir).state];
   const before = files.map((file) => ({ text: readFileSync(file, "utf8"), mtime: statSync(file).mtimeMs }));
+  const records = readRecords(api);
   await workspaceStatus(deps, workspace.id);
   expect(files.map((file) => ({ text: readFileSync(file, "utf8"), mtime: statSync(file).mtimeMs }))).toEqual(
     before,
   );
+  expect(readRecords(api)).toEqual(records);
 });
 
 it("allows joint verification to reuse a repository only after both parallel builds land", async () => {

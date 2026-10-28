@@ -1,10 +1,11 @@
-import { appendFileSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
 import { expect, type Page } from "@playwright/test";
 
 /** Where test/panel-e2e-serve.ts seeded its runs and the profile file. */
 export interface E2eState {
   home: string;
+  /** `events` is the URL appendEvent and lastEvent talk to, not a file */
   a: { id: string; events: string };
   b: { id: string };
   fixture: { id: string };
@@ -32,11 +33,15 @@ export function consoleErrors(page: Page): string[] {
   return errors;
 }
 
-/** Appends one event to a run, numbered after the last one, as the run store would. */
-export function appendEvent(events: string, e: Record<string, unknown>) {
-  const seq = readFileSync(events, "utf8").trim().split("\n").length + 1;
-  appendFileSync(events, `${JSON.stringify({ v: 1, seq, at: new Date().toISOString(), ...e })}\n`);
+/** Appends one event to a run through the real run store (`events` is the URL the e2e server gave the run). */
+export async function appendEvent(events: string, e: Record<string, unknown>) {
+  const res = await fetch(events, { method: "POST", body: JSON.stringify(e) });
+  if (!res.ok) throw new Error(`appending ${String(e.type)} failed: ${await res.text()}`);
 }
+
+/** The last event of a run, read through the same endpoint. */
+export const lastEvent = async (events: string) =>
+  (await (await fetch(events)).json()) as { type: string; unit?: string };
 
 /** A bento tile, found by its title. */
 export const tile = (page: Page, title: string) =>

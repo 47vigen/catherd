@@ -1,7 +1,7 @@
 import { sessionKey, type KnownHost } from "../domain/host.ts";
 import { statSync } from "node:fs";
 import { liveSessionFile, readSessionFiles, type SessionFile } from "../infra/claude-session.ts";
-import { type Run, runPaths } from "./run-store.ts";
+import { readRecords, type Run, runPaths } from "./run-store.ts";
 import { readSessionRows } from "./sessions.ts";
 
 /**
@@ -41,10 +41,11 @@ export interface SessionGroup {
   lastActivity: number;
 }
 
-/** Newest of the run's creation and its state and record files' last writes. */
+/** Newest of the run's creation, its last record's end and its state and record files' last writes. */
 export function runActivity(run: Run): number {
   const p = runPaths(run.dir);
   let t = Date.parse(run.meta.createdAt) || 0;
+  for (const r of readRecords(run).records) t = Math.max(t, Date.parse(r.endedAt) || 0);
   for (const f of [p.stateJson, p.runs, p.state, p.agents]) {
     try {
       t = Math.max(t, statSync(f).mtimeMs);

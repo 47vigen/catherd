@@ -9,13 +9,13 @@ import { landedMilestones } from "./milestones.ts";
 import { pauseSpans } from "./pause.ts";
 import type { Deps } from "./ports.ts";
 import { openQuestions } from "./questions.ts";
-import { eventsFile, isDaemonRun, readEvents } from "./run-events-store.ts";
+import { isDaemonRun, lastEventSeq, readEvents } from "./run-events-store.ts";
 import { listRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
 import { interventionsOf, runEnd } from "./scorecard-metrics.ts";
 
 /**
  * The run index (panel v2): one summary per run on the machine, read from the run's own files and kept in memory
- * only. A run is recomputed when the mtime and size of its `events.jsonl` or `runs.jsonl` change.
+ * only. A run is recomputed when the run's last event seq or its runs.jsonl's mtime and size change.
  */
 export const RunCardSchema = z.object({
   id: z.string(),
@@ -163,7 +163,7 @@ export function runIndex(deps: Deps, o: { repo?: string } = {}): RunCard[] {
   }
   for (const run of listing.runs) {
     try {
-      const key = `${stamp(eventsFile(run))}|${stamp(runPaths(run.dir).runs)}`;
+      const key = `${lastEventSeq(run)}|${stamp(runPaths(run.dir).runs)}|${readRecords(run).records.length}`;
       const hit = cache.get(run.dir);
       if (hit?.key === key) {
         out.push(hit.card);

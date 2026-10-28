@@ -13,7 +13,7 @@ or headless Claude Code processes write the code, and a decision model you point
   hooks, skills and `AGENTS.md`. Isolation is an opt-in toggle per profile and harness, for when
   you'd rather save the tokens your customizations cost.
 - **A daemon drives the run.** `run_start` launches a detached daemon that plans, dispatches, reviews, verifies
-  and lands each milestone from the run's own `events.jsonl`. Every role runs headless in its vendor's CLI
+  and lands each milestone from the run's event log in catherd's database. Every role runs headless in its vendor's CLI
   (Claude Code, Codex, opencode); the session needs none of it once the run has started, and a dropped
   session or MCP server never loses a run.
 - **Questions reach your phone.** A parked question and the final report are sent to your ntfy topic

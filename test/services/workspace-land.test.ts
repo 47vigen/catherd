@@ -1,4 +1,5 @@
 import { afterEach, expect, it } from "bun:test";
+import { db, ensureRunRow } from "../../src/infra/db.ts";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { admitPath } from "../../src/services/dispatches.ts";
@@ -108,7 +109,7 @@ it("says when a landed milestone differs from the step's only by case (#43 findi
 it("runs the gate's git work before taking the workspace lock (#43 finding 5)", async () => {
   const { deps, run, input } = await setup();
   // no reviewer record and no verifier record: the gate refuses at once
-  writeFileSync(runPaths(run.dir).runs, "");
+  db().query("DELETE FROM dispatches WHERE run_id = ?").run(run.id);
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));
   let entered!: () => void;
@@ -129,7 +130,12 @@ it("runs the gate's git work before taking the workspace lock (#43 finding 5)", 
 
 it("refuses landing with corrupted dispatch records", async () => {
   const { deps, run, input } = await setup();
-  appendFileSync(runPaths(run.dir).runs, "{broken-record\n");
+  ensureRunRow(db(), run);
+  db()
+    .query(
+      "INSERT INTO dispatches (run_id, dispatch_id, role, rung, status, started_at, ended_at, body) VALUES (?, 'x', 'worker', 'r', 'ok', '', '', '{broken-record')",
+    )
+    .run(run.id);
   await expect(land(deps, input)).rejects.toMatchObject({ code: "E_RUN_CORRUPT" });
   expect(landedMilestones(run)).toEqual([]);
 });

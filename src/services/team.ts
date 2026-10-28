@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { adapterFor } from "../adapters/registry.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { ID_PATTERN, tryParseRung } from "../domain/ids.ts";
+import { db, ensureRunRow, insertMessage, storeOnFile } from "../infra/db.ts";
 import { withFileLockSync } from "../infra/filelock.ts";
 import { appendPrivate } from "../infra/store.ts";
 import { readThread, roleDir } from "./dispatches.ts";
@@ -38,8 +39,12 @@ const cut = (text: string, max: number): string => (text.length > max ? `${text.
 const clamp = (v: number | undefined, lo: number, hi: number, d: number): number =>
   Math.min(hi, Math.max(lo, Math.trunc(v ?? d)));
 
-/** The run's messages, oldest first; a torn line is skipped. */
+/** The run's messages, oldest first: `messages` rows (plan 46), or an earlier build's team.jsonl, torn lines skipped. */
 export function teamMessages(run: Run): TeamMessage[] {
+  if (!storeOnFile(run, teamFile(run), "messages"))
+    return db()
+      .query('SELECT n, at, sender AS "from", target AS "to", text FROM messages WHERE run_id = ? ORDER BY n')
+      .all(run.id) as TeamMessage[];
   let text: string;
   try {
     text = readFileSync(teamFile(run), "utf8");
@@ -85,7 +90,14 @@ export async function teamSend(
   const n = withFileLockSync(file, () => {
     const n = (teamMessages(run).at(-1)?.n ?? 0) + 1;
     const m: TeamMessage = { n, at: new Date().toISOString(), from: i.from, to: i.to, text };
-    appendPrivate(file, `${JSON.stringify(m)}\n`);
+    if (storeOnFile(run, file, "messages")) appendPrivate(file, `${JSON.stringify(m)}\n`);
+    else {
+      const d = db();
+      d.transaction(() => {
+        ensureRunRow(d, run);
+        insertMessage(d, run.id, m);
+      }).immediate();
+    }
     return n;
   });
   if (!steers(i.from)) return { n, delivery: "queued" };

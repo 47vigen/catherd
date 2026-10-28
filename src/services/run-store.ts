@@ -14,6 +14,7 @@ import type {
 } from "../domain/route.ts";
 import { isLaneId } from "../domain/lane.ts";
 import { cell, natural } from "../domain/util.ts";
+import { db, ensureRunRow, insertDispatch, storeOnFile } from "../infra/db.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { gitOrigin } from "../infra/git.ts";
 import { dataDir, originDir, repoDir, runsDir } from "../infra/paths.ts";
@@ -159,7 +160,6 @@ export function createRun(o: {
   const p = runPaths(dir);
   for (const d of [p.lanes, p.roles, p.shots]) ensurePrivateDir(d);
   writeTextAtomic(p.ledger, `${LEDGER_HEADER}\n`);
-  ensureJsonlHeader(p.runs, "runs");
   ensureJsonlHeader(p.routes, "routes");
   ensureJsonlHeader(p.agents, "agents");
   const meta: RunMeta = {
@@ -239,9 +239,27 @@ export function findRun(id: string): Run {
   throw new CatherdError("E_RUN_NOT_FOUND", `no run "${id}"`, { fix: RUN_NOT_FOUND_FIX });
 }
 
+/** The run's `dispatches` rows, oldest first, as readJsonl gives a file's: a body that is not JSON is counted. */
+function dispatchRows(run: Run): { rows: unknown[]; corrupt: number } {
+  const out = { rows: [] as unknown[], corrupt: 0 };
+  const bodies = db().query("SELECT body FROM dispatches WHERE run_id = ? ORDER BY id").all(run.id) as {
+    body: string;
+  }[];
+  for (const r of bodies)
+    try {
+      out.rows.push(JSON.parse(r.body));
+    } catch {
+      out.corrupt++;
+    }
+  return out;
+}
+
 /** The run's records, one per dispatch; rows that are torn, invalid or repeated are skipped and counted. */
 export function readRecords(run: Run): { records: RunRecord[]; corrupt: number } {
-  const { rows, corrupt } = readJsonl<unknown>(runPaths(run.dir).runs);
+  const file = runPaths(run.dir).runs;
+  const { rows, corrupt } = storeOnFile(run, file, "dispatches")
+    ? readJsonl<unknown>(file)
+    : dispatchRows(run);
   const seen = new Set<string>();
   const records: RunRecord[] = [];
   let bad = corrupt;
@@ -256,14 +274,25 @@ export function readRecords(run: Run): { records: RunRecord[]; corrupt: number }
   return { records, corrupt: bad };
 }
 
-/** Appends `r` unless its dispatch already has a record, and returns the record that stands (audit C2). */
+/**
+ * Appends `r` unless its dispatch already has a record, and returns the record that stands (audit C2). A run an
+ * earlier build started keeps its runs.jsonl; every other run's records are `dispatches` rows (plan 46, D13).
+ */
 export function appendRecord(run: Run, r: RunRecord): Promise<RunRecord> {
   const file = runPaths(run.dir).runs;
   return withFileLock(file, () => {
     const existing = readRecords(run).records.find((x) => x.dispatchId === r.dispatchId);
     if (existing) return existing;
-    ensureJsonlHeader(file, "runs");
-    appendJsonl(file, RunRecordSchema.parse(r));
+    const row = RunRecordSchema.parse(r);
+    if (storeOnFile(run, file, "dispatches")) {
+      appendJsonl(file, row);
+      return r;
+    }
+    const d = db();
+    d.transaction(() => {
+      ensureRunRow(d, run);
+      insertDispatch(d, run.id, row);
+    }).immediate();
     return r;
   });
 }
