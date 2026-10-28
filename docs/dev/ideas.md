@@ -31,6 +31,10 @@ Left out of plan 46 on purpose:
   blocked-time and check-share views and the per-task comparison come with plan 51 (R11).
 - **One backup per day.** `backups/catherd-<date>.db` is replaced by every run that ends the same day, so a busy day
   keeps only its last end (R9). Keep one per run end if a bad write ever needs an hour-level restore.
+- **The run index and the session view read every record of every run per poll.** That defeats the run index cache.
+  Key the cache on `count(*)` / `max(id)` for a run's rows and on the file stamp for a run's files.
+- **Runs started by an M1-only build are never imported.** Their records stay in `runs.jsonl` and their events in the
+  database, so the import (events.jsonl with `run.ended`) does not see them; they stay readable on their own files.
 
 ### From plan 45 (outcome gates)
 

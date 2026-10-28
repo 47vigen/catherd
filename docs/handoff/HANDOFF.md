@@ -25,6 +25,10 @@ its Rulings. The 1.6 drafts in `docs/plans/drafts-1.6/` are inputs only (plan 30
 | 45 outcome gates | `docs/plans/2026-10-27-45-outcome-gates.md` | written (owner decisions 2026-10-27; review dedupe and the parallel verifier dropped for the redesign) |
 | 46 run-state database | `docs/plans/2026-10-28-46-run-state-database.md` | written (stage 1 slice 1 of the architect-led runs spec; plans 47–51 listed in its Next plans) |
 
+Plan 46 ledger:
+
+- Ruling: web/e2e changed despite the plan's web/ constraint — the Node e2e could no longer append to a file; appends go through a test-only store endpoint — none
+
 ## catherd 1.5 (2026-10-02, autopilot): everything open in ideas.md
 
 Binding spec: `docs/specs/2026-10-02-catherd-1.5-design.md`. Plans 21–26 were written in parallel on main `6f2f8c7`,
