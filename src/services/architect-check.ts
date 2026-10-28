@@ -67,9 +67,14 @@ export async function runArchitectCheck(
     exit = hit.exit;
     failures = JSON.parse(hit.failures) as string[];
   } else {
-    const cwd = c.base ? join(run.dir, "checks", `base-${(sha as string).slice(0, 12)}`) : run.meta.repo;
+    // the check id keeps concurrent base checks off each other's tree
+    const cwd = c.base
+      ? join(run.dir, "checks", `base-${(sha as string).slice(0, 12)}-${c.checkId}`)
+      : run.meta.repo;
     if (c.base) {
       rmSync(cwd, { recursive: true, force: true });
+      // a registered tree whose directory is gone would fail every later add
+      await git(run.meta.repo, ["worktree", "prune"]);
       const added = await git(run.meta.repo, ["worktree", "add", "--detach", cwd, sha as string]);
       if (added.kind !== "ok") throw new Error(`could not check out the base ${sha}: ${added.kind}`);
     }

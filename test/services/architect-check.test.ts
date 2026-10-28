@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ArchCheck } from "../../src/domain/architect-state.ts";
 import { db } from "../../src/infra/db.ts";
@@ -75,5 +75,18 @@ describe("a check the architect asks for (plan 47, spec D6)", () => {
     expect(head.failures).toEqual(["(fail) new", "(fail) old"]);
     expect(head.preExisting).toEqual(["(fail) old"]);
     expect((await runArchitectCheck(deps, r, check("C3", cmd, { base: true }), opts)).cached).toBe(true);
+  });
+  it("gives each base check its own tree, and survives a stale registered one", async () => {
+    const r = await run();
+    const deps = fakeDeps();
+    const sha = (r.meta.startHead as string).slice(0, 12);
+    const stale = join(r.dir, "checks", `base-${sha}-C1`);
+    await git(r.meta.repo, ["worktree", "add", "--detach", stale, r.meta.startHead as string]);
+    rmSync(stale, { recursive: true, force: true });
+    const both = await Promise.all([
+      runArchitectCheck(deps, r, check("C1", "echo one", { base: true }), opts),
+      runArchitectCheck(deps, r, check("C2", "echo two", { base: true }), opts),
+    ]);
+    expect(both.map((d) => d.exit)).toEqual([0, 0]);
   });
 });
