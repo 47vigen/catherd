@@ -32,6 +32,12 @@ Left out of plan 51 on purpose:
 - **Standing-role start is to the dispatch's start,** not to its first output, which nothing records yet (spec D12).
 - **`PARK_REASONS` keeps every value.** It is the read vocabulary of earlier runs; only `owner` and `land` are written.
 - **The MR body has no oracle-overrides line.** It comes with the oracle rule (spec D9, stage 2).
+- **The climbs metric counts any change of rung.** A reviewer's family switch and a downward change count too; it
+  should count only climbs up the ladder.
+- **`roleMs` in the concurrency metric is not clipped by pauses.** A dispatch that spans a pause counts its paused
+  minutes, against R21.
+- **A re-review sees only the previous round's findings.** It should see every earlier round's since the last ledger
+  edit, so a finding fixed two rounds ago is not reported again.
 
 ### From plan 50 (landing and the one verifier)
 
