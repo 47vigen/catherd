@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ArchCheck } from "../../src/domain/architect-state.ts";
 import { db } from "../../src/infra/db.ts";
@@ -96,5 +96,16 @@ describe("a check the architect asks for (plan 47, spec D6)", () => {
     expect((await runArchitectCheck(deps, r, check("C1", "touch made.txt"), opts)).exit).toBe(0);
     rmSync(join(r.meta.repo, "made.txt"));
     expect((await runArchitectCheck(deps, r, check("C2", "touch made.txt"), opts)).cached).toBe(false);
+  });
+
+  it("a cached result points at a log that exists, also when it was cached from a cached one", async () => {
+    const r = await run();
+    const deps = fakeDeps();
+    await runArchitectCheck(deps, r, check("C1", "echo ok-line"), opts);
+    for (const id of ["C2", "C3"]) {
+      const done = await runArchitectCheck(deps, r, check(id, "echo ok-line"), opts);
+      expect(done.cached).toBe(true);
+      expect(existsSync(join(r.dir, done.logPath))).toBe(true);
+    }
   });
 });

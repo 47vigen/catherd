@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { copyFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { ArchCheck } from "../domain/architect-state.ts";
 import { CatherdError } from "../domain/errors.ts";
@@ -16,6 +16,7 @@ import type { Run } from "./run-store.ts";
 type CheckDone = Extract<RunEventInput, { type: "check.done" }>;
 
 interface Row {
+  check_id: string;
   exit: number | null;
   failures: string;
 }
@@ -24,8 +25,8 @@ interface Row {
 function cachedRow(run: Run, c: ArchCheck, key: string | null): Row | null {
   if (key === null || c.fresh) return null;
   const sql = c.base
-    ? "SELECT exit, failures FROM checks WHERE run_id = ? AND command = ? AND base = 1 AND ref = ? ORDER BY id DESC LIMIT 1"
-    : "SELECT exit, failures FROM checks WHERE run_id = ? AND command = ? AND base = 0 AND tree = ? AND exit = 0 ORDER BY id DESC LIMIT 1";
+    ? "SELECT check_id, exit, failures FROM checks WHERE run_id = ? AND command = ? AND base = 1 AND ref = ? ORDER BY id DESC LIMIT 1"
+    : "SELECT check_id, exit, failures FROM checks WHERE run_id = ? AND command = ? AND base = 0 AND tree = ? AND exit = 0 ORDER BY id DESC LIMIT 1";
   return db().query(sql).get(run.id, c.command, key) as Row | null;
 }
 
@@ -68,6 +69,10 @@ export async function runArchitectCheck(
   if (hit) {
     exit = hit.exit;
     failures = JSON.parse(hit.failures) as string[];
+    // the digest names this check's log: the source's, copied
+    const source = join(run.dir, `checks/${hit.check_id}.log`);
+    if (existsSync(source)) copyFileSync(source, join(run.dir, logPath));
+    else writeTextAtomic(join(run.dir, logPath), `(from ${hit.check_id}; its log is gone)\n`);
   } else {
     // the check id keeps concurrent base checks off each other's tree
     const cwd = c.base
