@@ -255,7 +255,6 @@ export function realEffects(deps: Deps, run: Run): Effects {
         thread: a.thread,
         lane: a.lane,
         failoverFrom: a.failoverFrom,
-        cwd: run.meta.repo,
       });
     } catch (e) {
       if (!isCatherdError(e)) throw e;
