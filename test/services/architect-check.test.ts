@@ -89,4 +89,12 @@ describe("a check the architect asks for (plan 47, spec D6)", () => {
     ]);
     expect(both.map((d) => d.exit)).toEqual([0, 0]);
   });
+
+  it("never records a pass against a tree the check itself changed", async () => {
+    const r = await run();
+    const deps = fakeDeps();
+    expect((await runArchitectCheck(deps, r, check("C1", "touch made.txt"), opts)).exit).toBe(0);
+    rmSync(join(r.meta.repo, "made.txt"));
+    expect((await runArchitectCheck(deps, r, check("C2", "touch made.txt"), opts)).cached).toBe(false);
+  });
 });

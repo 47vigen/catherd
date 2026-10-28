@@ -63,6 +63,8 @@ export async function runArchitectCheck(
   let exit: number | null;
   let failures: string[];
   let minutes = 0;
+  let before: string | null = null;
+  let tree = key;
   if (hit) {
     exit = hit.exit;
     failures = JSON.parse(hit.failures) as string[];
@@ -83,11 +85,21 @@ export async function runArchitectCheck(
       const started = Date.now();
       const r = await withHeavySlot(
         heavySlots(runProfile(deps, run).heavy),
-        (_slot, tmp) =>
-          runCheck(cwd, c.command, o.timeoutMs, { ...env, TMPDIR: tmp, GOTMPDIR: tmp, [LOCK_HELD_ENV]: "1" }),
+        async (_slot, tmp) => {
+          // the tree as the check starts, after the wait for its slot
+          if (!c.base) before = await worktreeIdentity(run.meta.repo);
+          return runCheck(cwd, c.command, o.timeoutMs, {
+            ...env,
+            TMPDIR: tmp,
+            GOTMPDIR: tmp,
+            [LOCK_HELD_ENV]: "1",
+          });
+        },
         o.onWait ? { onWait: o.onWait } : {},
       );
       minutes = (Date.now() - started) / 60_000;
+      // a tree that changed while the check waited or ran is not the tree it passed on
+      if (!c.base && (before === null || before !== (await worktreeIdentity(run.meta.repo)))) tree = null;
       const text = (r.lines.length ? r.lines : r.tail).join("\n");
       writeTextAtomic(join(run.dir, logPath), `${text}\n`);
       exit = r.code;
@@ -105,7 +117,7 @@ export async function runArchitectCheck(
       checkId: c.checkId,
       scope: c.scope,
       ref: c.base ? (sha as string) : "worktree",
-      tree: c.base ? null : key,
+      tree: c.base ? null : tree,
       command: c.command,
       base: c.base,
       exit,
