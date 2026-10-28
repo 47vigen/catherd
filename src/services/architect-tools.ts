@@ -512,7 +512,14 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
           why: a.why,
         });
       }
-      if (a.missed)
+      if (a.missed) {
+        if (!ledgerTasks(c.run).some((t) => t.id === a.missed?.ledgerTask))
+          throw invalid(`the ledger has no task ${a.missed.ledgerTask}`, "name a ledger task");
+        if (a.missed.review && s.arch.tasks[a.missed.review]?.role !== "reviewer")
+          throw invalid(
+            `${a.missed.review} is not a review of this run`,
+            "name the review's taskId, or omit it",
+          );
         await append(c, {
           type: "review.missed",
           ledgerTask: a.missed.ledgerTask,
@@ -522,6 +529,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
           by: c.caller.name,
           why: a.why,
         });
+      }
       return { logged: true };
     },
   ),

@@ -241,8 +241,8 @@ export const lastReview = (a: ArchState, ledgerTask: string): ArchTask | undefin
   );
 
 /**
- * The rung whose work a review reads: the ledger task's last work attempt, else the run's last ended work attempt;
- * null when nothing was worked yet.
+ * The rung whose work a review reads: the ledger task's latest work attempt that started (running or ended; a queued,
+ * cancelled or refused one has done no work), else the run's latest such attempt; null when nothing was worked yet.
  */
 export function authorRung(a: ArchState, ledgerTask: string | null): string | null {
   const work = Object.values(a.tasks).filter(
