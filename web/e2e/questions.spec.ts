@@ -7,13 +7,13 @@ test("a question answered from the graph node clears it", async ({ page }) => {
   await signIn(page);
   const { live } = state();
   await page.goto(`/runs/${live.id}`);
-  await page.getByRole("button", { name: /^M1\.L2 worker\. Waiting for you/ }).click();
+  await page.getByRole("button", { name: /^T2 worker\. Waiting for you/ }).click();
   const question = page.getByRole("dialog").getByRole("region", { name: "Question" });
   await expect(question).toContainText("Merge the split ids?");
   await question.getByRole("textbox", { name: "Your answer" }).fill("merge them");
   await question.getByRole("button", { name: "Send answer" }).click();
   await expect(question).toBeHidden();
-  expect(await lastEvent(live.events)).toMatchObject({ type: "question.answered", unit: "M1.L2" });
+  expect(await lastEvent(live.events)).toMatchObject({ type: "question.answered", unit: "T2" });
   expect(errors).toEqual([]);
 });
 

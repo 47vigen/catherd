@@ -42,7 +42,6 @@ const ended = (dispatchId: string, name: string, unit: string): RunEventInput =>
   environment: null,
   verdict: null,
   findings: [],
-  foreign: [],
   replyPath: `roles/${name}/${dispatchId}/reply.md`,
 });
 
@@ -87,7 +86,7 @@ describe("the daemon on the architect engine (plan 47)", () => {
         await add(ended(dispatchId, a.name, a.unit));
       },
     };
-    await appendEvent(run, { type: "run.started", ...startedFields, engine: "architect" }, new Date(T0));
+    await appendEvent(run, { type: "run.started", ...startedFields }, new Date(T0));
     expect(await runDaemon(fakeDeps({ now: clock.now }), run.id, { effects: fx, clock })).toBe("ended");
     expect(actions.map((a) => (a.type === "dispatch" ? a.name : a.type))).toEqual([
       "architect-1",

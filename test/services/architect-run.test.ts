@@ -1,10 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DispatchAction } from "../../src/domain/run-machine.ts";
-import { taskBrief, wakeBrief } from "../../src/services/architect-run.ts";
+import { taskBrief, wakeBrief, writeArchitectReport } from "../../src/services/architect-run.ts";
+import { writeLedger } from "../../src/services/ledger-store.ts";
 import { PLAN_INPUT_DIR } from "../../src/services/plan-input.ts";
-import { makeLog, newId, startedFields } from "../domain/run-fixtures.ts";
+import { endDispatch, makeLog, newId, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { freshRun } from "./helpers.ts";
 
 const wake = (o: Partial<DispatchAction> = {}): DispatchAction => ({
@@ -18,7 +19,6 @@ const wake = (o: Partial<DispatchAction> = {}): DispatchAction => ({
   failoverFrom: null,
   brief: "wake",
   notes: [],
-  decision: null,
   ...o,
 });
 
@@ -28,7 +28,7 @@ describe("the architect's briefs (plan 47, spec D1 and D12)", () => {
     mkdirSync(join(run.dir, PLAN_INPUT_DIR), { recursive: true });
     writeFileSync(join(run.dir, PLAN_INPUT_DIR, "PLAN.md"), "# P\n\n## M1 — core\n\nno check here\n");
     const log = makeLog();
-    log.add("run.started", { ...startedFields, engine: "architect", plan: ["/repo/PLAN.md"] });
+    log.add("run.started", { ...startedFields, plan: ["/repo/PLAN.md"] });
     const { unit, round } = wakeBrief(run, log.state(), wake({ upTo: 1 }));
     expect(unit.join("\n")).toContain("The run's goal: wallet.");
     expect(unit.join("\n")).toContain("plan-input/PLAN.md");
@@ -42,7 +42,7 @@ describe("the architect's briefs (plan 47, spec D1 and D12)", () => {
   it("a fresh thread after a turn says why and to check the ledger against git; only events up to upTo", () => {
     const { run } = freshRun();
     const log = makeLog();
-    log.add("run.started", { ...startedFields, engine: "architect" });
+    log.add("run.started", { ...startedFields });
     const a1 = newId();
     log.add("dispatch.started", {
       dispatchId: a1,
@@ -105,7 +105,7 @@ describe("the architect's briefs (plan 47, spec D1 and D12)", () => {
   it("a researcher task writes its answer to research/<id>.md; a worker reports each file with its reason", () => {
     const { run } = freshRun();
     const log = makeLog();
-    log.add("run.started", { ...startedFields, engine: "architect" });
+    log.add("run.started", { ...startedFields });
     log.add("task.delegated", {
       taskId: "T1",
       role: "researcher",
@@ -122,5 +122,34 @@ describe("the architect's briefs (plan 47, spec D1 and D12)", () => {
       "You are task T1, a researcher delegated by T0. You have no lane file: this task is your whole brief.",
     );
     expect(t("T9").round.join("\n")).toContain("EXTRA: <path> — <why>");
+  });
+});
+
+describe("the architect run's report (plan 48)", () => {
+  it("lists each ledger task's attempts and the why of every ask_owner", async () => {
+    const { run } = freshRun();
+    writeLedger(run, { tasks: { add: [{ id: "L1", goal: "the parser" }] } }, new Date());
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("task.delegated", {
+      taskId: "T1",
+      role: "worker",
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+      ledgerTask: "L1",
+      by: "architect-1",
+      why: "w",
+    });
+    const id = startDispatch(log, { name: "T1", unit: "T1" });
+    endDispatch(log, id, { name: "T1", unit: "T1", replyStatus: "blocked", reason: "impossible" });
+    log.add("question.parked", {
+      unit: "run",
+      question: "drop L1?",
+      reason: "owner",
+      why: "L1 cannot be done",
+    });
+    const report = readFileSync(writeArchitectReport(run, log.state(), log.events), "utf8");
+    expect(report).toContain("- L1 [todo] the parser (1 attempt)");
+    expect(report).toContain("question.parked (architect): L1 cannot be done");
   });
 });

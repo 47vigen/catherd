@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import { newDispatchId, parseRung } from "../../src/domain/ids.ts";
 import type { Access, ExitReason, RunRecord } from "../../src/domain/record.ts";
 import type { SessionEnv } from "../../src/infra/claude-session.ts";
+import { db, ensureRunRow, insertEvent } from "../../src/infra/db.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
@@ -524,4 +525,22 @@ export function climb(
     }
   }
   return { rung: next ?? cur.rung, top: next === null };
+}
+
+/** `run.started` as an earlier build wrote it: events version 1, the 2.0 engine (spec D16). */
+export function insertEarlier(run: Run): void {
+  const d = db();
+  ensureRunRow(d, run);
+  insertEvent(d, run.id, {
+    v: 1,
+    seq: 1,
+    at: "2026-10-21T10:00:00.000Z",
+    type: "run.started",
+    repo: run.meta.repo,
+    title: "t",
+    aLines: [],
+    plan: [],
+    base: null,
+    engine: "2.0",
+  } as never);
 }

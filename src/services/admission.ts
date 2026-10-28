@@ -1,4 +1,3 @@
-import { runEngine } from "./run-events-store.ts";
 import type { KnownHost } from "../domain/host.ts";
 import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -44,7 +43,6 @@ import { assertNotPaused } from "./pause.ts";
 import { currentOwns } from "./lane-edit.ts";
 import { unitContext } from "./plan-input.ts";
 import { standingRules } from "./run-service.ts";
-import { unfinishedAfter } from "./protocol.ts";
 import { runProfile } from "./run-pin.ts";
 import type { Deps } from "./ports.ts";
 import { laneFile, readRecords, recordsOnThread, type Run, runPaths, supersededBy } from "./run-store.ts";
@@ -187,12 +185,9 @@ export async function admit(
   // spec 1.5: the run's pinned profile, access and isolation, whatever the repo runs on now
   const profile = runProfile(deps, run);
   const configured = profile.roles[i.role];
-  // plan 47, spec D3: on the architect engine the architect may change the repository itself; a `full` profile keeps full
+  // plan 47, spec D3: the architect may change the repository itself; a `full` profile keeps full (plan 49 migrates it)
   const rc =
-    configured &&
-    i.role === "architect" &&
-    configured.access === "read-only" &&
-    runEngine(run) === "architect"
+    configured && i.role === "architect" && configured.access === "read-only"
       ? { ...configured, access: "workspace-write" as const }
       : configured;
   if (!rc?.enabled)
@@ -245,14 +240,6 @@ export async function admit(
   const owns = i.lane === null ? [] : laneOwns(run, i.lane);
   // spec 1.5 plan 21: the writer's implicit docs lane, for attribution only
   const ownsImplicit = i.role === "writer" && i.lane === null ? (briefOwns(i.brief) ?? DOCS_OWNS) : null;
-  // spec 1.5 "Lane editing": an After: line orders lanes that compile against each other
-  const before = i.lane === null ? [] : unfinishedAfter(run, i.lane);
-  if (before.length)
-    throw new CatherdError(
-      "E_ADMIT_ORDER",
-      `${i.lane} runs after ${before.join(", ")} (its After: line), which ${before.length > 1 ? "have" : "has"} not finished`,
-      { fix: `dispatch ${i.lane} once ${before.join(", ")} ${before.length > 1 ? "end" : "ends"} ok` },
-    );
   const id = newDispatchId();
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);
@@ -286,7 +273,7 @@ export async function admit(
       briefPath: p.brief,
       replyPath: p.reply,
       dispatchDir: dir,
-      ...(roleServer ? { roleMcp: { run: run.id, role: i.role, engine: runEngine(run) } } : {}),
+      ...(roleServer ? { roleMcp: { run: run.id, role: i.role } } : {}),
       ...(scratch ? { scratch } : {}),
     });
     // A dispatch blocks until its record is written, not only while it runs: its finalizer diffs the

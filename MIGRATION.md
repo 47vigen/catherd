@@ -113,7 +113,7 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
   its files. A folder that cannot be read is named on stderr (`catherd: not imported <id>: <reason>`) and skipped.
 - Each run's end copies the whole database to `<data dir>/backups/catherd-<date>.db`; the last 7 are kept.
 
-### The architect loop, behind a switch (plan 47)
+### The architect loop (plan 47)
 
 - A profile may set `engine: architect` (`catherd profile set engine architect`). A run started afterwards is driven
   by the architect: catherd wakes it when a task, a check or the owner has news, it acts through its tools
@@ -124,6 +124,22 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
   yet, and the owner's plan files are input the architect may edit, not an approval.
 - A role whose backend has no role server calls the same tools with `catherd call <run> <tool>`, the arguments as
   JSON on stdin.
+
+### The architect drives every run (plan 48)
+
+- The `engine` switch is gone: every run this build starts is driven by the architect (the loop above). A profile's
+  `engine` key is ignored, and `profile set engine …` is refused.
+- The 2.0 pipeline is deleted: no plan approval, no milestones, rounds or lanes in a new run, no judge, no automatic
+  rerun of a red check, and no admission wait between lanes. A worker's brief is its task; `team wait` is gone.
+- A run an earlier build started is read, never driven: `status`, `result` and the panel show it (each role it ran as
+  one node), and `answer`, `cancel`, `pause` and `resume` refuse it, naming the build that started it
+  (`npx catherd-cli@<version>`). This build's own events carry version 2; an earlier build refuses to read them.
+- `run_start` refuses a `base` until landing arrives: start without one, and the run works in the checkout.
+- Caps (spec D10), pinned when the run starts: `caps.wallMin` (720) and `caps.attempts` (4 per ledger task), with
+  `catherd profile set caps.wallMin 360`. At 80% of the wall time the architect is woken; at 100% no new task starts
+  and the run stops 10 minutes later. The cost cap is still the profile's `budget`.
+- A retry of a ledger task on the same rung, after a failed attempt and with nothing new since (no ledger edit, owner
+  answer or check result), is refused as `stalled`. A worker may end `STATUS: blocked — impossible: <why>`.
 
 ### Grok Build and Antigravity are removed
 

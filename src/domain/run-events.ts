@@ -1,20 +1,25 @@
 import { z } from "zod";
 import { BLOCKED_REASONS } from "./blocked.ts";
-import { DECISION_SOURCES } from "./decision.ts";
-import { FAILURE_CLASSES } from "./harness.ts";
-import { JUDGE_KINDS, JudgeDecisionSchema } from "./judge.ts";
-import { ENGINES } from "./profile.ts";
 import { REPLY_STATUSES, RUN_STATUSES } from "./record.ts";
 import { ROLES } from "./roles.ts";
 
-/** Every line of a run's events.jsonl carries `v`; a newer catherd's events are refused (E_RUNTIME_TOO_OLD). */
-export const EVENTS_SCHEMA = 1;
+/**
+ * Every event carries `v`; a newer catherd's events are refused (E_RUNTIME_TOO_OLD). Plan 48 (spec D4, D16): 2 is the
+ * reducer's vocabulary. A run started at 1 was written by an earlier build: this build reads it and never drives it.
+ */
+export const EVENTS_SCHEMA = 2;
 
 /** The unit a run-level question or failure belongs to; a milestone is `M1`, a lane `M1.L2`. */
 export const RUN_UNIT = "run";
 
+// spelled out, not spread from BLOCKED_REASONS: a worker's `impossible` goes to the architect, never to the owner
 export const PARK_REASONS = [
-  ...BLOCKED_REASONS,
+  "needs_user",
+  "too_hard",
+  "provider_error",
+  "no_access",
+  "check_broken",
+  "out_of_scope",
   "environment",
   "preflight",
   "confirm",
@@ -48,21 +53,6 @@ export type ReportKind = (typeof REPORT_KINDS)[number];
 export const ACTION_TYPES = [
   "dispatch",
   "watch",
-  "readPlan",
-  "route",
-  "fastCheck",
-  "machineCheck",
-  "commit",
-  "decide",
-  "judge",
-  "classify",
-  "park",
-  "land",
-  "checkMerged",
-  "integrate",
-  "claimTree",
-  "pushBranch",
-  "mergeLanded",
   "cancel",
   "report",
   "notify",
@@ -72,8 +62,6 @@ export const ACTION_TYPES = [
   "runCheck",
 ] as const;
 export type ActionType = (typeof ACTION_TYPES)[number];
-/** plan 44 D23: an old run's `effect.failed` may still name an action the machine no longer has */
-export const LEGACY_ACTION_TYPES = ["climb"] as const;
 
 export const FindingSchema = z.object({
   label: z.enum(["BLOCKER", "BUG", "NIT"]),
@@ -87,26 +75,8 @@ export function issueLine(f: Finding): string {
   return new RegExp(`^[\\s\\-*_\\d.)]*${f.label}\\b`, "i").test(f.text) ? f.text : `${f.label} ${f.text}`;
 }
 
-export const MilestonePlanSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  after: z.array(z.string()),
-  lanes: z.array(
-    z.object({
-      id: z.string(),
-      role: z.enum(ROLES),
-      kind: z.string().nullable(),
-      after: z.array(z.string()),
-      owns: z.array(z.string()),
-      /** plan 43: a hash of the lane file without its Owns line: a replan that changes it re-runs a done lane (absent before) */
-      digest: z.string().optional(),
-    }),
-  ),
-});
-export type MilestonePlan = z.infer<typeof MilestonePlanSchema>;
-
 const base = {
-  v: z.literal(EVENTS_SCHEMA),
+  v: z.number().int().min(1).max(EVENTS_SCHEMA),
   seq: z.number().int().min(1),
   at: z.string(),
 };
@@ -126,27 +96,14 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     aLines: strings,
     plan: strings,
     base: z.string().nullable(),
-    /** plan 47: "architect" runs the architect loop instead of the 2.0 pipeline */
-    engine: z.enum(ENGINES),
+    /** plan 47's switch, on a run an earlier build started: "2.0" was its pipeline (plan 48 deletes it) */
+    engine: z.enum(["2.0", "architect"]).optional(),
     /** the roles the run's profile turns off, so the machine never waits on one (absent before 2.0.x) */
     rolesOff: z.array(role).optional(),
-    /** plan 43: `land.autoMerge` as the profile had it at the start; catherd merges the run's landed milestones (absent before) */
-    autoMerge: z.boolean().optional(),
+    /** plan 48, spec D10: the profile's caps when the run started; absent means DEFAULT_CAPS */
+    caps: z.object({ wallMin: z.number().positive(), attempts: z.number().int().positive() }).optional(),
   }),
   ev("daemon.started", { pid: z.number().int(), version: z.string() }),
-  ev("plan.ready", { milestones: z.array(MilestonePlanSchema) }),
-  ev("plan.approved", { by: z.enum(["owner", "input"]) }),
-  ev("lanes.routed", {
-    milestone: z.string(),
-    lanes: z.array(z.object({ lane: z.string(), rung: z.string(), ladder: strings })),
-  }),
-  ev("preflight.done", {
-    milestone: z.string(),
-    blocking: z.array(z.object({ lane: z.string(), note: z.string() })),
-    confirm: strings.nullable(),
-    /** plan 34: the plan lint's warnings; older lines have none */
-    lint: strings.default([]),
-  }),
   ev("dispatch.started", {
     dispatchId: z.string(),
     name: z.string(),
@@ -155,8 +112,6 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     lane: z.string().nullable(),
     rung: z.string(),
     thread: z.string().nullable(),
-    /** a judge call's kind: the machine asks the same question again from it when the reply is unreadable */
-    judgeKind: z.enum(JUDGE_KINDS).nullable().optional(),
     /** the last team message number when its brief was rendered; older lines have none (their startedAt is used) */
     teamSeen: z.number().int().min(0).optional(),
     /** plan 47: an architect turn's digest covers the events up to this seq */
@@ -183,158 +138,20 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     environment: z.string().nullable(),
     verdict: z.enum(["pass", "fail", "blocked"]).nullable(),
     findings: z.array(FindingSchema),
-    foreign: strings,
     replyPath: z.string(),
-    /** plan 40: the sibling lanes whose files a broken check named; older lines have none */
-    siblings: strings.optional(),
     /** a verifier's ok reply whose first line is no verdict: its `fail` is catherd's reading, not the verifier's */
     noVerdict: z.literal(true).optional(),
-    /** plan 44 D11, read by no one since plan 45 (Owns is a hint): kept so older lines still parse */
-    testEdits: strings.optional(),
   }),
-  ev("check.ran", {
-    lane: z.string(),
-    exit: z.number().int().nullable(),
-    tail: z.string(),
-    foreign: strings,
-    tree: z.string().nullable().optional(),
-    /** plan 40: when the check ran, how long it ran and how long it waited for its slot; older lines have none */
-    startedAt: z.string().optional(),
-    durationMs: z.number().optional(),
-    waitedMs: z.number().optional(),
-    /** the sibling lanes whose files the failing output names */
-    siblings: strings.optional(),
-    /** plan 44 D9: whether the failure is the product's or the harness's; older lines have none */
-    failureClass: z.enum(FAILURE_CLASSES).optional(),
-  }),
-  /** plan 40: the daemon's check of a milestone's commit: its failing lines, the lines the base has no record of, what it covers */
-  ev("milestone.checked", {
-    milestone: z.string(),
-    head: z.string(),
-    command: z.string().nullable(),
-    missing: strings,
-    findings: z.array(FindingSchema),
-    uncovered: strings,
-    checkOnly: z.boolean(),
-    verdictCarried: z.boolean(),
-    startedAt: z.string(),
-    durationMs: z.number(),
-    waitedMs: z.number(),
-  }),
-  ev("commit.made", { milestone: z.string(), round: z.number().int().min(0), commit: z.string() }),
-  ev("commit.failed", {
-    milestone: z.string(),
-    round: z.number().int().min(0),
-    tail: z.string(),
-    /** plan 43: the pre-commit hook refused the commit (absent before) */
-    hook: z.boolean().optional(),
-  }),
-  /** plan 44: the decision model, the floor, a failover or the coordinator chose the rung of a dispatch, on the brief it will send */
-  ev("decision.made", {
-    name: z.string(),
-    n: z.number().int().min(1),
-    role,
-    unit: z.string(),
-    level: z.number().int().min(0),
-    levels: z.number().int().min(1),
-    levelRungs: z.array(strings),
-    rung: z.string(),
-    floor: z.string().nullable(),
-    strict: z.boolean(),
-    briefFile: z.string(),
-    briefHash: z.string(),
-    /** the last team message number when the brief was rendered; older lines have none */
-    teamSeen: z.number().int().min(0).optional(),
-    p: z.number().nullable(),
-    probabilities: z.record(z.string(), z.number()),
-    why: z.string(),
-    source: z.enum(DECISION_SOURCES),
-  }),
-  /** `E_DECISION`: the model gave no usable answer; `E_ALL_HELD`: a limit's failover found no stand-in */
-  ev("decision.failed", {
-    name: z.string(),
-    n: z.number().int().min(1),
-    unit: z.string(),
-    code: z.string(),
-    error: z.string(),
-    rungs: strings,
-  }),
-  /** a strict floor with no rung above it: the top of the ladder */
-  ev("decision.exhausted", {
-    name: z.string(),
-    n: z.number().int().min(1),
-    unit: z.string(),
-    floor: z.string(),
-  }),
-  /** plan 44 D23: old runs only; the machine no longer climbs, the reducer still applies it */
-  ev("lane.climbed", { lane: z.string(), rung: z.string(), top: z.boolean() }),
-  ev("stop.classified", {
-    dispatchId: z.string(),
-    reason: z.enum(BLOCKED_REASONS).nullable(),
-    /** plan 44 D9: absent before, and read as product */
-    failureClass: z.enum(FAILURE_CLASSES).optional(),
-  }),
-  ev("judge.decided", {
-    id: z.string(),
-    unit: z.string(),
-    kind: z.enum(JUDGE_KINDS),
-    decision: JudgeDecisionSchema,
-    dispatchId: z.string(),
-  }),
-  ev("judge.failed", { id: z.string(), unit: z.string(), why: z.string() }),
   /** `why`: the architect's reason for an ask_owner (plan 47); other parks have none */
   ev("question.parked", { unit: z.string(), question: z.string(), reason, why: z.string().optional() }),
   ev("question.reminded", { unit: z.string(), n: z.number().int().min(1) }),
   ev("question.answered", { unit: z.string(), answer: z.string(), by: z.enum(["owner", "judge"]) }),
-  ev("milestone.landed", {
-    milestone: z.string(),
-    commit: z.string(),
-    knownIssues: strings,
-    digestPath: z.string(),
-    /** the branch the run works on, named in the owner's push question; absent in a run without a base */
-    branch: z.string().nullable().optional(),
-  }),
-  ev("land.refused", { milestone: z.string(), code: z.string(), message: z.string(), fix: z.string() }),
-  /** `by: "catherd"`: plan 43's autoMerge merged it (at `commit` on the base); absent: the owner did */
-  ev("milestone.merged", {
-    milestone: z.string(),
-    by: z.literal("catherd").optional(),
-    commit: z.string().optional(),
-  }),
-  /** plan 43: catherd could not merge a landed milestone; the owner is asked to */
-  ev("merge.failed", { milestone: z.string(), error: z.string() }),
-  ev("base.behind", { milestone: z.string() }),
-  ev("integrate.done", { milestone: z.string(), commit: z.string() }),
-  ev("integrate.conflict", { milestone: z.string(), files: strings }),
-  /** plan 35: a base run's milestone has its worktree (the tree, its branch, what the claim noted) */
-  ev("tree.ready", {
-    milestone: z.string(),
-    tree: z.string(),
-    branch: z.string(),
-    base: z.string(),
-    hints: strings,
-  }),
-  /** plan 35: no room in memory for another milestone yet; the claim is tried again later */
-  /** plan 40: `disk` when the free space of catherd's data dir is short; older lines are memory waits */
-  ev("tree.deferred", {
-    milestone: z.string(),
-    availableMb: z.number(),
-    needMb: z.number(),
-    resource: z.enum(["memory", "disk"]).optional(),
-  }),
   /** plan 40: a daemon step waited for a lock (a heavy slot or a role's): one event per wait */
   ev("lock.waiting", {
     unit: z.string(),
     lock: z.string(),
     holder: z.string().nullable(),
     ahead: z.number().int(),
-  }),
-  /** plan 35: catherd pushed the milestone's branch on the owner's word; `mr` is the command that opens its MR */
-  ev("branch.pushed", {
-    milestone: z.string(),
-    branch: z.string(),
-    remote: z.literal("origin"),
-    mr: z.string(),
   }),
   ev("cancel.requested", { by: z.literal("owner") }),
   /** plan 37: the owner holds one run; live roles finish, nothing new starts until `run.resumed` */
@@ -343,7 +160,7 @@ export const RunEventSchema = z.discriminatedUnion("type", [
   /** plan 43: no machine pause covers the run any more: what a refused dispatch held is owed again */
   ev("pause.lifted", {}),
   ev("effect.failed", {
-    action: z.enum([...ACTION_TYPES, ...LEGACY_ACTION_TYPES]),
+    action: z.enum(ACTION_TYPES),
     unit: z.string(),
     message: z.string(),
   }),
@@ -418,20 +235,6 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
       return `run started: ${e.title}`;
     case "daemon.started":
       return `daemon started (pid ${e.pid}, catherd ${e.version})`;
-    case "plan.ready":
-      return `plan ready: ${e.milestones.map((m) => m.id).join(", ") || "no milestones"}`;
-    case "plan.approved":
-      return `plan approved by the ${e.by}`;
-    case "lanes.routed":
-      return `${e.milestone} routed: ${e.lanes.map((l) => `${l.lane} on ${l.rung}`).join(", ") || "no lanes"}`;
-    case "preflight.done": {
-      const lint = e.lint.length ? ` · ${e.lint.length} lint warning(s)` : "";
-      return e.blocking.length
-        ? `${e.milestone} preflight blocked: ${e.blocking.map((b) => b.lane).join(", ")}${lint}`
-        : e.confirm
-          ? `${e.milestone} preflight waits for confirmation${lint}`
-          : `${e.milestone} preflight passed${lint}`;
-    }
     case "dispatch.started":
       return `${e.name} started on ${e.rung}`;
     case "dispatch.refused":
@@ -440,63 +243,14 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
       const rung = rungOf?.(e.dispatchId);
       return `${e.name} ended ${e.status} (${e.replyStatus ?? "no status"})${rung ? ` on ${rung}` : ""}`;
     }
-    case "check.ran":
-      return `${e.lane} fast check ${e.exit === 0 ? "passed" : `failed (exit ${e.exit ?? "timeout"})`}`;
-    case "milestone.checked": {
-      const at = e.head.slice(0, 7);
-      if (e.findings.length > 0)
-        return `${e.milestone} check failed at ${at}: ${e.findings.length} finding(s)`;
-      if (e.missing.length > 0)
-        return `${e.milestone} check at ${at}: ${e.missing.length} line(s) with no baseline`;
-      if (e.command === null) return `${e.milestone} has no check; its verifier gates it`;
-      return `${e.milestone} check passed at ${at}${e.checkOnly ? " (covers every A-line)" : e.verdictCarried ? " (verdict carried)" : ""}`;
-    }
     case "lock.waiting":
       return `${e.unit} waits for the ${e.lock} lock${e.holder ? `, held by ${e.holder}` : ""} (${e.ahead} ahead)`;
-    case "commit.made":
-      return `${e.milestone} committed ${e.commit.slice(0, 7)} (round ${e.round})`;
-    case "commit.failed":
-      return `${e.milestone} commit failed (round ${e.round})`;
-    case "decision.made":
-      return `${e.name} decided: ${e.rung} (level ${e.level + 1} of ${e.levels}, ${e.source})`;
-    case "decision.failed":
-      return `${e.name} decision failed (${e.code}): ${one(e.error)}`;
-    case "decision.exhausted":
-      return `${e.name} has no rung above ${e.floor}`;
-    case "lane.climbed":
-      return `${e.lane} climbed to ${e.rung}${e.top ? " (top rung)" : ""}`;
-    case "stop.classified":
-      return `dispatch ${e.dispatchId} stop classified: ${e.reason ?? "none"}`;
-    case "judge.decided":
-      return `judge ${e.id} on ${e.unit} (${e.kind}): ${e.decision.verb}`;
-    case "judge.failed":
-      return `judge ${e.id} on ${e.unit} failed: ${one(e.why)}`;
     case "question.parked":
       return `${e.unit} parked (${e.reason}): ${one(e.question)}`;
     case "question.reminded":
       return `${e.unit} reminder ${e.n}`;
     case "question.answered":
       return `${e.unit} answered by the ${e.by}`;
-    case "milestone.landed":
-      return `${e.milestone} landed at ${e.commit.slice(0, 7)}${e.knownIssues.length ? ` with ${e.knownIssues.length} known issue(s)` : ""}`;
-    case "land.refused":
-      return `${e.milestone} land refused: ${e.code}`;
-    case "milestone.merged":
-      return `${e.milestone} merged${e.by ? ` by ${e.by}` : ""}`;
-    case "merge.failed":
-      return `${e.milestone} could not be merged by catherd: ${e.error}`;
-    case "base.behind":
-      return `${e.milestone} is behind its base`;
-    case "integrate.done":
-      return `${e.milestone} integrated at ${e.commit.slice(0, 7)}`;
-    case "integrate.conflict":
-      return `${e.milestone} integration conflict in ${e.files.length} file(s)`;
-    case "tree.ready":
-      return `${e.milestone} has its worktree on branch ${e.branch}`;
-    case "tree.deferred":
-      return `${e.milestone} waits for ${e.resource ?? "memory"}: ${e.availableMb} MB available, ${e.needMb} MB needed`;
-    case "branch.pushed":
-      return `${e.milestone}'s branch ${e.branch} is pushed to ${e.remote}`;
     case "cancel.requested":
       return `cancel requested by the ${e.by}`;
     case "run.paused":

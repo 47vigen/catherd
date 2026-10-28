@@ -28,7 +28,8 @@ function eventCounts(run: Run): { parks: number; answers: number; cancels: numbe
     parks: n((e) => e.type === "question.answered" && e.by === "owner") + open,
     answers: n((e) => e.type === "question.answered"),
     cancels: n((e) => e.type === "cancel.requested"),
-    approvals: n((e) => e.type === "plan.approved" && e.by === "owner"),
+    // plan 48: no run waits for a plan approval
+    approvals: 0,
   };
 }
 

@@ -1,23 +1,18 @@
 import { z } from "zod";
 import { DECISION_SOURCES } from "./decision.ts";
 import { tryParseRung } from "./ids.ts";
-import { JUDGE_KINDS, type JudgeKind } from "./judge.ts";
 import type { RunRecord } from "./record.ts";
 import { ROLES } from "./roles.ts";
 import { describeEvent, PARK_REASONS, type ParkReason, RUN_UNIT, type RunEvent } from "./run-events.ts";
-import {
-  type DispatchView,
-  integrateName,
-  lanesOf,
-  milestoneOf,
-  type MilestoneState,
-  type MilestoneStatus,
-  type RunState,
-} from "./run-state.ts";
+import type { DispatchView, RunState } from "./run-state.ts";
+
+/** The judge's call kinds an earlier build's run may show; plan 48 deleted the judge, so a new attempt has none. */
+const JUDGE_KINDS = ["triage", "question", "unexpected", "rules"] as const;
 
 /**
  * The run model (panel v2, spec A): the nodes, attempts and edges a run page draws, folded from the run's
  * events and dispatch records. Pure: the same inputs give the same model, and `diffRunModel` gives the patch.
+ * Plan 48: the run is the architect's; its turns are one node, each task it delegated and each check one more.
  */
 export const NODE_KINDS = [
   "start",
@@ -140,7 +135,7 @@ const BACKEND: Record<string, string> = {
   opencode: "opencode",
 };
 const DOING: Record<string, string> = {
-  architect: "writing the plan",
+  architect: "driving the run",
   worker: "writing the code",
   reviewer: "reviewing the commit",
   "ui-reviewer": "reviewing the interface",
@@ -148,61 +143,15 @@ const DOING: Record<string, string> = {
   artist: "making the images",
   writer: "writing the docs",
   researcher: "researching",
-  judge: "deciding",
 };
 
-/** How far a milestone has come; a parked one counts as the step it parked from. */
-const RANK: Record<MilestoneStatus, number> = {
-  waiting: 0,
-  routing: 1,
-  lanes: 2,
-  fixing: 2,
-  committing: 3,
-  review: 4,
-  verifying: 5,
-  integrating: 6,
-  landing: 7,
-  landed: 8,
-  merged: 8,
-  parked: 0,
-};
-const STEP_RANK = { commit: 3, review: 4, verify: 5, integrate: 6, land: 7 } as const;
-const rankOf = (m: MilestoneState): number =>
-  RANK[m.status === "parked" ? (m.parkedFrom ?? "waiting") : m.status];
-
-const PARKED_FROM: Partial<Record<MilestoneStatus, string>> = {
-  routing: "route",
-  lanes: "route",
-  committing: "commit",
-  review: "review",
-  fixing: "review",
-  verifying: "verify",
-  integrating: "integrate",
-  landing: "land",
-};
-const MILESTONE_REASON: Partial<Record<ParkReason, string>> = {
-  preflight: "preflight",
-  confirm: "preflight",
-  commit: "commit",
-  blocker: "review",
-  judge: "review",
-  verifier: "verify",
-  land: "land",
-  push: "land",
-};
-
-/** The one node an open question belongs to (Ruling 14). */
-export function nodeForUnit(s: RunState, unit: string, reason: ParkReason): string {
-  const lane = s.lanes[unit];
-  if (lane) return `${lane.milestone}/lane/${lane.id}`;
-  const m = milestoneOf(s, unit);
-  if (m) {
-    const step = MILESTONE_REASON[reason] ?? PARKED_FROM[m.parkedFrom ?? "waiting"] ?? "route";
-    return `${m.id}/${step}`;
-  }
-  if (unit === RUN_UNIT && (reason === "approval" || s.phase === "planning" || s.phase === "approval"))
-    return "architect";
-  return "start";
+/** The one node an open question belongs to: the task it names, else the architect. */
+export function nodeForUnit(s: RunState, unit: string, _reason: ParkReason): string {
+  if (/^T\d+$/.test(unit)) return `task/${unit}`;
+  if (unit === RUN_UNIT) return "architect";
+  // an earlier build's unit (spec D16): the node of the last role that worked it
+  const d = Object.values(s.dispatches).findLast((x) => x.unit === unit && x.role !== "architect");
+  return d ? `task/${d.name}` : "start";
 }
 
 interface Draft {
@@ -250,6 +199,13 @@ export function recordAttempt(r: RunRecord): Attempt {
 
 const firstLine = (s: string): string => s.split("\n")[0]?.trim() ?? "";
 
+/** The node kind a delegated task draws as: the existing kinds, so the panel needs no change (plan 48 R12). */
+const KIND_OF_ROLE: Partial<Record<string, RunNode["kind"]>> = {
+  reviewer: "review",
+  "ui-reviewer": "review",
+  verifier: "verify",
+};
+
 export function deriveRunModel(i: {
   run: string;
   state: RunState;
@@ -258,300 +214,100 @@ export function deriveRunModel(i: {
 }): RunModel {
   const { state: s, events } = i;
   const records = new Map(i.records.map((r) => [r.dispatchId, r]));
-  const planned = events.some((e) => e.type === "plan.ready");
   const ended = s.phase === "ended";
   const rungOf = (id: string) => s.dispatches[id]?.rung;
+  const a = s.arch;
 
-  // ---- the shape: nodes in protocol order, edges between them ----
+  // ---- the shape: the start, the architect, its tasks and checks in the order it asked, the end ----
   const drafts: Draft[] = [];
   const edges: Edge[] = [];
-  const link = (from: string, to: string) => {
-    if (!edges.some((e) => e.from === from && e.to === to)) edges.push({ from, to });
-  };
   const add = (id: string, kind: Draft["kind"], title: string, o: Partial<Draft> = {}) =>
     drafts.push({ id, kind, milestone: null, lane: null, role: null, title, ...o });
-
   add("start", "start", "Run");
-  add("architect", "architect", "Plan", { role: "architect" });
-  link("start", "architect");
-  if (!planned) {
-    add("later", "later", "Milestones");
-    link("architect", "later");
-  } else {
-    const ids = new Set(s.milestones.map((m) => m.id));
-    const needed = new Set<string>();
-    for (const m of s.milestones) for (const a of m.after) if (ids.has(a)) needed.add(a);
-    for (const m of s.milestones) {
-      const p = (step: string) => `${m.id}/${step}`;
-      const lanes = lanesOf(s, m.id);
-      const laneIds = new Set(lanes.map((l) => l.id));
-      const after = (l: (typeof lanes)[number]) => l.after.filter((a) => laneIds.has(a));
-      const followed = new Set(lanes.flatMap(after));
-      const integrate =
-        s.base !== null ||
-        events.some(
-          (e) =>
-            (e.type === "base.behind" || e.type === "integrate.done" || e.type === "integrate.conflict") &&
-            e.milestone === m.id,
-        ) ||
-        Object.values(s.dispatches).some((d) => d.name === integrateName(m.id));
-      add(p("route"), "route", `${m.id} route`, { milestone: m.id });
-      add(p("preflight"), "preflight", `${m.id} preflight`, { milestone: m.id });
-      for (const l of lanes) {
-        add(p(`lane/${l.id}`), "lane", `${l.id} ${l.role}`, { milestone: m.id, lane: l.id, role: l.role });
-        add(p(`check/${l.id}`), "check", `${l.id} fast check`, { milestone: m.id, lane: l.id });
-      }
-      add(p("commit"), "commit", `${m.id} commit`, { milestone: m.id });
-      add(p("review"), "review", `${m.id} review`, { milestone: m.id, role: "reviewer" });
-      add(p("verify"), "verify", `${m.id} verify`, { milestone: m.id, role: "verifier" });
-      if (integrate) add(p("integrate"), "integrate", `${m.id} integrate`, { milestone: m.id });
-      add(p("land"), "land", `${m.id} land`, { milestone: m.id });
-
-      const deps = m.after.filter((a) => ids.has(a));
-      if (deps.length === 0) link("architect", p("route"));
-      for (const a of deps) link(`${a}/land`, p("route"));
-      link(p("route"), p("preflight"));
-      for (const l of lanes) {
-        const from = after(l);
-        if (from.length === 0) link(p("preflight"), p(`lane/${l.id}`));
-        for (const a of from) link(p(`check/${a}`), p(`lane/${l.id}`));
-        link(p(`lane/${l.id}`), p(`check/${l.id}`));
-        if (!followed.has(l.id)) link(p(`check/${l.id}`), p("commit"));
-      }
-      if (lanes.length === 0) link(p("preflight"), p("commit"));
-      link(p("commit"), p("review"));
-      link(p("review"), p("verify"));
-      if (integrate) {
-        link(p("verify"), p("integrate"));
-        link(p("integrate"), p("land"));
-      } else link(p("verify"), p("land"));
+  add("architect", "architect", "Architect", { role: "architect" });
+  edges.push({ from: "start", to: "architect" });
+  for (const e of events) {
+    if (e.type === "task.delegated" && !drafts.some((d) => d.id === `task/${e.taskId}`)) {
+      add(`task/${e.taskId}`, KIND_OF_ROLE[e.role] ?? "lane", `${e.taskId} ${e.role}`, {
+        lane: e.taskId,
+        role: e.role,
+      });
+      edges.push({ from: "architect", to: `task/${e.taskId}` });
+    } else if (
+      // an earlier build's run (spec D16) dispatched roles no task names: each draws as a node of its own
+      e.type === "dispatch.started" &&
+      e.role !== "architect" &&
+      !drafts.some((d) => d.id === `task/${e.name}`)
+    ) {
+      add(`task/${e.name}`, KIND_OF_ROLE[e.role] ?? "lane", `${e.unit} ${e.role}`, {
+        lane: e.lane,
+        role: e.role,
+      });
+      edges.push({ from: "architect", to: `task/${e.name}` });
+    } else if (e.type === "check.requested" && !drafts.some((d) => d.id === `check/${e.checkId}`)) {
+      add(`check/${e.checkId}`, "check", `${e.checkId} ${e.scope} check`);
+      edges.push({ from: "architect", to: `check/${e.checkId}` });
     }
-    add("judge", "judge", "Rules review", { role: "judge" });
-    add("report", "report", "Report");
-    add("end", "end", "End");
-    const last = s.milestones.filter((m) => !needed.has(m.id));
-    for (const m of last) link(`${m.id}/land`, "judge");
-    if (last.length === 0) link("architect", "judge");
-    link("judge", "report");
-    link("report", "end");
   }
+  add("end", "end", "End");
+  edges.push({ from: "architect", to: "end" });
   const has = new Set(drafts.map((d) => d.id));
 
   // ---- the attempts: one pass over the events ----
-  const commits: Record<string, number> = {};
-  const judgeKinds = new Map<string, JudgeKind>();
-  for (const e of events) {
-    if (e.type === "dispatch.started" && e.judgeKind) judgeKinds.set(e.dispatchId, e.judgeKind);
-    if (e.type === "judge.decided") judgeKinds.set(e.dispatchId, e.kind);
-  }
   const byNode = new Map<string, Attempt[]>();
-  const push = (node: string | null, a: Attempt) => {
+  const push = (node: string | null, at: Attempt) => {
     if (node === null || !has.has(node)) return;
-    byNode.set(node, [...(byNode.get(node) ?? []), a]);
+    byNode.set(node, [...(byNode.get(node) ?? []), at]);
   };
   const all: Attempt[] = [];
-  const decisions = new Map<string, NodeDecision>();
-
-  const judgeNode = (unit: string): string => {
-    const lane = s.lanes[unit];
-    if (lane) return `${lane.milestone}/lane/${lane.id}`;
-    return milestoneOf(s, unit) ? `${unit}/review` : "architect";
-  };
-  /** Where a dispatch lands and what its attempt is called. */
-  const place = (dv: DispatchView, rec: RunRecord | undefined): { node: string | null; label: string } => {
-    const before = commits[milestoneOf(s, dv.unit)?.id ?? s.lanes[dv.lane ?? ""]?.milestone ?? ""] ?? 0;
-    const lane = dv.lane ? s.lanes[dv.lane] : undefined;
-    if (dv.role === "judge") {
-      if (dv.name === "judge-rules") return { node: "judge", label: "rules" };
-      return { node: judgeNode(dv.unit), label: `judge (${judgeKinds.get(dv.dispatchId) ?? "unexpected"})` };
-    }
-    if (lane)
-      return {
-        node: `${lane.milestone}/lane/${lane.id}`,
-        label: rec?.failoverFrom ? `failover from ${rec.failoverFrom}` : `round ${before}`,
-      };
-    if (dv.role === "architect") {
-      const fix = /^architect-(.+)-\d+$/.exec(dv.name);
-      return { node: "architect", label: fix ? `${fix[1]} fix plan` : "plan" };
-    }
-    if (dv.role === "researcher") return { node: "architect", label: "dossier" };
-    const m = milestoneOf(s, dv.unit);
-    if (!m) return { node: null, label: dv.name };
-    if (dv.name === integrateName(m.id)) return { node: `${m.id}/integrate`, label: "resolving the merge" };
-    const round = `round ${Math.max(0, before - 1)}`;
-    if (dv.role === "ui-reviewer") return { node: `${m.id}/review`, label: "UI review" };
-    if (dv.role === "reviewer")
-      return { node: `${m.id}/review`, label: dv.name.endsWith("-2") ? "second review" : round };
-    if (dv.role === "verifier") return { node: `${m.id}/verify`, label: round };
-    return { node: null, label: dv.name };
-  };
-
-  /** Where a decision lands: the node of the dispatch it was made for (mirrors `place`). */
-  const decisionNode = (e: Extract<RunEvent, { type: "decision.made" }>): string | null => {
-    if (e.role === "judge") return e.name === "judge-rules" ? "judge" : judgeNode(e.unit);
-    const lane = s.lanes[e.unit];
-    if (lane) return `${lane.milestone}/lane/${lane.id}`;
-    if (e.role === "architect" || e.role === "researcher") return "architect";
-    const m = milestoneOf(s, e.unit);
-    if (!m) return null;
-    if (e.name === integrateName(m.id)) return `${m.id}/integrate`;
-    if (e.role === "reviewer" || e.role === "ui-reviewer") return `${m.id}/review`;
-    return e.role === "verifier" ? `${m.id}/verify` : null;
-  };
-
-  const event = (
-    e: RunEvent,
-    kind: Attempt["kind"],
-    label: string,
-    status: NodeStatus,
-    o: Partial<Attempt> = {},
-  ): Attempt => ({
-    id: `${kind}:${e.seq}`,
-    kind,
-    label,
-    round: null,
-    status,
-    at: e.at,
-    endedAt: e.at,
-    dispatchId: null,
-    name: null,
-    role: null,
-    rung: null,
-    failoverFrom: null,
-    judge: null,
-    secs: null,
-    tokens: null,
-    costUsd: null,
-    commit: null,
-    exit: null,
-    text: describeEvent(e, rungOf),
-    ...o,
-  });
+  const nodeOf = (dv: DispatchView): string => (dv.role === "architect" ? "architect" : `task/${dv.name}`);
 
   for (const e of events) {
-    const done = (node: string, label: string, failed = false) =>
-      push(node, event(e, "event", label, failed ? "failed" : "done"));
-    switch (e.type) {
-      case "dispatch.started": {
-        const dv = s.dispatches[e.dispatchId];
-        if (!dv) break;
-        const rec = records.get(e.dispatchId);
-        const { node, label } = place(dv, rec);
-        const base = rec ? recordAttempt(rec) : null;
-        const judge =
-          dv.role === "judge" ? (e.judgeKind ?? judgeKinds.get(e.dispatchId) ?? "unexpected") : null;
-        const a: Attempt = {
-          ...(base ?? {
-            tokens: null,
-            costUsd: null,
-            secs: null,
-            exit: null,
-            text: null,
-            failoverFrom: null,
-          }),
-          id: dv.dispatchId,
-          kind: "dispatch",
-          label,
-          round: null,
-          status: dispatchStatus(dv),
-          at: dv.startedAt,
-          endedAt: dv.ended?.at ?? null,
-          dispatchId: dv.dispatchId,
-          name: dv.name,
-          role: dv.role,
-          rung: dv.rung,
-          judge,
-          commit: null,
-        };
-        push(node, a);
-        all.push(a);
-        break;
-      }
-      case "check.ran": {
-        const l = s.lanes[e.lane];
-        if (!l) break;
-        const round = commits[l.milestone] ?? 0;
-        // plan 40's start or duration makes the attempt span its own run; with neither it stays one instant
-        const end = Date.parse(e.at);
-        const startMs = e.startedAt
-          ? Date.parse(e.startedAt)
-          : e.durationMs !== undefined
-            ? end - e.durationMs
-            : NaN;
-        const span = Number.isFinite(startMs)
-          ? {
-              at: new Date(startMs).toISOString(),
-              secs: e.durationMs !== undefined ? e.durationMs / 1000 : (end - startMs) / 1000,
-            }
-          : {};
-        push(
-          `${l.milestone}/check/${l.id}`,
-          event(e, "check", `round ${round}`, e.exit === 0 ? "done" : "failed", {
-            round,
-            exit: e.exit,
-            ...span,
-          }),
-        );
-        break;
-      }
-      case "commit.made":
-      case "commit.failed": {
-        const made = e.type === "commit.made";
-        push(
-          `${e.milestone}/commit`,
-          event(e, "commit", `round ${e.round}`, made ? "done" : "failed", {
-            round: e.round,
-            commit: made ? e.commit : null,
-          }),
-        );
-        if (made) commits[e.milestone] = (commits[e.milestone] ?? 0) + 1;
-        break;
-      }
-      case "decision.made": {
-        const node = decisionNode(e);
-        if (node !== null && has.has(node)) {
-          const { n, rung, level, levels, levelRungs, p, source, why, probabilities } = e;
-          decisions.set(node, { n, rung, level, levels, levelRungs, p, source, why, probabilities });
-        }
-        break;
-      }
-      case "lane.climbed": {
-        const l = s.lanes[e.lane];
-        if (l) done(`${l.milestone}/lane/${l.id}`, `climbed to ${e.rung}`);
-        break;
-      }
-      case "tree.ready":
-        done(`${e.milestone}/route`, "worktree ready");
-        break;
-      case "tree.deferred":
-        done(`${e.milestone}/route`, "waiting for memory");
-        break;
-      case "preflight.done":
-        done(`${e.milestone}/preflight`, "preflight");
-        break;
-      case "base.behind":
-        done(`${e.milestone}/integrate`, "behind the base");
-        break;
-      case "integrate.done":
-        done(`${e.milestone}/integrate`, "base merged");
-        break;
-      case "integrate.conflict":
-        done(`${e.milestone}/integrate`, "merge conflict", true);
-        break;
-      case "milestone.landed":
-        done(`${e.milestone}/land`, "landed");
-        break;
-      case "land.refused":
-        done(`${e.milestone}/land`, "landing refused", true);
-        break;
-      case "branch.pushed":
-        done(`${e.milestone}/land`, "branch pushed");
-        break;
-      case "judge.failed":
-        done(e.id === "rules" ? "judge" : judgeNode(e.unit), "judge failed", true);
-        break;
-      default:
-        break;
+    if (e.type === "dispatch.started") {
+      const dv = s.dispatches[e.dispatchId];
+      if (!dv) continue;
+      const rec = records.get(e.dispatchId);
+      const base = rec ? recordAttempt(rec) : null;
+      const at: Attempt = {
+        ...(base ?? { tokens: null, costUsd: null, secs: null, exit: null, text: null, failoverFrom: null }),
+        id: dv.dispatchId,
+        kind: "dispatch",
+        label: dv.role === "architect" ? `turn ${dv.name.replace(/^architect-/, "")}` : dv.name,
+        round: null,
+        status: dispatchStatus(dv),
+        at: dv.startedAt,
+        endedAt: dv.ended?.at ?? null,
+        dispatchId: dv.dispatchId,
+        name: dv.name,
+        role: dv.role,
+        rung: dv.rung,
+        judge: null,
+        commit: null,
+      };
+      push(nodeOf(dv), at);
+      all.push(at);
+    } else if (e.type === "check.done") {
+      push(`check/${e.checkId}`, {
+        id: `check:${e.seq}`,
+        kind: "check",
+        label: e.cached ? "cached pass" : "run",
+        round: null,
+        status: e.exit === 0 ? "done" : "failed",
+        at: new Date(Date.parse(e.at) - e.minutes * 60_000).toISOString(),
+        endedAt: e.at,
+        dispatchId: null,
+        name: null,
+        role: null,
+        rung: null,
+        failoverFrom: null,
+        judge: null,
+        secs: e.minutes * 60,
+        tokens: null,
+        costUsd: null,
+        commit: null,
+        exit: e.exit,
+        text: describeEvent(e, rungOf),
+      });
     }
   }
   const attemptsOf = (id: string): Attempt[] => [...(byNode.get(id) ?? [])].reverse();
@@ -566,125 +322,59 @@ export function deriveRunModel(i: {
     }
 
   // ---- the statuses ----
-  const titles = new Map(drafts.map((d) => [d.id, d.title]));
-  const fromTitles = (id: string): string[] =>
-    edges.filter((e) => e.to === id).map((e) => titles.get(e.from) ?? e.from);
-  const live = (d: Draft): Attempt[] =>
-    attemptsOf(d.id).filter((a) => a.kind === "dispatch" && a.status === "running");
   const outcome = s.outcome;
-  const reportDone = ended && events.some((e) => e.type === "run.ended" && e.reportPath !== null);
-  const rolesOff = (r: string) => s.rolesOff.some((x) => x === r);
-
   const nodes: RunNode[] = drafts.map((d) => {
     const attempts = attemptsOf(d.id);
     const newest = attempts[0];
-    const lane = d.lane ? s.lanes[d.lane] : undefined;
-    const m = d.milestone ? milestoneOf(s, d.milestone) : undefined;
     const q = questions.get(d.id) ?? null;
-    const liveOnes = live(d);
-    const checking = d.kind === "check" && lane?.status === "checking";
-
-    const stepStatus = (k: keyof typeof STEP_RANK): NodeStatus => {
-      if (!m) return "pending";
-      const rank = rankOf(m);
-      const r = STEP_RANK[k];
-      return rank > r ? "done" : rank === r ? "running" : attempts.length > 0 ? "done" : "pending";
-    };
+    const liveOne = attempts.find((x) => x.kind === "dispatch" && x.status === "running");
+    const task = d.lane ? a.tasks[d.lane] : undefined;
+    const check = d.kind === "check" ? a.checks[d.id.slice("check/".length)] : undefined;
     const base = (): NodeStatus => {
-      switch (d.kind) {
-        case "start":
-          return "done";
-        case "later":
-          return "pending";
-        case "architect":
-          return planned ? "done" : s.phase === "planning" ? "running" : "pending";
-        case "route":
-          return events.some((e) => e.type === "lanes.routed" && e.milestone === d.milestone)
+      if (d.kind === "start") return "done";
+      if (d.kind === "end")
+        return ended
+          ? outcome === "done"
             ? "done"
-            : "pending";
-        case "preflight": {
-          const p = events.findLast((e) => e.type === "preflight.done" && e.milestone === d.milestone);
-          if (p?.type !== "preflight.done") return "pending";
-          return p.blocking.length === 0 && (!p.confirm || p.confirm.length === 0 || m?.confirmed)
-            ? "done"
-            : "pending";
-        }
-        case "lane":
-          return lane ? (lane.status === "checking" ? "done" : lane.status) : "pending";
-        case "check":
-          return checking ? "running" : (newest?.status ?? "pending");
-        case "commit":
-        case "review":
-        case "verify":
-        case "integrate":
-        case "land":
-          return stepStatus(d.kind);
-        case "judge":
-          return s.rulesReview ? (s.rulesReview.failed ? "failed" : "done") : "pending";
-        case "report":
-          return reportDone ? "done" : "pending";
-        case "end":
-          return ended
-            ? outcome === "done"
-              ? "done"
-              : outcome === "cancelled"
-                ? "cancelled"
-                : "failed"
-            : "pending";
-      }
+            : outcome === "cancelled"
+              ? "cancelled"
+              : "failed"
+          : "pending";
+      if (d.kind === "architect") return ended ? "done" : "pending";
+      if (check) return check.state === "queued" ? "running" : (newest?.status ?? "pending");
+      if (task?.state === "cancelled" || task?.state === "refused") return "cancelled";
+      return newest?.status ?? "pending";
     };
-
     let status: NodeStatus;
     if (q) status = "parked";
-    else if (liveOnes.length > 0 || checking) status = "running";
-    else if (
-      (d.kind === "review" && rolesOff("reviewer") && attempts.length === 0) ||
-      (d.kind === "verify" && rolesOff("verifier")) ||
-      (d.kind === "judge" && rolesOff("judge"))
-    )
-      status = "skipped";
-    else {
-      status = base();
-      if (d.kind !== "end" && newest?.status === "failed") status = "failed";
-    }
+    else if (liveOne) status = "running";
+    else status = base();
     if (ended && d.kind !== "end") {
       if (status === "running" || status === "parked") status = outcome === "failed" ? "failed" : "cancelled";
       else if (status === "pending") status = "skipped";
     }
-
-    const rung = attempts.find((a) => a.kind === "dispatch")?.rung ?? lane?.rung ?? null;
     return {
       id: d.id,
       kind: d.kind,
-      milestone: d.milestone,
+      milestone: null,
       lane: d.lane,
       role: d.role,
       title: d.title,
       status,
-      now: nowLine(d, status, {
-        q,
-        newest,
-        liveOne: liveOnes[0],
-        unitOf: (id) => s.dispatches[id]?.unit ?? RUN_UNIT,
-        from: fromTitles(d.id),
-        checking,
-        committing: d.kind === "commit" && status === "running",
-        lane: d.lane,
-        milestone: d.milestone,
-      }),
-      rung,
+      now: nowLine(status, { q, newest, liveOne, unitOf: (id) => s.dispatches[id]?.unit ?? RUN_UNIT }),
+      rung: attempts.find((x) => x.kind === "dispatch")?.rung ?? task?.rung ?? null,
       startedAt: attempts.at(-1)?.at ?? (d.kind === "start" ? (events[0]?.at ?? null) : null),
       endedAt:
         status === "running" || status === "parked" || status === "pending"
           ? null
-          : d.kind === "end" || d.kind === "report"
+          : d.kind === "end"
             ? (events.findLast((e) => e.type === "run.ended")?.at ?? null)
             : (attempts.reduce<string | null>(
-                (late, a) => (a.endedAt && (!late || a.endedAt > late) ? a.endedAt : late),
+                (late, x) => (x.endedAt && (!late || x.endedAt > late) ? x.endedAt : late),
                 null,
               ) ?? (d.kind === "start" ? (events[0]?.at ?? null) : null)),
       question: q,
-      decision: decisions.get(d.id) ?? null,
+      decision: null,
       attempts,
     };
   });
@@ -702,43 +392,27 @@ export function deriveRunModel(i: {
 }
 
 function nowLine(
-  d: Draft,
   status: NodeStatus,
   c: {
     q: RunNode["question"];
     newest: Attempt | undefined;
     liveOne: Attempt | undefined;
     unitOf: (dispatchId: string) => string;
-    from: string[];
-    checking: boolean;
-    committing: boolean;
-    lane: string | null;
-    milestone: string | null;
   },
 ): string {
   switch (status) {
     case "parked":
-      return c.q?.reason === "approval"
-        ? "Waiting for you to approve the plan"
-        : c.q
-          ? `Waiting for your answer: ${firstLine(c.q.question)}`
-          : "Waiting for a decision";
+      return c.q ? `Waiting for your answer: ${firstLine(c.q.question)}` : "Waiting for a decision";
     case "running": {
       if (c.liveOne) {
         const backend = tryParseRung(c.liveOne.rung ?? "")?.backend ?? "";
         const unit = c.unitOf(c.liveOne.id);
         return `${BACKEND[backend] ?? "An agent"} is ${DOING[c.liveOne.role ?? ""] ?? "working"} for ${unit === RUN_UNIT ? "the run" : unit}`;
       }
-      if (c.checking) return `Running the fast check for ${c.lane}`;
-      if (c.committing) return `Committing ${c.milestone}`;
       return "In progress";
     }
     case "pending":
-      return d.kind === "later"
-        ? "Known once the plan is ready"
-        : c.from.length > 0
-          ? `Starts after ${c.from.join(", ")}`
-          : "Waiting to start";
+      return "Waiting to start";
     case "done":
       return "Done";
     case "failed":

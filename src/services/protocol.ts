@@ -21,7 +21,7 @@ import {
 } from "./milestones.ts";
 import { deliveredALines, numberedALines } from "./plan-input.ts";
 import { openQuestions } from "./questions.ts";
-import { isDaemonRun, replayRun } from "./run-events-store.ts";
+
 import { natural } from "../domain/util.ts";
 import {
   readAgentRuns,
@@ -122,11 +122,6 @@ export function unfinishedAfter(run: Run, lane: string, routes: RouteRow[] = rea
   const landed = new Set(landedMilestones(run));
   const after = afterOf(run, lane).filter((a) => !landed.has(milestoneOf(a)));
   if (after.length === 0) return [];
-  // a daemon run's reducer already settled each lane (plan 40 D22): a done lane is finished whatever its last reply
-  if (isDaemonRun(run)) {
-    const lanes = replayRun(run).lanes;
-    return after.filter((a) => lanes[a]?.status !== "done");
-  }
   const evidence = laneEvidence(run, routes, []);
   return after.filter((a) => !laneDone(a, evidence));
 }

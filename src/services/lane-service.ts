@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId } from "../domain/ids.ts";
-import type { MilestoneState } from "../domain/run-state.ts";
 import { cell, coveredMs } from "../domain/util.ts";
 import { laneOutcome, type OutcomeRow, outcomeRouteRow, type RouteRow } from "../domain/route.ts";
 import { withFileLock } from "../infra/filelock.ts";
@@ -27,7 +26,7 @@ import {
   milestoneCommits,
   milestoneVerifier,
 } from "./milestones.ts";
-import { acceptedBaselineItem, machineGate, verdictCarries } from "./milestone-check.ts";
+import { acceptedBaselineItem, machineGate } from "./milestone-check.ts";
 import type { Deps } from "./ports.ts";
 import {
   appendKnowledge,
@@ -44,7 +43,6 @@ import {
 import { writeDigest } from "./protocol.ts";
 import { pauseSpans } from "./pause.ts";
 import { openQuestions, parkedSpans } from "./questions.ts";
-import { isDaemonRun, replayRun } from "./run-events-store.ts";
 import { type Notes, type NotesPatch, patchNotes, refreshState } from "./state.ts";
 
 const withHints = (hints: string[]) => (hints.length ? { hints } : {});
@@ -59,16 +57,6 @@ function writeOutcome(run: Run, routes: RouteRow[], o: OutcomeRow): void {
 
 export const LAND_SKIPS = ["docs-only", "no-code"] as const;
 export type LandSkip = (typeof LAND_SKIPS)[number];
-
-/**
- * Plan 40 D1: a daemon run's verdict stands on the landed commit when the replayed milestone passed it there, when
- * that PASS carries over (D3(b)), or when the milestone is check-only and its check ran on that commit.
- */
-async function verdictSettles(run: Run, m: string, state: MilestoneState, landed: string): Promise<boolean> {
-  if (state.checkOnly && state.checkedOn === landed) return true;
-  if (state.verifierPassedOn === null) return false;
-  return state.verifierPassedOn === landed || (await verdictCarries(run, m, state.verifierPassedOn, landed));
-}
 
 /**
  * Spec 1.1 §6: a milestone lands only with a reviewer record and a verifier verdict since its lanes
@@ -139,10 +127,9 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
         fix: `surface it to the owner: park(run, "${m}", <the blocker and its probe>); once the environment is fixed, run a fresh verifier on ${m}. A fix round or a climb cannot help`,
       },
     );
-  // plan 40 D1: a daemon run's verdict is its replayed milestone's, which knows the commit each verdict is about
-  const replayed = isDaemonRun(run) ? replayRun(run).milestones.find((s) => s.id === m) : undefined;
+  // plan 48: the 1.5 landing gate only; a daemon run lands through the architect (plan 50)
   const landed = await fullCommit(run, commit);
-  const settled = replayed ? await verdictSettles(run, m, replayed, landed) : verdict?.passed === true;
+  const settled = verdict?.passed === true;
   const missing = [
     ...(reviewerPassed(run, m, start)
       ? []
@@ -170,7 +157,7 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
     );
   // plan 30b: the verdict must be about the commit being landed, and catherd's own check must have run on it
   const checked = verdict?.head ?? null;
-  if (!replayed && verdict && checked === null)
+  if (verdict && checked === null)
     throw new CatherdError(
       "E_LAND_GATE",
       `land ${m}: ${verdict.name}'s PASS names no HEAD, so it cannot be told to cover ${landed.slice(0, 12)}`,
@@ -178,7 +165,7 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
         fix: `a headless verifier's reply ends with HEAD: <sha>; run a fresh verifier-${m} on the committed milestone (${landed.slice(0, 7)})`,
       },
     );
-  if (!replayed && verdict && checked !== null && !landed.startsWith(checked))
+  if (verdict && checked !== null && !landed.startsWith(checked))
     throw new CatherdError(
       "E_LAND_GATE",
       `land ${m}: ${verdict.name} checked ${checked.slice(0, 12)}, and the commit being landed is ${landed.slice(0, 12)}: a PASS from before a later commit does not count`,

@@ -109,13 +109,8 @@ export async function teamSend(
   if (i.mode === "queue" || !steers(i.from)) return { n, delivery: "queued" };
   const state = replayRun(run);
   const live = Object.values(state.dispatches).filter((x) => x.ended === null);
-  // a lane while it runs (2.0), or on an architect run a dispatch by its name (a task, plan 47)
-  const d =
-    state.lanes[i.to]?.status === "running"
-      ? live.find((x) => x.lane === i.to)
-      : state.arch
-        ? live.find((x) => x.name === i.to)
-        : undefined;
+  // a running task, or the architect's turn, by its dispatch name (plan 47)
+  const d = live.find((x) => x.name === i.to);
   const thread = d && (readThread(join(roleDir(run, d.name), d.dispatchId)) ?? d.thread);
   const backend = d && tryParseRung(d.rung)?.backend;
   if (!thread || !backend) return { n, delivery: "queued" };
@@ -144,25 +139,6 @@ export function teamRead(i: {
   );
   const messages = after.slice(0, limit).map((m) => ({ ...m, text: cut(m.text, maxChars) }));
   return { messages, next: after.length > limit ? (messages.at(-1)?.n ?? null) : null };
-}
-
-export async function teamWait(
-  i: { run: string; lane: string; timeoutMs?: number; since?: number },
-  o: { pollMs?: number } = {},
-): Promise<{ lane: string; status: string; timedOut: boolean; posted: TeamMessage[] }> {
-  const run = findRun(i.run);
-  const timeoutMs = clamp(i.timeoutMs, 0, 300_000, 60_000);
-  const since = i.since ?? teamMessages(run).at(-1)?.n ?? 0;
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const lane = replayRun(run).lanes[i.lane];
-    if (!lane) throw invalid(`run ${run.id} has no lane ${i.lane}`, "wait on a lane of your run, like M1.L2");
-    const posted = teamMessages(run).filter((m) => m.n > since && m.from.endsWith(`-${i.lane}`));
-    if (lane.status !== "running" || posted.length > 0)
-      return { lane: i.lane, status: lane.status, timedOut: false, posted };
-    if (Date.now() >= deadline) return { lane: i.lane, status: lane.status, timedOut: true, posted };
-    await Bun.sleep(o.pollMs ?? 1_000);
-  }
 }
 
 /** The number of the run's last message, 0 when there is none: the watermark a rendered brief records. */

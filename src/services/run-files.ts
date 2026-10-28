@@ -223,42 +223,23 @@ export const CheckLogsSchema = z.object({
 });
 export type CheckLogs = z.infer<typeof CheckLogsSchema>;
 
-/** The lane as the newest plan that names it has it. */
-function planLane(events: RunEvent[], lane: string) {
-  for (const e of events.toReversed()) {
-    if (e.type !== "plan.ready") continue;
-    for (const m of e.milestones) {
-      const l = m.lanes.find((x) => x.id === lane);
-      if (l) return l;
-    }
-  }
-  return undefined;
-}
-
 export function checkLogs(run: Run, lane: string): CheckLogs {
   if (!ID_PATTERN.test(lane)) throw invalid(`bad lane id "${lane}"`);
-  const events = readEvents(run);
-  const name = `${planLane(events, lane)?.role ?? "worker"}-${lane}`;
+  const name = `worker-${lane}`;
   const dir = join(runPaths(run.dir).scratch, name);
   const fast = readCapped(join(dir, "fast-check.log"), LOG_CAP, true)?.text ?? null;
   const full = readCapped(join(dir, "full-check.log"), LOG_CAP, true)?.text ?? null;
-  const ran = events.findLast((e): e is Ev<"check.ran"> => e.type === "check.ran" && e.lane === lane);
-  if (fast === null && full === null && !ran) throw notFound(`scratch/${name}/fast-check.log`);
-  return { lane, name, fast, full, exit: ran?.exit ?? null };
+  if (fast === null && full === null) throw notFound(`scratch/${name}/fast-check.log`);
+  return { lane, name, fast, full, exit: null };
 }
 
 const HEX = /^[0-9a-f]{7,64}$/;
 
-/** The commits the run's own events name: the only shas a diff is served for. */
+/** The commits the run's own events name (a role's HEAD when it ended): the only shas a diff is served for. */
 export function runShas(run: Run): string[] {
   const out = new Set<string>();
-  for (const e of readEvents(run)) {
-    if (
-      (e.type === "commit.made" || e.type === "milestone.landed" || e.type === "integrate.done") &&
-      HEX.test(e.commit)
-    )
-      out.add(e.commit);
-  }
+  for (const e of readEvents(run))
+    if (e.type === "dispatch.ended" && e.head && HEX.test(e.head)) out.add(e.head);
   return [...out];
 }
 
@@ -276,12 +257,9 @@ export async function commitDiff(run: Run, sha: string, o: { lane?: string } = {
   const hits = HEX.test(q) ? (all.includes(q) ? [q] : all.filter((s) => s.startsWith(q))) : [];
   if (hits.length !== 1) throw invalid(`"${sha}" is not a commit this run made`);
   const full = hits[0] as string;
-  let paths: string[] | null = null;
-  if (o.lane !== undefined) {
-    const l = planLane(readEvents(run), o.lane);
-    if (!l) throw invalid(`no lane "${o.lane}" in this run's plan`);
-    paths = l.owns.length ? l.owns : null;
-  }
+  // plan 48: a run has no lanes, so a lane names no paths to narrow the diff to
+  if (o.lane !== undefined) throw invalid(`no lane "${o.lane}" in this run`);
+  const paths: string[] | null = null;
   const r = await git(run.meta.repo, [
     "show",
     "--no-color",

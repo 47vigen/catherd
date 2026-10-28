@@ -1487,7 +1487,6 @@ describe("a 2.0 run (plan 30)", () => {
     aLines: [],
     plan: [],
     base: null,
-    engine: "2.0",
   };
 
   it("announces a 2.0 run's reports to the session that started it, once each", async () => {

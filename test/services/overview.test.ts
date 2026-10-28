@@ -6,7 +6,7 @@ import { appendEvent } from "../../src/services/run-events-store.ts";
 import { runIndexCache } from "../../src/services/run-index.ts";
 import { appendRecord, createRun, type Run } from "../../src/services/run-store.ts";
 import { makeRecord } from "../domain/make-record.ts";
-import { PLAN, startedFields } from "../domain/run-fixtures.ts";
+import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { fakeDeps } from "./helpers.ts";
 
@@ -17,12 +17,10 @@ const DAY = 86_400_000;
 const MIN = 60_000;
 const deps = () => fakeDeps({ now: () => NOW });
 
-/** A 2.0 run started at `start` (epoch ms), approved by input, then `more` one second apart. */
+/** A run started at `start` (epoch ms), then `more` one second apart. */
 async function make(repo: string, title: string, start: number, ...more: RunEventInput[]): Promise<Run> {
   const run = createRun({ repo, title, aLines: ["A1 ok"], version: "0.0.0-test", now: new Date(start) });
   await appendEvent(run, { type: "run.started", ...startedFields, repo, title }, new Date(start));
-  await appendEvent(run, { type: "plan.ready", milestones: PLAN }, new Date(start + 1000));
-  await appendEvent(run, { type: "plan.approved", by: "input" }, new Date(start + 1000));
   for (const e of more) await appendEvent(run, e, new Date(start + 2000));
   return run;
 }

@@ -4,20 +4,20 @@ import { join } from "node:path";
 import type { ArchitectTool } from "../../src/domain/role-tools.ts";
 import { callArchitectTool, type ToolCaller } from "../../src/services/architect-tools.ts";
 import { ledgerTasks } from "../../src/services/ledger-store.ts";
-import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
+import { appendEvent, readEvents, replayRun, withEventsLock } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
-import { startedFields } from "../domain/run-fixtures.ts";
+import { endDispatch, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { fakeDeps, freshRun, testView } from "./helpers.ts";
+import { fakeDeps, freshRun, insertEarlier, testView } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
 const ARCHITECT: ToolCaller = { name: "architect-1", role: "architect" };
 const WORKER: ToolCaller = { name: "T1", role: "worker" };
 
-async function architectRun(engine: "architect" | "2.0" = "architect"): Promise<Run> {
+async function architectRun(): Promise<Run> {
   const { run } = freshRun();
-  await appendEvent(run, { type: "run.started", ...startedFields, engine });
+  await appendEvent(run, { type: "run.started", ...startedFields });
   return run;
 }
 
@@ -149,7 +149,6 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
       environment: null,
       verdict: null,
       findings: [],
-      foreign: [],
       replyPath: "roles/T1/D1/reply.md",
     });
     expect(
@@ -225,7 +224,60 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     expect(replayRun(run).arch?.finishing).toEqual({ verdict: "done", why: "shipped" });
   });
 
-  it("capabilities names each role's rungs, the slots and the budget; a 2.0 run has none of these tools", async () => {
+  it("refuses a same-rung retry with nothing new, and a ledger task past its attempts (plan 48, spec D10)", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { type: "run.started", ...startedFields, caps: { wallMin: 720, attempts: 2 } });
+    await call(run, "ledger", { tasks: { add: [{ id: "L1", goal: "the parser" }] }, why: "w" });
+    const work = (rung?: string) =>
+      call(run, "delegate_task", {
+        role: "worker",
+        task: "parse it",
+        ledgerTask: "L1",
+        why: "w",
+        ...(rung ? { rung } : {}),
+      });
+    const end = async (taskId: string, replyStatus: "blocked" | "complete") => {
+      const log = makeLog();
+      const id = startDispatch(log, { name: taskId, unit: taskId });
+      endDispatch(log, id, { name: taskId, unit: taskId, replyStatus, why: "the parser loops" });
+      for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    };
+    await work();
+    await end("T1", "blocked");
+    await expect(work()).rejects.toMatchObject({
+      code: "E_INPUT_INVALID",
+      message: expect.stringContaining("stalled"),
+    });
+    expect(await work("codex:gpt-6-sol#high")).toMatchObject({ taskId: "T2" });
+    await end("T2", "complete");
+    await expect(work("codex:gpt-6-sol#high")).rejects.toMatchObject({
+      message: expect.stringContaining("has had its 2 attempts"),
+    });
+  });
+
+  it("checks the attempts cap under the events lock, not before it (plan 48, R20)", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { type: "run.started", ...startedFields, caps: { wallMin: 720, attempts: 1 } });
+    await call(run, "ledger", { tasks: { add: [{ id: "L1", goal: "the parser" }] }, why: "w" });
+    let late!: Promise<unknown>;
+    // a delegation that starts while another holds the lock must see that one's attempt once it gets in
+    await withEventsLock(run, (add) => {
+      late = call(run, "delegate_task", { role: "worker", task: "parse it", ledgerTask: "L1", why: "w" });
+      add({
+        type: "task.delegated",
+        taskId: "T1",
+        role: "worker",
+        rung: "codex:gpt-6-sol#high",
+        thread: null,
+        ledgerTask: "L1",
+        by: "architect-1",
+        why: "w",
+      });
+    });
+    await expect(late).rejects.toMatchObject({ message: expect.stringContaining("has had its 1 attempts") });
+  });
+
+  it("capabilities names each role's rungs, the slots and the budget; an earlier build's run has none of these tools", async () => {
     const run = await architectRun();
     expect(await call(run, "capabilities", {})).toMatchObject({
       roles: { worker: { default: "codex:gpt-6-luna#high" }, researcher: expect.anything() },
@@ -233,7 +285,8 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
       standing: { running: 0, cap: 4 },
       queued: 0,
     });
-    const old = await architectRun("2.0");
+    const old = freshRun().run;
+    insertEarlier(old);
     await expect(call(old, "capabilities", {})).rejects.toMatchObject({ code: "E_ROLE_SCOPE" });
   });
 });

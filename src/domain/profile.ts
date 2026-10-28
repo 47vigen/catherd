@@ -1,6 +1,7 @@
 import type { OrchestrationHost } from "./host.ts";
 import { z } from "zod";
 import type { Budget } from "./budget.ts";
+import { type Caps, DEFAULT_CAPS } from "./caps.ts";
 import { BILLING_KEYS, type BillingKey } from "./catalog.ts";
 import { BILLING_MODES, type BillingMode, DEFAULT_BILLING } from "./cost.ts";
 import { CatherdError } from "./errors.ts";
@@ -25,9 +26,6 @@ export function assertProfileName(name: string): string {
 
 export const NOTIFY = ["milestone", "finish", "blocked"] as const;
 
-/** Plan 47: which machine drives a new run, the 2.0 pipeline or the architect loop (spec D1–D4). */
-export const ENGINES = ["2.0", "architect"] as const;
-export type Engine = (typeof ENGINES)[number];
 export type NotifyMoment = (typeof NOTIFY)[number];
 
 /** The harnesses a profile can isolate (spec §7.1 `harness`); the native `claude` path has none. */
@@ -75,6 +73,7 @@ export const ProfileDocSchema = z.looseObject({
     .looseObject({ minutes: positive.optional(), tokens: positive.optional(), usd: positive.optional() })
     .optional(),
   timeouts: z.looseObject({ idleMin: positive.optional(), wallMin: positive.optional() }).optional(),
+  caps: z.looseObject({ wallMin: positive.optional(), attempts: positive.optional() }).optional(),
   preflight: z.looseObject({ confirm: z.boolean().optional() }).optional(),
   land: z.looseObject({ autoMerge: z.boolean().optional() }).optional(),
   lock: z
@@ -83,6 +82,7 @@ export const ProfileDocSchema = z.looseObject({
   notify: z.array(z.string()).optional(),
   // plan 35: unknown, so a hand edit never makes the file unreadable; resolveProfile reads what it can
   limits: z.unknown().optional(),
+  /** plan 47's engine switch: plan 48 makes the architect the only engine and reads this key as nothing */
   engine: z.string().optional(),
 });
 export type ProfileDoc = z.infer<typeof ProfileDocSchema>;
@@ -144,7 +144,6 @@ export function unknownValues(doc: ProfileDoc): UnknownValue[] {
   if (conf !== undefined && confidenceOf(conf) !== conf)
     out.push({ path: "decision.minConfidence", value: String(conf), readAs: String(DEFAULT_MIN_CONFIDENCE) });
   for (const n of doc.notify ?? []) check("notify", NOTIFY, n, "skipped");
-  check("engine", ENGINES, doc.engine, "2.0");
   for (const [k, v] of Object.entries(storedMemory(doc)))
     if (!(MEMORY_KEYS as readonly string[]).includes(k) || !positiveInt(v))
       out.push({ path: `limits.memory.${k}`, value: JSON.stringify(v), readAs: "the default" });
@@ -186,6 +185,8 @@ export interface Profile {
   maxEffort: Record<string, EffortWord>;
   budget: Budget;
   timeouts: { idleMin: number; wallMin: number };
+  /** plan 48, spec D10: the run's wall time and the attempts per ledger task */
+  caps: Caps;
   preflight: { confirm: boolean };
   /** plan 43: who merges a landed milestone into the base */
   land: { autoMerge: boolean };
@@ -193,8 +194,6 @@ export interface Profile {
   notify: NotifyMoment[];
   /** plan 35: only the memory numbers the profile sets; the defaults are `MEMORY_LIMITS` */
   limits: { memory: Partial<Record<MemoryKey, number>> };
-  /** plan 47: the machine a new run starts on; "2.0" unless the profile says "architect" */
-  engine: Engine;
 }
 
 const LUNA_HIGH = "codex:gpt-6-luna#high";
@@ -267,6 +266,7 @@ export function defaultProfileDoc(name = "default"): ProfileDoc {
     maxEffort: { ...DEFAULT_MAX_EFFORT },
     budget: {},
     timeouts: { idleMin: 15, wallMin: 90 },
+    caps: { ...DEFAULT_CAPS },
     preflight: { confirm: false },
     land: { autoMerge: false },
     lock: { heavy: "cpus/2" },
@@ -366,11 +366,14 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
     ),
     budget,
     timeouts: { idleMin: doc.timeouts?.idleMin ?? 15, wallMin: doc.timeouts?.wallMin ?? 90 },
+    caps: {
+      wallMin: doc.caps?.wallMin ?? DEFAULT_CAPS.wallMin,
+      attempts: positiveInt(doc.caps?.attempts) ? doc.caps.attempts : DEFAULT_CAPS.attempts,
+    },
     preflight: { confirm: doc.preflight?.confirm ?? false },
     land: { autoMerge: doc.land?.autoMerge ?? false },
     lock: { heavy: doc.lock?.heavy ?? "cpus/2" },
     notify: doc.notify === undefined ? [...NOTIFY] : doc.notify.filter((n) => known(NOTIFY, n)),
-    engine: known(ENGINES, doc.engine) ? doc.engine : "2.0",
     limits: {
       memory: Object.fromEntries(
         MEMORY_KEYS.flatMap((k) => {
@@ -432,11 +435,11 @@ export const ProfilePatchSchema = z.strictObject({
     .partial()
     .optional(),
   timeouts: z.strictObject({ idleMin: positive, wallMin: positive }).partial().optional(),
+  caps: z.strictObject({ wallMin: positive, attempts: z.number().int().positive() }).partial().optional(),
   preflight: z.strictObject({ confirm: z.boolean() }).optional(),
   land: z.strictObject({ autoMerge: z.boolean() }).optional(),
   lock: z.strictObject({ heavy: z.union([z.number().int().positive(), z.literal("cpus/2")]) }).optional(),
   notify: z.array(z.enum(NOTIFY)).optional(),
-  engine: z.enum(ENGINES).optional(),
   limits: z
     .strictObject({
       memory: z

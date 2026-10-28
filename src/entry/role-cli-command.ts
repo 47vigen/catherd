@@ -7,7 +7,7 @@ import { DISPATCH_ID_ENV, activityReporter } from "../infra/lock-activity.ts";
 import { runMilestoneCheck } from "../services/milestone-check.ts";
 import { assertRoleMay } from "../services/role-access.ts";
 import { readRunFile, writeRunFile } from "../services/run-service.ts";
-import { teamRead, teamSend, teamWait } from "../services/team.ts";
+import { teamRead, teamSend } from "../services/team.ts";
 import { ARCHITECT_TOOLS } from "../domain/role-tools.ts";
 import { callArchitectTool } from "../services/architect-tools.ts";
 import { latestDispatch } from "../services/dispatches.ts";
@@ -214,24 +214,9 @@ const teamReadCmd = defineCommand({
   },
 });
 
-const teamWaitCmd = defineCommand({
-  meta: { name: "wait", description: "Wait until a lane stops running or posts a message (team_wait)" },
-  args: {
-    ...TEAM_RUN,
-    lane: { type: "string", required: true, description: "the lane to wait on, like M1.L2" },
-    "timeout-ms": { type: "string", description: "how long to wait, up to 300000" },
-  },
-  async run({ args }) {
-    assertRoleMay(scope(), args.run, "team_wait");
-    printJson(
-      await teamWait({ run: args.run, lane: args.lane, timeoutMs: intArg("timeout-ms", args["timeout-ms"]) }),
-    );
-  },
-});
-
 export const teamCommand = defineCommand({
-  meta: { name: "team", description: "The run's team channel: send, read, wait" },
-  subCommands: { send: teamSendCmd, read: teamReadCmd, wait: teamWaitCmd },
+  meta: { name: "team", description: "The run's team channel: send, read" },
+  subCommands: { send: teamSendCmd, read: teamReadCmd },
 });
 
 /**

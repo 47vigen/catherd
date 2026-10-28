@@ -1,4 +1,4 @@
-import type { Engine } from "../domain/profile.ts";
+import type { Caps } from "../domain/caps.ts";
 import type { NoRungCause } from "../domain/select.ts";
 import type { HostContext } from "../domain/host.ts";
 import type { Budget } from "../domain/budget.ts";
@@ -42,14 +42,14 @@ export interface ProfileView {
   maxEffort?: Record<string, string>;
   budget: Budget;
   timeouts: { idleMin: number; wallMin: number };
+  /** plan 48, spec D10; absent means DEFAULT_CAPS */
+  caps?: Caps;
   preflight: { confirm: boolean };
   land: { autoMerge: boolean };
   heavy: number | "cpus/2";
   notify: string[];
   /** plan 35: the memory numbers that cap milestones side by side, defaults filled */
   limits: { memory: { reserveMb: number; perMilestoneMb: number; floorMb: number } };
-  /** plan 47: the machine a new run starts on; absent reads as "2.0" */
-  engine?: Engine;
 }
 
 /** What a profile write returns (spec §7.3): whether it saved, why not, what changed, and the agents it touched. */

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { rmSync } from "node:fs";
 import { tryLock } from "../../src/infra/filelock.ts";
 import type { RunEventInput } from "../../src/domain/run-events.ts";
-import { PLAN, endDispatch, makeLog, newId, startDispatch, startedFields } from "../domain/run-fixtures.ts";
+import { newId, startedFields } from "../domain/run-fixtures.ts";
 import { beat, daemonLauncher, daemonLockTarget, launchStamp } from "../../src/services/daemon.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import {
@@ -37,8 +37,6 @@ const deps = () => fakeDeps({ now: () => NOW });
 
 async function seed(run: Run, ...more: RunEventInput[]): Promise<void> {
   await appendEvent(run, { type: "run.started", ...startedFields }, new Date(NOW - 60_000));
-  await appendEvent(run, { type: "plan.ready", milestones: PLAN }, new Date(NOW - 50_000));
-  await appendEvent(run, { type: "plan.approved", by: "owner" }, new Date(NOW - 50_000));
   for (const e of more) await appendEvent(run, e, new Date(NOW - 10_000));
 }
 
@@ -48,15 +46,6 @@ describe("the read api", () => {
     const id = newId();
     await seed(
       run,
-      {
-        type: "lanes.routed",
-        milestone: "M1",
-        lanes: [
-          { lane: "M1.L1", rung: "codex:gpt-6-sol#medium", ladder: [] },
-          { lane: "M1.L2", rung: "codex:gpt-6-sol#medium", ladder: [] },
-        ],
-      },
-      { type: "preflight.done", milestone: "M1", blocking: [], confirm: null, lint: [] },
       {
         type: "dispatch.started",
         dispatchId: id,
@@ -81,10 +70,7 @@ describe("the read api", () => {
         phase: "running",
         outcome: null,
         daemon: { alive: true, pid: process.pid, beatAgeSec: 0 },
-        milestones: [
-          { id: "M1", status: "lanes", commit: null },
-          { id: "M2", status: "waiting" },
-        ],
+        milestones: [],
         live: [{ name: "worker-M1.L1", role: "worker", rung: "codex:gpt-6-sol#medium", unit: "M1.L1" }],
         holds: [],
         last: "M1.L2 parked (needs_user): which currency?",
@@ -129,39 +115,6 @@ describe("the read api", () => {
     expect(runView(fakeDeps({ now: () => NOW + 600_000 }), run.id).waitingSec).toBe(600);
   });
 
-  it("stops approval waiting time when the plan is approved without an answer event", async () => {
-    const { run } = freshRun();
-    await seed(run);
-    await appendEvent(
-      run,
-      { type: "question.parked", unit: "run", question: "approve?", reason: "approval" },
-      new Date(NOW),
-    );
-    await appendEvent(run, { type: "plan.approved", by: "owner" }, new Date(NOW + 600_000));
-    const view = runView(fakeDeps({ now: () => NOW + 1_200_000 }), run.id);
-    expect(view.parked).toEqual([]);
-    expect(view.waitingSec).toBe(600);
-  });
-
-  it("plan approval leaves other open questions counting", async () => {
-    const { run } = freshRun();
-    await seed(run);
-    await appendEvent(
-      run,
-      { type: "question.parked", unit: "run", question: "which?", reason: "needs_user" },
-      new Date(NOW),
-    );
-    await appendEvent(
-      run,
-      { type: "question.parked", unit: "M1", question: "approve?", reason: "approval" },
-      new Date(NOW),
-    );
-    await appendEvent(run, { type: "plan.approved", by: "owner" }, new Date(NOW + 600_000));
-    const view = runView(fakeDeps({ now: () => NOW + 1_200_000 }), run.id);
-    expect(view.parked).toHaveLength(2);
-    expect(view.waitingSec).toBe(2400);
-  });
-
   it("counts each open question to now and stops at the run end", async () => {
     const { run } = freshRun();
     await seed(run);
@@ -183,16 +136,6 @@ describe("the read api", () => {
       new Date(NOW + 200_000),
     );
     expect(runView(later, run.id).waitingSec).toBe(300);
-  });
-
-  it("reports completed review rounds independently of the commit fix round", async () => {
-    const { run } = freshRun();
-    await seed(run, { type: "commit.made", milestone: "M1", round: 0, commit: "abc" });
-    const log = makeLog();
-    const id = startDispatch(log, { name: "reviewer-M1", role: "reviewer", unit: "M1", lane: null });
-    endDispatch(log, id, { name: "reviewer-M1", unit: "M1" });
-    for (const { v: _v, seq: _seq, at: _at, ...e } of log.events) await appendEvent(run, e, new Date(NOW));
-    expect(runView(deps(), run.id).milestones[0]).toMatchObject({ round: 0, reviews: 1 });
   });
 
   it("counts the run's time without its pauses, and stops counting while one is open", async () => {
@@ -244,7 +187,6 @@ describe("the read api", () => {
         environment: null,
         verdict: null,
         findings: [],
-        foreign: [],
         replyPath: "",
       },
     );
@@ -268,14 +210,11 @@ describe("the read api", () => {
     const all = runTimeline(run.id);
     expect(all.map((e) => [e.seq, e.type])).toEqual([
       [1, "run.started"],
-      [2, "plan.ready"],
-      [3, "plan.approved"],
-      [4, "report.posted"],
+      [2, "report.posted"],
     ]);
     expect(all.every((e) => TimelineEntrySchema.safeParse(e).success)).toBe(true);
-    expect(all[1]?.text).toBe("plan ready: M1, M2");
-    expect(all[3]?.text).toBe("report (started) on run");
-    expect(runTimeline(run.id, 4).map((e) => e.seq)).toEqual([4]);
+    expect(all[1]?.text).toBe("report (started) on run");
+    expect(runTimeline(run.id, 2).map((e) => e.seq)).toEqual([2]);
     expect(runTimeline(run.id, 1, 2)).toHaveLength(2);
   });
 

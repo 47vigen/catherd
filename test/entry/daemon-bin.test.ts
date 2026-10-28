@@ -28,7 +28,6 @@ describe("daemon-bin", () => {
       aLines: [],
       plan: [],
       base: null,
-      engine: "2.0",
     });
     // a cancelled run: whatever the daemon goes on to do, it starts no role
     await appendEvent(run, { type: "cancel.requested", by: "owner" });
@@ -53,7 +52,6 @@ describe("daemon-bin", () => {
       aLines: [],
       plan: [],
       base: null,
-      engine: "2.0",
     });
     await appendEvent(run, { type: "run.ended", outcome: "cancelled", reportPath: null });
     const p = Bun.spawn([process.execPath, DAEMON_ENTRY, run.id], {
@@ -85,7 +83,6 @@ describe("daemon-bin", () => {
       aLines: [],
       plan: [],
       base: null,
-      engine: "2.0",
     });
     await appendEvent(run, { type: "cancel.requested", by: "owner" });
     const launch = fileURLToPath(new URL("../../src/infra/launch.ts", import.meta.url));

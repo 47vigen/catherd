@@ -10,7 +10,7 @@ const RUNG = "codex:gpt-6-sol#high";
 
 function architectRun(): Log {
   const log = makeLog();
-  log.add("run.started", { ...startedFields, engine: "architect" });
+  log.add("run.started", startedFields);
   return log;
 }
 
@@ -56,7 +56,7 @@ const wakeOf = (actions: Action[]) =>
 describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
   it("wakes the architect at the start, on a fresh thread, with the digest up to the start", () => {
     const log = architectRun();
-    expect(log.state()).toMatchObject({ engine: "architect", phase: "running" });
+    expect(log.state()).toMatchObject({ phase: "running", earlier: false });
     expect(wakeOf(after(log))).toMatchObject({
       name: "architect-1",
       brief: "wake",
@@ -205,6 +205,18 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     expect(after(c)).toContainEqual({ type: "cancel", dispatchIds: [a1] });
     fail(c, "cancel");
     expect(after(c).filter((x) => x.type === "cancel")).toEqual([]);
+    expect(after(c)).toContainEqual({ type: "finish", outcome: "cancelled", bare: true });
+  });
+
+  it("a finishing run whose cancel keeps failing finishes bare instead of staying unfinished", () => {
+    const log = architectRun();
+    turn(log, 1);
+    delegate(log, "T1");
+    const t1 = startDispatch(log, { name: "T1", unit: "T1", lane: null, rung: RUNG });
+    log.add("run.finishing", { verdict: "stopped", by: "daemon", why: "cap" });
+    expect(after(log)).toContainEqual({ type: "cancel", dispatchIds: [t1] });
+    for (let i = 0; i < 2; i++) log.add("effect.failed", { action: "cancel", unit: "run", message: "boom" });
+    expect(after(log)).toContainEqual({ type: "finish", outcome: "failed", bare: true });
   });
 
   it("starts a fresh thread after a failed turn or a daemon restart, and stops after three failed turns", () => {
@@ -285,7 +297,7 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     expect(log.state().arch?.inbox.some((i) => i.taskId === "T1")).toBe(false);
   });
 
-  it("an owner's answer wakes the architect; a 2.0 run has no architect state", () => {
+  it("an owner's answer wakes the architect; an earlier build's run is never driven (D16)", () => {
     const log = architectRun();
     const a1 = turn(log, 1);
     log.add("question.parked", { unit: "run", question: "deploy to production?", reason: "owner", why: "w" });
@@ -294,8 +306,9 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     log.add("question.answered", { unit: "run", answer: "no", by: "owner" });
     expect(log.state().questions).toEqual({});
     expect(wakeOf(after(log))).toBeDefined();
-    const old = makeLog();
-    old.add("run.started", startedFields);
-    expect(old.state()).toMatchObject({ engine: "2.0", arch: null, phase: "planning" });
+    const old = makeLog(undefined, 1);
+    old.add("run.started", { ...startedFields, engine: "2.0" });
+    expect(old.state()).toMatchObject({ earlier: true, phase: "running" });
+    expect(architectNext(old.state(), old.events[0] as never)).toEqual([]);
   });
 });

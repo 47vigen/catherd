@@ -100,7 +100,6 @@ describe("scorecard metrics", () => {
       aLines: [],
       plan: [],
       base: null,
-      engine: "2.0",
     });
     for (const e of events) await appendEvent(run, e);
     return run;
@@ -121,14 +120,9 @@ describe("scorecard metrics", () => {
     expect(interventionsOf(run, ms("12:00"), 0)).toMatchObject({ parks: 2, answers: 2, total: 2 });
   });
 
-  it("adds an owner's cancel and an owner's plan approval, not a plan given as input", async () => {
-    const run = await daemonRun(
-      { type: "cancel.requested", by: "owner" },
-      { type: "plan.approved", by: "owner" },
-    );
-    expect(interventionsOf(run, ms("12:00"), 0)).toMatchObject({ cancels: 1, approvals: 1, total: 2 });
-    const input = await daemonRun({ type: "plan.approved", by: "input" });
-    expect(interventionsOf(input, ms("12:00"), 0)).toMatchObject({ cancels: 0, approvals: 0, total: 0 });
+  it("adds an owner's cancel; no run waits for a plan approval (plan 48)", async () => {
+    const run = await daemonRun({ type: "cancel.requested", by: "owner" });
+    expect(interventionsOf(run, ms("12:00"), 0)).toMatchObject({ cancels: 1, approvals: 0, total: 1 });
   });
 
   it("reads questions.jsonl only in a 1.5 run", async () => {

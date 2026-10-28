@@ -142,7 +142,7 @@ describe("a lane's tasks", () => {
     );
   });
 
-  it("asks nothing of a lane's tasks, and plan.md's depth only before the owner approved it", async () => {
+  it("asks nothing of a lane's tasks, nor of plan.md's depth", async () => {
     const { run } = await planRun(["p.md"]);
     writeLane(run, "M1.L1", ["src/a.ts"]);
     writeLane(run, "M1.L2", ["src/b.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 9203\n");
@@ -150,10 +150,7 @@ describe("a lane's tasks", () => {
     const bare = freshRun().run;
     await appendEvent(bare, { type: "run.started", ...startedFields });
     writeFileSync(join(bare.dir, "plan.md"), "# P\n");
-    expect(planProblems(bare)).toContain('plan.md has no "## Contracts" section');
-    expect(planProblems(bare).some((p) => p.includes("### Task"))).toBe(false);
-    await appendEvent(bare, { type: "plan.ready", milestones: [] });
-    await appendEvent(bare, { type: "plan.approved", by: "owner" });
+    // plan 48: no run waits for a plan approval, so nothing checks plan.md's depth
     expect(planProblems(bare).filter((p) => p.startsWith("plan.md"))).toEqual([]);
     expect(existsSync(join(run.dir, "plan.md"))).toBe(false);
   });

@@ -30,18 +30,6 @@ const started: RunEventInput = {
   aLines: [],
   plan: [],
   base: null,
-  engine: "2.0",
-};
-const planReady: RunEventInput = {
-  type: "plan.ready",
-  milestones: [
-    {
-      id: "M1",
-      title: "m",
-      after: [],
-      lanes: [{ id: "M1.L1", role: "worker", kind: null, after: [], owns: ["src/a/**"] }],
-    },
-  ],
 };
 const dStarted = (dispatchId: string): RunEventInput => ({
   type: "dispatch.started",
@@ -53,7 +41,7 @@ const dStarted = (dispatchId: string): RunEventInput => ({
   rung: "codex:gpt-6-sol#high",
   thread: null,
 });
-const dEnded = (dispatchId: string): RunEventInput => ({
+const dEnded = (dispatchId: string, head: string | null = null): RunEventInput => ({
   type: "dispatch.ended",
   dispatchId,
   name: "worker-M1.L1",
@@ -63,11 +51,10 @@ const dEnded = (dispatchId: string): RunEventInput => ({
   reason: null,
   why: "all done",
   thread: null,
-  head: null,
+  head,
   environment: null,
   verdict: null,
   findings: [{ label: "BUG", text: "BUG off by one", file: "src/a/x.ts" }],
-  foreign: [],
   replyPath: "reply.md",
 });
 
@@ -76,7 +63,6 @@ const D1 = "d-20261021-100000-aaaaaa";
 async function runWithDispatch(): Promise<Run> {
   const { run } = freshRun();
   await appendEvent(run, started, T0);
-  await appendEvent(run, planReady, at(1));
   await appendEvent(run, dStarted(D1), at(2));
   await appendEvent(run, dEnded(D1), at(5));
   await appendRecord(
@@ -211,20 +197,17 @@ describe("check logs", () => {
     mkdirSync(dir, { recursive: true });
     const text = "y".repeat(64 * 1024 - 1);
     writeFileSync(join(dir, "full-check.log"), `é${text}`);
-    await appendEvent(run, { type: "check.ran", lane: "M1.L1", exit: 0, tail: "", foreign: [] }, at(6));
     expect(checkLogs(run, "M1.L1").full).toBe(text);
   });
 
-  it("reads a lane's fast and full check logs and the newest exit", async () => {
+  it("reads a lane's fast and full check logs", async () => {
     const run = await runWithDispatch();
     const dir = join(runPaths(run.dir).scratch, "worker-M1.L1");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "fast-check.log"), "fast ok");
     writeFileSync(join(dir, "full-check.log"), `${"y".repeat(70 * 1024)}END`);
-    await appendEvent(run, { type: "check.ran", lane: "M1.L1", exit: 1, tail: "", foreign: [] }, at(6));
-    await appendEvent(run, { type: "check.ran", lane: "M1.L1", exit: 0, tail: "", foreign: [] }, at(7));
     const c = checkLogs(run, "M1.L1");
-    expect(c).toMatchObject({ lane: "M1.L1", name: "worker-M1.L1", fast: "fast ok", exit: 0 });
+    expect(c).toMatchObject({ lane: "M1.L1", name: "worker-M1.L1", fast: "fast ok", exit: null });
     expect(c.full?.length).toBe(64 * 1024);
     expect(c.full?.endsWith("END")).toBe(true);
     expect(() => checkLogs(run, "M9.L9")).toThrow(expect.objectContaining({ code: "E_RUN_NOT_FOUND" }));
@@ -245,30 +228,26 @@ function commit(repo: string, files: Record<string, string>, msg: string): strin
 }
 
 describe("commit diffs", () => {
-  it("diffs a commit the run made, to a lane's files, and refuses any other sha", async () => {
+  it("diffs a commit a role ended on, and refuses any other sha or a lane (plan 48: no lanes)", async () => {
     const run = await runWithDispatch();
     const repo = run.meta.repo;
     const a = commit(repo, { "src/a/x.ts": "one\n", "src/b/y.ts": "two\n" }, "first");
     const b = commit(repo, { "src/a/z.ts": "three\n" }, "second");
-    await appendEvent(run, { type: "commit.made", milestone: "M1", round: 0, commit: a }, at(8));
+    await appendEvent(run, dEnded(D1, a), at(8));
     expect(runShas(run)).toEqual([a]);
     const all = await commitDiff(run, a);
     expect(all).toMatchObject({ sha: a, truncated: false, paths: null });
     expect(all.text).toContain("src/b/y.ts");
-    const lane = await commitDiff(run, a.slice(0, 8), { lane: "M1.L1" });
-    expect(lane.sha).toBe(a);
-    expect(lane.paths).toEqual(["src/a/**"]);
-    expect(lane.text).toContain("src/a/x.ts");
-    expect(lane.text).not.toContain("src/b/y.ts");
+    expect((await commitDiff(run, a.slice(0, 8))).sha).toBe(a);
     for (const bad of [b, b.slice(0, 8), "abc", "--output=x", a.slice(0, 6)])
       expect(commitDiff(run, bad)).rejects.toMatchObject({ code: "E_INPUT_INVALID" });
-    expect(commitDiff(run, a, { lane: "M9.L9" })).rejects.toMatchObject({ code: "E_INPUT_INVALID" });
+    expect(commitDiff(run, a, { lane: "M1.L1" })).rejects.toMatchObject({ code: "E_INPUT_INVALID" });
   });
 
   it("a diff over 1 MB is cut and says so", async () => {
     const run = await runWithDispatch();
     const sha = commit(run.meta.repo, { "big.lock": "line of text\n".repeat(120_000) }, "lockfile");
-    await appendEvent(run, { type: "commit.made", milestone: "M1", round: 0, commit: sha }, at(8));
+    await appendEvent(run, dEnded(D1, sha), at(8));
     const d = await commitDiff(run, sha);
     expect(d.truncated).toBe(true);
     expect(d.text.length).toBe(1024 * 1024);

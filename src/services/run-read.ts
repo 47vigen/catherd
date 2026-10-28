@@ -1,17 +1,12 @@
 import { z } from "zod";
 import { errorMessage } from "../domain/errors.ts";
-import {
-  PARK_REASONS,
-  RUN_UNIT,
-  describeEvent,
-  type ParkReason,
-  type RunEvent,
-} from "../domain/run-events.ts";
+import { PARK_REASONS, describeEvent, type ParkReason, type RunEvent } from "../domain/run-events.ts";
 import { type RunState, liveDispatches } from "../domain/run-state.ts";
 import { coveredMs } from "../domain/util.ts";
 import { log } from "../infra/log.ts";
 import { daemonAlive, ensureDaemon, readHeartbeat } from "./daemon.ts";
 import { liveDispatches as liveDispatchesOf } from "./dispatches.ts";
+import { ledgerOf } from "./ledger-store.ts";
 import { landedMilestones } from "./milestones.ts";
 import type { Deps } from "./ports.ts";
 import { pauseSpans } from "./pause.ts";
@@ -182,14 +177,6 @@ function waitingSec(events: RunEvent[], now: number): number {
       end = at;
       break;
     }
-    if (e.type === "plan.approved") {
-      const question = open.get(RUN_UNIT);
-      if (question?.reason === "approval") {
-        ms += Math.max(0, at - question.at);
-        open.delete(RUN_UNIT);
-      }
-      continue;
-    }
     if (e.type !== "question.parked" && e.type !== "question.answered") continue;
     const question = open.get(e.unit);
     if (question !== undefined) ms += Math.max(0, at - question.at);
@@ -221,13 +208,14 @@ export function runView(deps: Deps, runId: string): RunView {
       pid: beat?.pid ?? null,
       beatAgeSec: beat ? Math.max(0, Math.round((deps.now() - Date.parse(beat.beatAt)) / 1000)) : null,
     },
-    milestones: s.milestones.map((m) => ({
-      id: m.id,
-      title: m.title,
-      status: m.status,
-      round: m.round,
-      reviews: m.counts.length,
-      commit: m.commit,
+    // plan 48: an architect run's milestones are its ledger tasks
+    milestones: ledgerOf(run, s).map((t) => ({
+      id: t.id,
+      title: t.goal,
+      status: t.state,
+      round: t.attempts.length,
+      reviews: 0,
+      commit: null,
     })),
     live: liveDispatches(s).map((d) => ({
       name: d.name,

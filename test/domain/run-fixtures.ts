@@ -1,15 +1,13 @@
 import type { BlockedReason } from "../../src/domain/blocked.ts";
-import type { JudgeKind } from "../../src/domain/judge.ts";
-import type { RunEvent, RunEventType, MilestonePlan } from "../../src/domain/run-events.ts";
-import { type Action, type DecideAction, decidedName, next, unitOf } from "../../src/domain/run-machine.ts";
+import { EVENTS_SCHEMA, type RunEvent, type RunEventType } from "../../src/domain/run-events.ts";
 import { type RunState, replay } from "../../src/domain/run-state.ts";
 
 type Fields<T extends RunEventType> = Omit<Extract<RunEvent, { type: T }>, "v" | "seq" | "at" | "type">;
 
 export const START = "2026-10-21T10:00:00.000Z";
 
-/** An events.jsonl in memory: each `add` gives the next seq and a time one second later (or `at`). */
-export function makeLog(start = START) {
+/** An event log in memory: each `add` gives the next seq and a time one second later (or `at`). */
+export function makeLog(start = START, v: number = EVENTS_SCHEMA) {
   const events: RunEvent[] = [];
   let ms = Date.parse(start);
   const add = <T extends RunEventType>(
@@ -19,7 +17,7 @@ export function makeLog(start = START) {
   ): Extract<RunEvent, { type: T }> => {
     ms += 1000;
     const e = {
-      v: 1,
+      v,
       seq: events.length + 1,
       at: at ?? new Date(ms).toISOString(),
       type,
@@ -32,31 +30,12 @@ export function makeLog(start = START) {
 }
 export type Log = ReturnType<typeof makeLog>;
 
-export const PLAN: MilestonePlan[] = [
-  {
-    id: "M1",
-    title: "the wallet core",
-    after: [],
-    lanes: [
-      { id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: ["src/a/"] },
-      { id: "M1.L2", role: "worker", kind: "repo_code", after: ["M1.L1"], owns: ["src/b/", "src/b2.ts"] },
-    ],
-  },
-  {
-    id: "M2",
-    title: "the docs",
-    after: ["M1"],
-    lanes: [{ id: "M2.L1", role: "writer", kind: "prose", after: [], owns: ["docs/"] }],
-  },
-];
-
 export const startedFields = {
   repo: "/repo",
   title: "wallet",
   aLines: ["A1 it works"],
   plan: [] as string[],
   base: null,
-  engine: "2.0" as const,
 };
 
 let n = 0;
@@ -72,7 +51,7 @@ export function startDispatch(
     lane?: string | null;
     rung?: string;
     thread?: string | null;
-    judgeKind?: JudgeKind;
+    upTo?: number;
   },
 ): string {
   const dispatchId = newId();
@@ -81,10 +60,10 @@ export function startDispatch(
     name: o.name,
     role: (o.role ?? "worker") as never,
     unit: o.unit,
-    lane: o.lane === undefined ? o.unit : o.lane,
+    lane: o.lane === undefined ? null : o.lane,
     rung: o.rung ?? "codex:gpt-6-sol#medium",
     thread: o.thread ?? null,
-    ...(o.judgeKind ? { judgeKind: o.judgeKind } : {}),
+    ...(o.upTo === undefined ? {} : { upTo: o.upTo }),
   });
   return dispatchId;
 }
@@ -104,10 +83,6 @@ export function endDispatch(
     environment?: string | null;
     reason?: BlockedReason | null;
     head?: string | null;
-    foreign?: string[];
-    noVerdict?: boolean;
-    testEdits?: string[];
-    siblings?: string[];
     at?: string;
   },
 ) {
@@ -126,102 +101,8 @@ export function endDispatch(
       environment: o.environment ?? null,
       verdict: o.verdict ?? null,
       findings: o.findings ?? [],
-      foreign: o.foreign ?? [],
       replyPath: `roles/${o.name}/${dispatchId}/reply.md`,
-      ...(o.noVerdict ? { noVerdict: true } : {}),
-      ...(o.testEdits ? { testEdits: o.testEdits } : {}),
-      ...(o.siblings ? { siblings: o.siblings } : {}),
     },
     o.at,
   );
-}
-
-/** A run that has its plan, routed M1 and passed its preflight: M1's lanes wait to be dispatched. */
-/** `start` is the whole `run.started` payload, or just the run's base branch. */
-export function runningLog(
-  plan: MilestonePlan[] = PLAN,
-  start: Fields<"run.started"> | string | null = null,
-): Log {
-  const log = makeLog();
-  log.add(
-    "run.started",
-    typeof start === "object" && start !== null ? start : { ...startedFields, base: start },
-  );
-  log.add("plan.ready", { milestones: plan });
-  log.add("plan.approved", { by: "owner" });
-  routeMilestone(log, plan[0] as MilestonePlan);
-  return log;
-}
-
-export function routeMilestone(log: Log, mp: MilestonePlan): void {
-  // plan 44 D22: the milestone's start names no rung; every dispatch is decided
-  log.add("lanes.routed", { milestone: mp.id, lanes: [] });
-  log.add("preflight.done", { milestone: mp.id, blocking: [], confirm: null, lint: [] });
-}
-
-/** Runs one lane dispatch to a passing fast check. */
-export function finishLane(log: Log, lane: string, o: { thread?: string; role?: string } = {}): void {
-  const name = `${o.role ?? "worker"}-${lane}`;
-  const id = startDispatch(log, { name, role: o.role ?? "worker", unit: lane });
-  endDispatch(log, id, { name, unit: lane, thread: o.thread ?? `t-${lane}` });
-  log.add("check.ran", { lane, exit: 0, tail: "", foreign: [] });
-}
-
-const RUNG = "codex:gpt-6-sol#medium";
-
-/** What a `decision.made` for the decide `d` records when `rung` is picked (source `floor`, a single level). */
-const madeFields = (d: DecideAction, rung: string): Fields<"decision.made"> => {
-  const name = decidedName(d.next);
-  return {
-    name,
-    n: d.n,
-    role: (d.next.type === "judge" ? "judge" : d.next.role) as never,
-    unit: unitOf(d),
-    level: 0,
-    levels: 1,
-    levelRungs: [[rung]],
-    rung,
-    floor: d.floor,
-    strict: d.strict,
-    briefFile: `decisions/${name}/${d.n}/brief.md`,
-    briefHash: `hash-${name}-${d.n}`,
-    p: null,
-    probabilities: {},
-    why: "test",
-    source: "floor",
-  };
-};
-
-const owed = (log: Log): DecideAction[] =>
-  next(log.state(), log.events.at(-1) as RunEvent).filter((a): a is DecideAction => a.type === "decide");
-
-/** Appends the `decision.made` the machine owes for dispatch (or judge) `name`, on `rung`; `n` overrides its number. */
-export function decide(log: Log, name: string, rung = RUNG, n?: number) {
-  const d = owed(log).find((a) => decidedName(a.next) === name);
-  if (!d) throw new Error(`no decide is owed for ${name}`);
-  return log.add("decision.made", madeFields(n === undefined ? d : { ...d, n }, rung));
-}
-
-/**
- * `next` after the log's last event, as if every decide it owes were answered at once with `rung` (a pick, else the
- * floor, else `rung`). The log is untouched: the decisions live in a copy, so a test that pins what the machine
- * dispatches reads it without recording the decisions.
- */
-export function settled(log: Log, rung = RUNG): Action[] {
-  const events = [...log.events];
-  for (let i = 0; i < 50; i++) {
-    const last = events.at(-1) as RunEvent;
-    const acts = next(replay(events, "r1"), last);
-    const decides = acts.filter((a): a is DecideAction => a.type === "decide");
-    if (decides.length === 0) return acts;
-    for (const d of decides)
-      events.push({
-        v: 1,
-        seq: events.length + 1,
-        at: last.at,
-        type: "decision.made",
-        ...madeFields(d, d.pick ?? (d.strict ? rung : (d.floor ?? rung))),
-      });
-  }
-  throw new Error("the machine kept owing decisions");
 }

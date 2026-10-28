@@ -12,7 +12,6 @@ import {
 } from "../domain/fail-lines.ts";
 import { parseLaneHeader } from "../domain/lane.ts";
 import type { RunEvent } from "../domain/run-events.ts";
-import { replay } from "../domain/run-state.ts";
 import { baselineItems, isAccept, milestoneCheck } from "../domain/plan-doc.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { git } from "../infra/git.ts";
@@ -240,16 +239,8 @@ export async function execMilestoneCheck(
       log,
     };
   };
-  let r = await one();
-  let rerunOf: number | undefined;
-  if (r.exit !== 0 && !job.baseline) {
-    // a failure with lines the base lacks gets one rerun: load flakes are common on a shared host
-    const base = baselineFor(job.repo, job.command, job.base);
-    if (!base || newFails(r.fails, base.fails).length > 0) {
-      rerunOf = r.exit;
-      r = await one();
-    }
-  }
+  // plan 48, spec D6: a red check is never rerun blind; whoever asked for it decides what comes next
+  const r = await one();
   const rec: CheckRecord = {
     at: new Date().toISOString(),
     run: job.run,
@@ -258,7 +249,6 @@ export async function execMilestoneCheck(
     head: job.head,
     ...r,
     ...(job.baseline ? { baseline: true as const } : { secrets: await secretScan(job.cwd, job.base) }),
-    ...(rerunOf !== undefined ? { rerunOf } : {}),
   };
   appendCheckRecord(job.repo, rec);
   return rec;
@@ -384,7 +374,6 @@ export async function machineGate(
   const start = await checkBase(run, m);
   const accepted = acceptedLandQuestions(run, m);
   let inputs: Awaited<ReturnType<typeof gateItemInputs>> | undefined;
-  let waivedOn: string | null | undefined;
   const checkedItems = new Set([
     ...required,
     ...[...latest.keys()].filter((item) => checkItems(item).length === 1),
@@ -400,13 +389,6 @@ export async function machineGate(
     if (rec.rerunOf !== undefined)
       audit.push(`\`${rec.command}\` exited ${rec.rerunOf} once and was rerun (exit ${rec.exit})`);
     if (rec.exit === 0) continue;
-    waivedOn ??= replay(readEvents(run), run.id).milestones.find((x) => x.id === m)?.checkWaivedOn ?? null;
-    if (waivedOn === head) {
-      audit.push(
-        `the failing lines of \`${rec.command}\` on ${head.slice(0, 12)} were accepted as known issues`,
-      );
-      continue;
-    }
     const base = baselineFor(run.meta.repo, rec.command, start);
     const fresh = newFails(rec.fails, base?.fails ?? null);
     if (!base || base.exit === 0)

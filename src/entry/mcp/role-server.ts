@@ -12,14 +12,13 @@ import {
   roleMcpTools,
 } from "../../domain/role-tools.ts";
 import { ARCHITECT_TOOL_SPECS, callArchitectTool } from "../../services/architect-tools.ts";
-import { runEngine } from "../../services/run-events-store.ts";
 import { log } from "../../infra/log.ts";
 import { gateCheckOrList, gatePass } from "../../services/gate-service.ts";
 import { runMilestoneCheck } from "../../services/milestone-check.ts";
 import type { Deps } from "../../services/ports.ts";
 import { readKnowledge, readRunFile, writeRunFile } from "../../services/run-service.ts";
 import { findRun } from "../../services/run-store.ts";
-import { teamRead, teamSend, teamWait } from "../../services/team.ts";
+import { teamRead, teamSend } from "../../services/team.ts";
 import { defaultDeps } from "../deps.ts";
 import { handle, sdkToolError, toolOf } from "./result.ts";
 
@@ -27,8 +26,7 @@ import { handle, sdkToolError, toolOf } from "./result.ts";
 export function buildRoleServer(context: RoleMcpContext, deps: Deps = defaultDeps()): McpServer {
   const run = findRun(context.run);
   const server = new McpServer({ name: ROLE_MCP_SERVER, version: deps.version });
-  const engine = runEngine(run);
-  const tools = new Set(roleMcpTools(context.role, engine));
+  const tools = new Set(roleMcpTools(context.role));
   const boundRun = z.literal(run.id);
   const runFile = { run: boundRun, path: z.string().min(1) };
   const call = async (tool: string, f: () => unknown) => {
@@ -160,23 +158,7 @@ export function buildRoleServer(context: RoleMcpContext, deps: Deps = defaultDep
       },
       (a) => call("team_read", () => teamRead(a)),
     );
-  if (tools.has("team_wait"))
-    server.registerTool(
-      "team_wait",
-      {
-        description:
-          "Wait until a lane stops running or posts a message. A lane that is not running: at once. On timeout (`timeoutMs`, up to 300000), go on with your work or call again.",
-        inputSchema: {
-          run: boundRun,
-          lane: z.string().regex(ID_PATTERN),
-          timeoutMs: z.number().int().min(0).max(300_000).optional(),
-          since: z.number().int().min(0).optional(),
-        },
-        annotations: { readOnlyHint: true, openWorldHint: false },
-      },
-      (a) => call("team_wait", () => teamWait(a)),
-    );
-  // plan 47: the architect engine's tools, from the same specs `catherd call` runs
+  // plan 47: the architect's tools, from the same specs `catherd call` runs
   for (const tool of ARCHITECT_TOOLS) {
     if (!tools.has(tool)) continue;
     const spec = ARCHITECT_TOOL_SPECS[tool];

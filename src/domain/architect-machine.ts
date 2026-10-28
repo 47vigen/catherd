@@ -24,7 +24,7 @@ function wake(a: ArchState): DispatchAction {
     failoverFrom: null,
     brief: "wake",
     notes: a.fresh === null ? [] : [a.fresh],
-    decision: null,
+
     upTo: a.inbox.at(-1)?.seq ?? 0,
   };
 }
@@ -35,7 +35,7 @@ function wake(a: ArchState): DispatchAction {
  */
 export function architectNext(s: RunState, e: RunEvent): Action[] {
   const a = s.arch;
-  if (!a || s.phase === "ended") return [];
+  if (s.earlier || s.phase === "ended") return [];
   const live = liveDispatches(s);
   const out: Action[] = [
     ...(e.type === "daemon.started"
@@ -43,38 +43,37 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
       : []),
     ...owedActions(s),
   ];
-  const finish = (outcome: "done" | "cancelled" | "failed"): Action =>
-    failed(s, "finish") ? { type: "finish", outcome, bare: true } : { type: "finish", outcome };
+  const finish = (outcome: "done" | "cancelled" | "failed", bare = failed(s, "finish")): Action =>
+    bare ? { type: "finish", outcome, bare: true } : { type: "finish", outcome };
   if (s.cancelling)
     return [
       ...out,
-      ...(live.length
-        ? failed(s, "cancel")
-          ? []
-          : [{ type: "cancel" as const, dispatchIds: live.map((d) => d.dispatchId) }]
-        : [finish("cancelled")]),
+      ...(live.length && !failed(s, "cancel")
+        ? [{ type: "cancel" as const, dispatchIds: live.map((d) => d.dispatchId) }]
+        : // a cancel that gave up must not leave the run cancelling: finish without the stop
+          [finish("cancelled", live.length > 0 || failed(s, "finish"))]),
     ];
   if (a.finishing) {
     // the architect's own turn ends by itself; every task it left running is stopped
     const tasks = live.filter((d) => d.role !== "architect");
     return [
       ...out,
-      ...(tasks.length
-        ? failed(s, "cancel")
-          ? []
-          : [{ type: "cancel" as const, dispatchIds: tasks.map((d) => d.dispatchId) }]
-        : [finish(OUTCOME[a.finishing.verdict])]),
+      ...(tasks.length && !failed(s, "cancel")
+        ? [{ type: "cancel" as const, dispatchIds: tasks.map((d) => d.dispatchId) }]
+        : // a cancel that gave up must not leave the run unfinished: finish without the stop
+          [finish(OUTCOME[a.finishing.verdict], tasks.length > 0 || failed(s, "finish"))]),
     ];
   }
   const strays = live.filter((d) => a.tasks[d.name]?.state === "cancelled");
   if (strays.length) out.push({ type: "cancel", dispatchIds: strays.map((d) => d.dispatchId) });
   for (const c of Object.values(a.checks))
     if (c.state === "queued") out.push({ type: "runCheck", checkId: c.checkId });
-  if (s.paused !== null) return out;
+  if (s.paused !== null || s.held !== null) return out;
   const running = Object.values(a.tasks).filter((t) => t.state === "working");
   let standing = running.filter((t) => isStanding(t.role)).length;
   let writers = running.length - standing;
-  for (const t of Object.values(a.tasks)) {
+  // spec D10: past the wall cap no new task starts; the architect is still woken to finish
+  for (const t of a.wall === "capped" ? [] : Object.values(a.tasks)) {
     if (t.state !== "queued") continue;
     if (isStanding(t.role) ? standing >= STANDING_CAP : writers >= WRITER_CAP) continue;
     if (isStanding(t.role)) standing += 1;
@@ -90,7 +89,6 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
       failoverFrom: null,
       brief: "task",
       notes: [],
-      decision: null,
     });
   }
   // a turn that ended on a quota limit waits for the hold: recomputeWake ticks when it lapses

@@ -1,13 +1,7 @@
 /** The event groups the timeline can be narrowed to; `types` is the comma list the API takes. */
 export const TIMELINE_FILTERS = [
   { id: "dispatches", label: "Dispatches", types: "dispatch.started,dispatch.ended" },
-  { id: "checks", label: "Checks", types: "check.ran" },
-  {
-    id: "commits",
-    label: "Commits and landing",
-    types:
-      "commit.made,commit.failed,milestone.landed,milestone.merged,merge.failed,integrate.done,integrate.conflict,branch.pushed",
-  },
+  { id: "checks", label: "Checks", types: "check.requested,check.done" },
   { id: "questions", label: "Questions", types: "question.parked,question.answered" },
   { id: "control", label: "Pause and cancel", types: "run.paused,run.resumed,cancel.requested" },
 ] as const;

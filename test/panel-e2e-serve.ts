@@ -6,7 +6,7 @@
  */
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { RunEventSchema, type RunEventInput } from "../src/domain/run-events.ts";
+import { EVENTS_SCHEMA, RunEventSchema, type RunEventInput } from "../src/domain/run-events.ts";
 import { defaultDeps } from "../src/entry/deps.ts";
 import { servePanel } from "../src/entry/panel/server.ts";
 import { daemonLauncher } from "../src/services/daemon.ts";
@@ -45,52 +45,43 @@ patchProfile(
 deps.routing.probe = async () => ({ ok: true, latencyMs: 1 });
 
 async function add(run: string, e: RunEventInput): Promise<void> {
-  RunEventSchema.parse({ v: 1, seq: 1, at: new Date().toISOString(), ...e });
-  // the architect writes plan.md before its plan is ready
-  if (e.type === "plan.ready")
-    writeFileSync(runPaths(findRun(run).dir).plan, "# Plan\n\nOne milestone, two lanes.\n");
+  RunEventSchema.parse({ v: EVENTS_SCHEMA, seq: 1, at: new Date().toISOString(), ...e });
   await appendEvent(findRun(run), e);
 }
 
+/** The architect wrote its plan and delegated two workers, T1 and T2. */
+async function delegated(run: string): Promise<void> {
+  writeFileSync(runPaths(findRun(run).dir).plan, "# Plan\n\nTwo tasks.\n");
+  for (const taskId of ["T1", "T2"])
+    await add(run, {
+      type: "task.delegated",
+      taskId,
+      role: "worker",
+      rung: RUNG,
+      thread: null,
+      ledgerTask: null,
+      by: "architect-1",
+      why: `${taskId} is next`,
+    });
+}
+
 const a = await runStart(deps, { repo, title: "wallet split", aLines: ["A1 the wallet ids stay"] });
-await add(a.run, {
-  type: "plan.ready",
-  milestones: [
-    {
-      id: "M1",
-      title: "wallet split",
-      after: [],
-      lanes: [
-        { id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: ["src/wallet.ts"] },
-        { id: "M1.L2", role: "worker", kind: "repo_code", after: [], owns: ["src/ids.ts"] },
-      ],
-    },
-  ],
-});
-await add(a.run, { type: "plan.approved", by: "input" });
-await add(a.run, {
-  type: "lanes.routed",
-  milestone: "M1",
-  lanes: [
-    { lane: "M1.L1", rung: RUNG, ladder: [RUNG] },
-    { lane: "M1.L2", rung: RUNG, ladder: [RUNG] },
-  ],
-});
+await delegated(a.run);
 await add(a.run, {
   type: "dispatch.started",
   dispatchId: "D0001",
-  name: "worker-M1.L1",
+  name: "T1",
   role: "worker",
-  unit: "M1.L1",
-  lane: "M1.L1",
+  unit: "T1",
+  lane: null,
   rung: RUNG,
   thread: null,
 });
 await add(a.run, {
   type: "question.parked",
-  unit: "M1.L2",
+  unit: "T2",
   question: "Keep the old wallet id?",
-  reason: "needs_user",
+  reason: "owner",
 });
 
 const b = await runStart(deps, { repo, title: "docs pass", aLines: ["A1 the docs read well"] });
@@ -98,38 +89,16 @@ await add(b.run, { type: "run.ended", outcome: "done", reportPath: null });
 
 const fixture = seedFixtureRun();
 
-// "live split": mid-way through its first lane, with a question parked on the second
+// "live split": T1 mid-way, with a question parked on T2
 const live = await runStart(deps, { repo, title: "live split", aLines: ["A1 the split holds"] });
-await add(live.run, {
-  type: "plan.ready",
-  milestones: [
-    {
-      id: "M1",
-      title: "live split",
-      after: [],
-      lanes: [
-        { id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: ["src/split.ts"] },
-        { id: "M1.L2", role: "worker", kind: "repo_code", after: [], owns: ["src/merge.ts"] },
-      ],
-    },
-  ],
-});
-await add(live.run, { type: "plan.approved", by: "input" });
-await add(live.run, {
-  type: "lanes.routed",
-  milestone: "M1",
-  lanes: [
-    { lane: "M1.L1", rung: RUNG, ladder: [RUNG] },
-    { lane: "M1.L2", rung: RUNG, ladder: [RUNG] },
-  ],
-});
+await delegated(live.run);
 await add(live.run, {
   type: "dispatch.started",
   dispatchId: "D0101",
-  name: "worker-M1.L1",
+  name: "T1",
   role: "worker",
-  unit: "M1.L1",
-  lane: "M1.L1",
+  unit: "T1",
+  lane: null,
   rung: RUNG,
   thread: null,
 });
@@ -143,9 +112,9 @@ const transcript = readFileSync(
 writeFileSync(join(dir, "events.jsonl"), `${transcript.slice(0, 10).join("\n")}\n`);
 await add(live.run, {
   type: "question.parked",
-  unit: "M1.L2",
+  unit: "T2",
   question: "Merge the split ids?",
-  reason: "needs_user",
+  reason: "owner",
 });
 
 const panel = servePanel({

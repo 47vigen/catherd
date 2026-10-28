@@ -16,6 +16,36 @@ judge on the role's exact brief (plan 44). Since 2.0 the daemon runs all of it (
 
 ## 2.0 follow-ups
 
+### From plan 48 (the reducer, caps and stall)
+
+Left out of plan 48 on purpose:
+
+- **Dead 2.0 modules stay until their replacement.** `milestones.ts`, `milestone-tree.ts`, `preflight()`,
+  `lane-service.ts` (`land`), `gate-service.ts` (and the verifier role lock), `protocol.ts` and the land parks in
+  `questions.jsonl` serve only the 1.5 session tools and the land gate now; plan 50 deletes them with landing.
+  `run-client.ts` still mirrors an answer into `questions.jsonl` for a milestone park for that gate.
+- **`PARK_REASONS` keeps the 2.0 reasons** (`approval`, `judge`, `decision`, `push`, `land`, …) so the panel's
+  generated types and older runs stay as they are; shrink it with plan 51's panel pass.
+- **The writer's, reviewer's and verifier's contracts still say lane and milestone.** The worker's is task-shaped;
+  the others change with the single verifier (plan 50) and converging reviews (plan 51).
+- **Failover on a quota hold is not wired into the reducer.** A task on a held rung waits for the hold; the ladder
+  climb comes with plan 49 (D7).
+- **The idle cap is still plan 47's two idle turns,** not D10's 15 minutes with nothing running; and the budget's 80%
+  is shown by `capabilities`, not a wake.
+- **The stall rule needs no fingerprint hash.** A same-rung retry after a failed attempt with no ledger edit, owner
+  answer or check result in between is refused; a plan-file edit alone does not count as news.
+- **The events lock stays.** `withEventsLock` still guards `answer` and `delegate_task`, which check state and append
+  in one step (plan 46's R4).
+- **Rounds and approvals in the scorecard read 0** for a run this build starts; plan 51's metric views replace them.
+- **"attempt n of N" counts later attempts** when a ledger task's attempts run in parallel; the end line should use the
+  task's position in its attempts instead of how many exist when it ends.
+- **`stalled()` picks the last-ended attempt by insertion order,** not by `endedSeq`; with parallel attempts the one
+  that ended last is not always the last one inserted.
+- **A cap stop leaves the architect's own `workspace-write` turn running.** The stop cancels the tasks, not the turn;
+  it ends by itself, but it can still write to the tree after the run is called stopped.
+- **The D16 refusal falls back to `<its version>`** (`run-client.ts:46`) when the run has no `daemon.started` to name
+  the build that owns it.
+
 ### From plan 47 (the architect loop)
 
 Left out of plan 47 on purpose:
@@ -31,10 +61,6 @@ Left out of plan 47 on purpose:
   task wakes it. Make a `question` message a wake event if runs show workers idling on an answer.
 - **A researcher may write any research file.** `write_run_file` takes `research/<id>.md` for every role that has it,
   not only the task's own path (spec D12).
-- **`ask_owner`'s `why` is missing from the report's change log.** `question.parked` has no `by`, so the log cannot
-  name who asked or why.
-- **The report never shows running or review.** `ledgerView(…, [])` in `architect-run.ts` drops the attempts, so the
-  derived `running` and `review` states do not appear.
 - **Delegated workers and verifiers still get the 2.0 contracts.** Lanes, Owns and `team wait --lane` are in their
   briefs on the architect engine.
 - **`ROLE_WRITABLE` also accepts `research/*.md` on 2.0 runs.** The widening is global, not scoped to the architect

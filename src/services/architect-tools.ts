@@ -3,8 +3,10 @@ import { join } from "node:path";
 import { z } from "zod";
 import {
   type ArchTask,
+  attemptsOn,
   isStanding,
   STANDING_CAP,
+  stalled,
   taskAttempts,
   WRITER_CAP,
 } from "../domain/architect-state.ts";
@@ -21,7 +23,7 @@ import { budgetOf } from "./budget.ts";
 import { cancel } from "./dispatch-service.ts";
 import { ledgerTasks, renderLedger, writeLedger } from "./ledger-store.ts";
 import type { Deps } from "./ports.ts";
-import { replayRun, runEngine, withEventsLock } from "./run-events-store.ts";
+import { isEarlierRun, replayRun, withEventsLock } from "./run-events-store.ts";
 import { runProfile } from "./run-pin.ts";
 import { readRecords, type Run } from "./run-store.ts";
 import { MESSAGE_KINDS, teamRead, teamSend } from "./team.ts";
@@ -114,10 +116,28 @@ async function delegate(
   const rung = headlessRung(i.rung ?? rc.defaultRung ?? (rc.rungs[0] as string));
   if (!ladder.includes(rung))
     throw invalid(`${i.rung} is not on the ${i.role} ladder`, `use one of ${ladder.join(", ")}, or none`);
-  if (i.ledgerTask !== undefined && !ledgerTasks(c.run).some((t) => t.id === i.ledgerTask))
-    throw invalid(`the ledger has no task ${i.ledgerTask}`, "add it with ledger first");
+  if (i.ledgerTask !== undefined) {
+    if (!ledgerTasks(c.run).some((t) => t.id === i.ledgerTask))
+      throw invalid(`the ledger has no task ${i.ledgerTask}`, "add it with ledger first");
+  }
   const id = await withEventsLock(c.run, (add) => {
-    const id = `T${Object.keys(replayRun(c.run).arch?.tasks ?? {}).length + 1}`;
+    const s = replayRun(c.run);
+    if (i.ledgerTask !== undefined) {
+      // spec D10: a ledger task's attempts cap, and no same-rung retry without new information
+      const cap = s.caps.attempts;
+      if (attemptsOn(s.arch, i.ledgerTask).length >= cap)
+        throw invalid(
+          `ledger task ${i.ledgerTask} has had its ${cap} attempts`,
+          `replan or split it, ask the owner, or set it impossible with ledger`,
+        );
+      const last = stalled(s, i.ledgerTask, rung);
+      if (last)
+        throw invalid(
+          `stalled: ${last.taskId} on ${i.ledgerTask} ended ${last.outcome} on ${rung}, and nothing new came in since`,
+          `change the rung, edit the ledger with what you learned, ask the owner, or set ${i.ledgerTask} impossible`,
+        );
+    }
+    const id = `T${Object.keys(s.arch?.tasks ?? {}).length + 1}`;
     writeTextAtomic(join(c.run.dir, taskBriefFile(id)), `${i.task.trim()}\n`);
     add(
       {
@@ -443,12 +463,12 @@ export async function callArchitectTool(
   tool: ArchitectTool,
   args: unknown,
 ): Promise<unknown> {
-  if (runEngine(c.run) !== "architect")
+  if (isEarlierRun(c.run))
     throw new CatherdError(
       "E_ROLE_SCOPE",
-      `run ${c.run.id} is not on the architect engine: ${tool} is not here`,
+      `run ${c.run.id} was started by an earlier catherd: ${tool} is not here`,
       {
-        fix: "set the profile's engine to architect for the next run",
+        fix: "finish it with the catherd that started it",
       },
     );
   if (c.caller.name !== "owner" && !architectToolsFor(c.caller.role).includes(tool))

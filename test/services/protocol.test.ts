@@ -5,9 +5,8 @@ import { join } from "node:path";
 import { newDispatchId } from "../../src/domain/ids.ts";
 import { gateCheck, gatePass } from "../../src/services/gate-service.ts";
 import { land } from "../../src/services/lane-service.ts";
-import { PROTOCOL_CHECKLIST, protocolNext, unfinishedAfter } from "../../src/services/protocol.ts";
+import { PROTOCOL_CHECKLIST, protocolNext } from "../../src/services/protocol.ts";
 import { park } from "../../src/services/questions.ts";
-import { appendEvent } from "../../src/services/run-events-store.ts";
 import { startRun } from "../../src/services/run-service.ts";
 import { appendAgentRun, appendRecord, findRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
@@ -549,81 +548,4 @@ it("maps every A-line to the milestone of a one-milestone run", async () => {
   expect(readFileSync(join(r.dir, landed.digest), "utf8")).toContain(
     "A-lines: A1 truncate cuts at 8; A2 bun test passes\n",
   );
-});
-
-describe("After: on a daemon run (plan 40 D22)", () => {
-  it("a lane the reducer marked done is finished for admission", async () => {
-    const { run } = freshRun();
-    writeLane(run, "M1.L1", ["src/a.ts"]);
-    writeLane(run, "M1.L4", ["src/d.ts"], "true", "Kind: repo_code\nDifficulty: build\nAfter: M1.L1\n");
-    // no events.jsonl: the records rule, and no record says L1 ended ok
-    expect(unfinishedAfter(run, "M1.L4")).toEqual(["M1.L1"]);
-    const lane = (id: string, after: string[]) => ({
-      id,
-      role: "worker" as const,
-      kind: "repo_code" as const,
-      after,
-      owns: [id === "M1.L1" ? "src/a.ts" : "src/d.ts"],
-    });
-    const milestones = [
-      {
-        id: "M1",
-        title: "m",
-        after: [],
-        lanes: [lane("M1.L1", []), lane("M1.L4", ["M1.L1"])],
-      },
-    ];
-    const rung = "codex:gpt-6-sol#medium";
-    await appendEvent(run, {
-      type: "run.started",
-      repo: run.meta.repo,
-      title: "t",
-      aLines: [],
-      plan: [],
-      base: null,
-      engine: "2.0",
-    });
-    await appendEvent(run, { type: "plan.ready", milestones });
-    await appendEvent(run, { type: "plan.approved", by: "owner" });
-    await appendEvent(run, {
-      type: "lanes.routed",
-      milestone: "M1",
-      lanes: milestones[0]!.lanes.map((l) => ({
-        lane: l.id,
-        rung,
-        ladder: [rung],
-      })),
-    });
-    expect(unfinishedAfter(run, "M1.L4")).toEqual(["M1.L1"]);
-    await appendEvent(run, {
-      type: "dispatch.started",
-      dispatchId: "D1",
-      name: "worker-M1.L1",
-      role: "worker",
-      unit: "M1.L1",
-      lane: "M1.L1",
-      rung,
-      thread: null,
-    });
-    await appendEvent(run, {
-      type: "dispatch.ended",
-      dispatchId: "D1",
-      name: "worker-M1.L1",
-      unit: "M1.L1",
-      status: "ok",
-      replyStatus: "blocked",
-      reason: "check_broken",
-      why: "the check fails in a sibling's files",
-      thread: "t-1",
-      head: null,
-      environment: null,
-      verdict: null,
-      findings: [],
-      foreign: ["src/other.ts"],
-      replyPath: "roles/worker-M1.L1/D1/reply.md",
-    });
-    // every lane stop waits for its class before the reducer acts on it (plan 44 D9)
-    await appendEvent(run, { type: "stop.classified", dispatchId: "D1", reason: "check_broken" });
-    expect(unfinishedAfter(run, "M1.L4")).toEqual([]);
-  });
 });

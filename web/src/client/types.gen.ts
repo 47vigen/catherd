@@ -441,6 +441,10 @@ export type ProfilePatch = {
         idleMin?: number;
         wallMin?: number;
     };
+    caps?: {
+        wallMin?: number;
+        attempts?: number;
+    };
     preflight?: {
         confirm: boolean;
     };
@@ -451,7 +455,6 @@ export type ProfilePatch = {
         heavy: number | 'cpus/2';
     };
     notify?: Array<'milestone' | 'finish' | 'blocked'>;
-    engine?: '2.0' | 'architect';
     limits?: {
         memory?: {
             reserveMb?: number | null;

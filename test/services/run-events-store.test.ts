@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { db } from "../../src/infra/db.ts";
-import type { RunEvent } from "../../src/domain/run-events.ts";
+import { EVENTS_SCHEMA, type RunEvent } from "../../src/domain/run-events.ts";
 import {
   appendEvent,
   appendEvents,
@@ -30,7 +30,6 @@ const started: RunEventInput = {
   aLines: [],
   plan: [],
   base: null,
-  engine: "2.0",
 };
 const line = (seq: number, type = "tick"): string =>
   JSON.stringify({ v: 1, seq, at: "2026-10-21T10:00:00.000Z", type });
@@ -71,7 +70,12 @@ describe("the event store", () => {
   it("stamps v, seq and at, and keeps a new run's events in the database, never in events.jsonl", async () => {
     const { run } = freshRun();
     const e = await appendEvent(run, started, new Date("2026-10-21T10:00:00.000Z"));
-    expect(e).toMatchObject({ v: 1, seq: 1, at: "2026-10-21T10:00:00.000Z", type: "run.started" });
+    expect(e).toMatchObject({
+      v: EVENTS_SCHEMA,
+      seq: 1,
+      at: "2026-10-21T10:00:00.000Z",
+      type: "run.started",
+    });
     expect(existsSync(eventsFile(run))).toBe(false);
     expect(db().query("SELECT seq, type, body FROM events WHERE run_id = ?").all(run.id)).toEqual([
       { seq: 1, type: "run.started", body: JSON.stringify(e) },
@@ -187,7 +191,10 @@ describe("the event store", () => {
 
   it("refuses an event a newer catherd wrote", async () => {
     const { run } = freshRun();
-    writeFileSync(eventsFile(run), `${JSON.stringify({ v: 2, seq: 1, at: "t", type: "tick" })}\n`);
+    writeFileSync(
+      eventsFile(run),
+      `${JSON.stringify({ v: EVENTS_SCHEMA + 1, seq: 1, at: "t", type: "tick" })}\n`,
+    );
     expect(() => readEvents(run)).toThrow(expect.objectContaining({ code: "E_RUNTIME_TOO_OLD" }));
     await expect(appendEvent(run, { type: "tick" })).rejects.toMatchObject({ code: "E_RUNTIME_TOO_OLD" });
   });
