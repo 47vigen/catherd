@@ -17,6 +17,7 @@ type LandDone = Extract<RunEventInput, { type: "land.done" }>;
 
 const FORGE_MS = 120_000;
 const TAIL = 600;
+const LS_REMOTE_MS = 60_000;
 const tail = (s: string): string => s.trim().slice(-TAIL);
 const lastUrl = (s: string): string | null => s.match(/https?:\/\/\S+/g)?.at(-1) ?? null;
 
@@ -100,11 +101,24 @@ async function out(tree: string, args: string[]): Promise<string> {
   return r.out;
 }
 
-/** The base branch's default on origin, else null. */
+/** Origin's default branch: the cached origin/HEAD, else what the remote itself says; null when neither does. */
 async function originDefault(tree: string): Promise<string | null> {
-  const r = await gitRun(tree, ["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"]);
-  return r.code === 0 ? r.out.trim().replace(/^origin\//, "") || null : null;
+  const cached = await gitRun(tree, ["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"]);
+  const name = cached.code === 0 ? cached.out.trim().replace(/^origin\//, "") : "";
+  if (name) return name;
+  const r = await gitRun(tree, ["ls-remote", "--symref", "origin", "HEAD"], LS_REMOTE_MS);
+  return r.code === 0 ? (/^ref: refs\/heads\/(\S+)\s+HEAD$/m.exec(r.out)?.[1] ?? null) : null;
 }
+
+/** Whether `branch` exists on origin; null when the remote cannot say. */
+async function onOrigin(tree: string, branch: string): Promise<boolean | null> {
+  const r = await gitRun(tree, ["ls-remote", "--heads", "origin", `refs/heads/${branch}`], LS_REMOTE_MS);
+  return r.code === 0 ? r.out.trim() !== "" : null;
+}
+
+/** An earlier land of this run that pushed: pushed outright, or pushed and then refused its final. */
+const pushedBefore = (events: readonly RunEvent[]): boolean =>
+  events.some((e) => e.type === "land.done" && (e.outcome === "pushed" || e.message.startsWith("pushed ")));
 
 /** A green full check of this run on `sha` (spec D11), with its command and log. */
 function greenFull(run: Run, sha: string): { command: string; log: string } | null {
@@ -162,8 +176,9 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
   const refused = (message: string) => ({ done: done("refused", message), question: null });
   try {
     const tree = runTree(run);
-    const protectedBranch = [base, "main", "master", await originDefault(tree)];
-    if (protectedBranch.includes(branch))
+    const dflt = await originDefault(tree);
+    if (!dflt) return refused("origin's default branch cannot be resolved: reach origin, then land again");
+    if ([base, "main", "master", dflt].includes(branch))
       return refused(`${branch} is a protected branch: catherd never pushes it`);
     const on = await currentBranch(tree);
     if (on !== branch)
@@ -195,6 +210,14 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
         sha = (await out(tree, ["rev-parse", "HEAD"])).trim();
         moved = `the base moved under ${overlap.join(", ")}: merged origin/${base} as ${sha.slice(0, 12)}`;
       }
+    }
+    if (!pushedBefore(readEvents(run))) {
+      const there = await onOrigin(tree, branch);
+      if (there === null) return refused("origin cannot be reached: reach origin, then land again");
+      if (there)
+        return refused(
+          `branch ${branch} already exists on origin and is not this run's: rename the run, then land again`,
+        );
     }
     await branchPusher.push(tree, branch, sha);
     const mb = (await out(tree, ["merge-base", "HEAD", `origin/${base}`])).trim();
