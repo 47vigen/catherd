@@ -23,6 +23,7 @@ its Rulings. The 1.6 drafts in `docs/plans/drafts-1.6/` are inputs only (plan 30
 | 38 ideas sweep           | `docs/plans/2026-10-23-38-ideas-sweep.md`        | in PR (run 20261023-025529 cancelled after M1/M3; M2–M7 and two catherd fixes by hand; ledger `plan38-ledger.md`) |
 | 44 decision model and briefs | `docs/plans/2026-10-26-44-decision-model-and-briefs.md` | in PR (spec `docs/specs/2026-10-26-decision-model-design.md`, research `docs/research/2026-10-26-role-briefs.md`; final review 0 C / 4 I fixed; ledger `plan44-ledger.md`) |
 | 45 outcome gates | `docs/plans/2026-10-27-45-outcome-gates.md` | written (owner decisions 2026-10-27; review dedupe and the parallel verifier dropped for the redesign) |
+| 46 run-state database | `docs/plans/2026-10-28-46-run-state-database.md` | written (stage 1 slice 1 of the architect-led runs spec; plans 47–51 listed in its Next plans) |
 
 ## catherd 1.5 (2026-10-02, autopilot): everything open in ideas.md
 

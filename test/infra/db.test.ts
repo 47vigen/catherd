@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { db, dbFile, MIGRATIONS, openDb } from "../../src/infra/db.ts";
+import { backupDb, db, dbFile, MIGRATIONS, openDb } from "../../src/infra/db.ts";
+import { dataDir } from "../../src/infra/paths.ts";
 import { withHome } from "../helpers.ts";
 
 describe("the database (plan 46, spec D13)", () => {
@@ -34,5 +35,19 @@ describe("the database (plan 46, spec D13)", () => {
     const again = openDb(file);
     expect(again.query("PRAGMA user_version").get()).toEqual({ user_version: MIGRATIONS.length });
     expect(again.query("SELECT count(*) AS n FROM runs").get()).toEqual({ n: 0 });
+  });
+
+  it("backs the whole database up by date, private, and keeps the last 7", () => {
+    withHome();
+    db().run("INSERT INTO runs (id, dir, repo, created_at) VALUES ('r1', '/d', '/r', 'x')");
+    const days = Array.from({ length: 9 }, (_, i) => new Date(Date.UTC(2026, 9, 20 + i)));
+    for (const d of days) backupDb(d);
+    const file = backupDb(days.at(-1));
+    expect(file).toBe(join(dataDir(), "backups", "catherd-2026-10-28.db"));
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(readdirSync(join(dataDir(), "backups")).sort()).toEqual(
+      days.slice(2).map((d) => `catherd-${d.toISOString().slice(0, 10)}.db`),
+    );
+    expect(openDb(file).query("SELECT id FROM runs").all()).toEqual([{ id: "r1" }]);
   });
 });

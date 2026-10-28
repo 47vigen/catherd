@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { db } from "../../src/infra/db.ts";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dataDir } from "../../src/infra/paths.ts";
 import { dirname, join } from "node:path";
 import { mergeSubject } from "../../src/domain/branch.ts";
 import { newDispatchId } from "../../src/domain/ids.ts";
@@ -2170,6 +2171,10 @@ describe("parking, reporting, finishing", () => {
       reportPath: join(run.dir, "report.md"),
     });
     expect(readFileSync(join(run.dir, "report.md"), "utf8")).toContain("# wallet");
+    // plan 46: the run's end backs the database up
+    expect(readdirSync(join(dataDir(), "backups"))).toEqual([
+      expect.stringMatching(/^catherd-\d{4}-\d{2}-\d{2}\.db$/),
+    ]);
   });
 
   it("finishes with the rules proposals in the report and writes knowledge.md never (plan 34)", async () => {

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { chmodSync } from "node:fs";
+import { chmodSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError, UPGRADE } from "../domain/errors.ts";
 import type { RunRecord } from "../domain/record.ts";
@@ -126,4 +126,23 @@ export function insertMessage(
     m.to,
     m.text,
   );
+}
+
+const BACKUPS_KEPT = 7;
+
+/** Spec D13: a copy of the whole database at a run's end, `backups/catherd-<date>.db`; the last 7 days are kept. */
+export function backupDb(now: Date = new Date()): string {
+  const dir = join(dataDir(), "backups");
+  ensurePrivateDir(dir);
+  const file = join(dir, `catherd-${now.toISOString().slice(0, 10)}.db`);
+  const tmp = `${file}.${process.pid}.tmp`;
+  rmSync(tmp, { force: true });
+  db().query("VACUUM INTO ?").run(tmp);
+  chmodSync(tmp, PRIVATE_FILE);
+  renameSync(tmp, file);
+  const all = readdirSync(dir)
+    .filter((f) => /^catherd-\d{4}-\d{2}-\d{2}\.db$/.test(f))
+    .sort();
+  for (const f of all.slice(0, -BACKUPS_KEPT)) rmSync(join(dir, f), { force: true });
+  return file;
 }
