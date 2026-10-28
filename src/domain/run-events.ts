@@ -98,8 +98,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     base: z.string().nullable(),
     /** plan 47's switch, on a run an earlier build started: "2.0" was its pipeline (plan 48 deletes it) */
     engine: z.enum(["2.0", "architect"]).optional(),
-    /** the roles the run's profile turns off, so the machine never waits on one (absent before 2.0.x) */
-    rolesOff: z.array(role).optional(),
+    /** the roles the run's profile turns off, so the machine never waits on one (absent before 2.0.x); a role since deleted (the judge) is read and filtered where consumed */
+    rolesOff: strings.optional(),
     /** plan 48, spec D10: the profile's caps when the run started; absent means DEFAULT_CAPS */
     caps: z.object({ wallMin: z.number().positive(), attempts: z.number().int().positive() }).optional(),
   }),

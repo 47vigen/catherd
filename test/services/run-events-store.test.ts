@@ -199,6 +199,22 @@ describe("the event store", () => {
     await expect(appendEvent(run, { type: "tick" })).rejects.toMatchObject({ code: "E_RUNTIME_TOO_OLD" });
   });
 
+  it("reads a plan 48 run whose profile had the judge off (plan 49)", () => {
+    const { run } = freshRun();
+    const first = {
+      v: 2,
+      seq: 1,
+      at: "t",
+      type: "run.started",
+      repo: "/r",
+      title: "t",
+      aLines: [],
+      plan: [],
+    };
+    writeFileSync(eventsFile(run), `${JSON.stringify({ ...first, base: null, rolesOff: ["judge"] })}\n`);
+    expect(readEvents(run)[0]).toMatchObject({ type: "run.started", rolesOff: ["judge"] });
+  });
+
   it("tails new events in order until stopped", async () => {
     const { run } = freshRun();
     await appendEvent(run, { type: "tick" });
