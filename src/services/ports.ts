@@ -1,3 +1,4 @@
+import type { Caps } from "../domain/caps.ts";
 import type { NoRungCause } from "../domain/select.ts";
 import type { HostContext } from "../domain/host.ts";
 import type { Budget } from "../domain/budget.ts";
@@ -41,6 +42,8 @@ export interface ProfileView {
   maxEffort?: Record<string, string>;
   budget: Budget;
   timeouts: { idleMin: number; wallMin: number };
+  /** plan 48, spec D10; absent means DEFAULT_CAPS */
+  caps?: Caps;
   preflight: { confirm: boolean };
   land: { autoMerge: boolean };
   heavy: number | "cpus/2";

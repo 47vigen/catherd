@@ -441,6 +441,10 @@ export type ProfilePatch = {
         idleMin?: number;
         wallMin?: number;
     };
+    caps?: {
+        wallMin?: number;
+        attempts?: number;
+    };
     preflight?: {
         confirm: boolean;
     };

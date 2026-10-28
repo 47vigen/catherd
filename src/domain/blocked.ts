@@ -6,6 +6,8 @@ export const BLOCKED_REASONS = [
   "no_access",
   "check_broken",
   "out_of_scope",
+  /** plan 48, spec D10: the task cannot be done at all */
+  "impossible",
 ] as const;
 export type BlockedReason = (typeof BLOCKED_REASONS)[number];
 
@@ -25,7 +27,8 @@ export function parseBlockedReason(why: string | null): { reason: BlockedReason;
   const m = why === null ? null : REASON_AT_START.exec(why.trim());
   if (!m) return null;
   const word = (m[1] as string).toLowerCase().replace(/-/g, "_");
-  const reason = STOP_REASONS.find((r) => r === word);
+  // `impossible` is the role's own word for the architect (plan 48); the stop classifier never offers it
+  const reason = [...STOP_REASONS, "impossible" as const].find((r) => r === word);
   return reason ? { reason, why: (m[2] ?? "").trim() } : null;
 }
 
@@ -36,6 +39,7 @@ export const BLOCKED_LINE = `Nobody reads your thread until you finish: never as
   "provider_error (your model, tools or sandbox failed)",
   "no_access (you cannot reach what you need: the running app, a service, credentials)",
   "check_broken (the check cannot pass for a reason outside your task, such as a sibling's code that is not there yet; name each failing file:line)",
+  "impossible (the task cannot be done at all: <why> says what stands in the way)",
 ].join(", ")}.`;
 
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");

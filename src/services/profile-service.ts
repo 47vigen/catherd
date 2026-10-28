@@ -380,6 +380,7 @@ function viewOf(p: Profile): ProfileView {
     maxEffort: p.maxEffort,
     budget: p.budget,
     timeouts: p.timeouts,
+    caps: p.caps,
     preflight: p.preflight,
     land: p.land,
     heavy: p.lock.heavy,

@@ -1,6 +1,7 @@
 import type { OrchestrationHost } from "./host.ts";
 import { z } from "zod";
 import type { Budget } from "./budget.ts";
+import { type Caps, DEFAULT_CAPS } from "./caps.ts";
 import { BILLING_KEYS, type BillingKey } from "./catalog.ts";
 import { BILLING_MODES, type BillingMode, DEFAULT_BILLING } from "./cost.ts";
 import { CatherdError } from "./errors.ts";
@@ -72,6 +73,7 @@ export const ProfileDocSchema = z.looseObject({
     .looseObject({ minutes: positive.optional(), tokens: positive.optional(), usd: positive.optional() })
     .optional(),
   timeouts: z.looseObject({ idleMin: positive.optional(), wallMin: positive.optional() }).optional(),
+  caps: z.looseObject({ wallMin: positive.optional(), attempts: positive.optional() }).optional(),
   preflight: z.looseObject({ confirm: z.boolean().optional() }).optional(),
   land: z.looseObject({ autoMerge: z.boolean().optional() }).optional(),
   lock: z
@@ -183,6 +185,8 @@ export interface Profile {
   maxEffort: Record<string, EffortWord>;
   budget: Budget;
   timeouts: { idleMin: number; wallMin: number };
+  /** plan 48, spec D10: the run's wall time and the attempts per ledger task */
+  caps: Caps;
   preflight: { confirm: boolean };
   /** plan 43: who merges a landed milestone into the base */
   land: { autoMerge: boolean };
@@ -262,6 +266,7 @@ export function defaultProfileDoc(name = "default"): ProfileDoc {
     maxEffort: { ...DEFAULT_MAX_EFFORT },
     budget: {},
     timeouts: { idleMin: 15, wallMin: 90 },
+    caps: { ...DEFAULT_CAPS },
     preflight: { confirm: false },
     land: { autoMerge: false },
     lock: { heavy: "cpus/2" },
@@ -361,6 +366,10 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
     ),
     budget,
     timeouts: { idleMin: doc.timeouts?.idleMin ?? 15, wallMin: doc.timeouts?.wallMin ?? 90 },
+    caps: {
+      wallMin: doc.caps?.wallMin ?? DEFAULT_CAPS.wallMin,
+      attempts: positiveInt(doc.caps?.attempts) ? doc.caps.attempts : DEFAULT_CAPS.attempts,
+    },
     preflight: { confirm: doc.preflight?.confirm ?? false },
     land: { autoMerge: doc.land?.autoMerge ?? false },
     lock: { heavy: doc.lock?.heavy ?? "cpus/2" },
@@ -426,6 +435,7 @@ export const ProfilePatchSchema = z.strictObject({
     .partial()
     .optional(),
   timeouts: z.strictObject({ idleMin: positive, wallMin: positive }).partial().optional(),
+  caps: z.strictObject({ wallMin: positive, attempts: z.number().int().positive() }).partial().optional(),
   preflight: z.strictObject({ confirm: z.boolean() }).optional(),
   land: z.strictObject({ autoMerge: z.boolean() }).optional(),
   lock: z.strictObject({ heavy: z.union([z.number().int().positive(), z.literal("cpus/2")]) }).optional(),

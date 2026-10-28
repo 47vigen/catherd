@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { isStanding, STANDING_CAP, WRITER_CAP } from "../domain/architect-state.ts";
+import { isStanding, STANDING_CAP, taskAttempts, WRITER_CAP } from "../domain/architect-state.ts";
 import type { BriefParts } from "../domain/brief.ts";
 import { ledgerView } from "../domain/ledger.ts";
 import { planInputNames } from "../domain/plan-doc.ts";
@@ -112,15 +112,15 @@ const verdictLine = (s: RunState, events: RunEvent[]): string => {
 /** Every architect call with its `why`, oldest first: the change log of the run (spec D3, D11's audit). */
 function changeLog(events: RunEvent[]): string[] {
   return events.flatMap((e) =>
-    "why" in e && "by" in e && typeof e.why === "string"
-      ? [`- ${e.at} ${e.type} (${String(e.by)}): ${e.why}`]
+    "why" in e && typeof e.why === "string" && ("by" in e || e.type === "question.parked")
+      ? [`- ${e.at} ${e.type} (${"by" in e ? String(e.by) : "architect"}): ${e.why}`]
       : [],
   );
 }
 
 /** Plan 47: an architect run's report: its verdict, the ledger, the last progress entries, the change log. */
 export function writeArchitectReport(run: Run, s: RunState, events: RunEvent[]): string {
-  const tasks = ledgerView(ledgerTasks(run), []);
+  const tasks = ledgerView(ledgerTasks(run), taskAttempts(s.arch));
   const progress = ledgerProgress(run).slice(-5);
   const lines = [
     `# ${s.title || run.meta.title}`,
@@ -129,7 +129,12 @@ export function writeArchitectReport(run: Run, s: RunState, events: RunEvent[]):
     "",
     "## Ledger",
     "",
-    ...(tasks.length ? tasks.map((t) => `- ${t.id} [${t.state}] ${t.goal}`) : ["No ledger task."]),
+    ...(tasks.length
+      ? tasks.map(
+          (t) =>
+            `- ${t.id} [${t.state}] ${t.goal}${t.attempts.length ? ` (${t.attempts.length} attempt${t.attempts.length === 1 ? "" : "s"})` : ""}`,
+        )
+      : ["No ledger task."]),
     "",
     "## Progress (last entries)",
     "",

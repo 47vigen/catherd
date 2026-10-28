@@ -51,6 +51,8 @@ describe("runStart", () => {
     expect(readEvents(run)).toMatchObject([
       { type: "run.started", title: "wallet", aLines: ["A1 it works"], plan: [], base: null },
     ]);
+    // plan 48: the profile's caps are pinned, D10's defaults when it names none
+    expect(readEvents(run)[0]).toMatchObject({ caps: { wallMin: 720, attempts: 4 } });
     // the fake profile has no ui-reviewer: the run records it as off, and the reviewer as on
     const off = (readEvents(run)[0] as { rolesOff?: string[] }).rolesOff;
     expect(off).toContain("ui-reviewer");

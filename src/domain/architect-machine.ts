@@ -74,7 +74,8 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
   const running = Object.values(a.tasks).filter((t) => t.state === "working");
   let standing = running.filter((t) => isStanding(t.role)).length;
   let writers = running.length - standing;
-  for (const t of Object.values(a.tasks)) {
+  // spec D10: past the wall cap no new task starts; the architect is still woken to finish
+  for (const t of a.wall === "capped" ? [] : Object.values(a.tasks)) {
     if (t.state !== "queued") continue;
     if (isStanding(t.role) ? standing >= STANDING_CAP : writers >= WRITER_CAP) continue;
     if (isStanding(t.role)) standing += 1;

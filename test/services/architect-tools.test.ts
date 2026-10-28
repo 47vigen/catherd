@@ -6,7 +6,7 @@ import { callArchitectTool, type ToolCaller } from "../../src/services/architect
 import { ledgerTasks } from "../../src/services/ledger-store.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
-import { startedFields } from "../domain/run-fixtures.ts";
+import { endDispatch, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { fakeDeps, freshRun, insertEarlier, testView } from "./helpers.ts";
 
@@ -222,6 +222,37 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     });
     expect(await call(run, "finish", { verdict: "done", why: "shipped" })).toEqual({ finishing: "done" });
     expect(replayRun(run).arch?.finishing).toEqual({ verdict: "done", why: "shipped" });
+  });
+
+  it("refuses a same-rung retry with nothing new, and a ledger task past its attempts (plan 48, spec D10)", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { type: "run.started", ...startedFields, caps: { wallMin: 720, attempts: 2 } });
+    await call(run, "ledger", { tasks: { add: [{ id: "L1", goal: "the parser" }] }, why: "w" });
+    const work = (rung?: string) =>
+      call(run, "delegate_task", {
+        role: "worker",
+        task: "parse it",
+        ledgerTask: "L1",
+        why: "w",
+        ...(rung ? { rung } : {}),
+      });
+    const end = async (taskId: string, replyStatus: "blocked" | "complete") => {
+      const log = makeLog();
+      const id = startDispatch(log, { name: taskId, unit: taskId });
+      endDispatch(log, id, { name: taskId, unit: taskId, replyStatus, why: "the parser loops" });
+      for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    };
+    await work();
+    await end("T1", "blocked");
+    await expect(work()).rejects.toMatchObject({
+      code: "E_INPUT_INVALID",
+      message: expect.stringContaining("stalled"),
+    });
+    expect(await work("codex:gpt-6-sol#high")).toMatchObject({ taskId: "T2" });
+    await end("T2", "complete");
+    await expect(work("codex:gpt-6-sol#high")).rejects.toMatchObject({
+      message: expect.stringContaining("has had its 2 attempts"),
+    });
   });
 
   it("capabilities names each role's rungs, the slots and the budget; an earlier build's run has none of these tools", async () => {

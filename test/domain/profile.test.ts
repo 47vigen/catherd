@@ -73,6 +73,7 @@ describe("the default profile (spec §7.2)", () => {
       "maxEffort",
       "budget",
       "timeouts",
+      "caps",
       "preflight",
       "land",
       "lock",
@@ -99,6 +100,12 @@ describe("resolveProfile", () => {
       {},
     ]);
     expect(p.harness["claude-code"]).toEqual({ isolated: false });
+    // plan 48, spec D10: 12 hours and 4 attempts per ledger task unless the profile says otherwise
+    expect(p.caps).toEqual({ wallMin: 720, attempts: 4 });
+    expect(resolveProfile({ schema: 1, caps: { wallMin: 60 } }, "c", "claude-code").caps).toEqual({
+      wallMin: 60,
+      attempts: 4,
+    });
   });
 
   it("takes a partial role's missing fields from the built-in one, but not its default rung", () => {

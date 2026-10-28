@@ -12,8 +12,14 @@ export const EVENTS_SCHEMA = 2;
 /** The unit a run-level question or failure belongs to; a milestone is `M1`, a lane `M1.L2`. */
 export const RUN_UNIT = "run";
 
+// spelled out, not spread from BLOCKED_REASONS: a worker's `impossible` goes to the architect, never to the owner
 export const PARK_REASONS = [
-  ...BLOCKED_REASONS,
+  "needs_user",
+  "too_hard",
+  "provider_error",
+  "no_access",
+  "check_broken",
+  "out_of_scope",
   "environment",
   "preflight",
   "confirm",
@@ -94,6 +100,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     engine: z.enum(["2.0", "architect"]).optional(),
     /** the roles the run's profile turns off, so the machine never waits on one (absent before 2.0.x) */
     rolesOff: z.array(role).optional(),
+    /** plan 48, spec D10: the profile's caps when the run started; absent means DEFAULT_CAPS */
+    caps: z.object({ wallMin: z.number().positive(), attempts: z.number().int().positive() }).optional(),
   }),
   ev("daemon.started", { pid: z.number().int(), version: z.string() }),
   ev("dispatch.started", {

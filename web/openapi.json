@@ -3888,6 +3888,21 @@
             },
             "additionalProperties": false
           },
+          "caps": {
+            "type": "object",
+            "properties": {
+              "wallMin": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "attempts": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "additionalProperties": false
+          },
           "preflight": {
             "type": "object",
             "properties": {

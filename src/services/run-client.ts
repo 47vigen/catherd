@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_CAPS } from "../domain/caps.ts";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
 import type { ProfilePatch } from "../domain/profile.ts";
 import { ROLES } from "../domain/roles.ts";
@@ -92,6 +93,7 @@ export async function runStart(
       plan,
       base: i.base ?? null,
       rolesOff: ROLES.filter((r) => !runProfile(deps, run).roles[r]?.enabled),
+      caps: runProfile(deps, run).caps ?? DEFAULT_CAPS,
     },
     new Date(deps.now()),
   );

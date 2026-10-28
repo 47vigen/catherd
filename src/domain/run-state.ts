@@ -1,4 +1,5 @@
-import { applyArchitect, type ArchState, emptyArch } from "./architect-state.ts";
+import { applyArchitect, type ArchState, checkWall, emptyArch, nextWallMark } from "./architect-state.ts";
+import { type Caps, DEFAULT_CAPS } from "./caps.ts";
 import type { BlockedReason } from "./blocked.ts";
 import type { ReplyStatus, RunStatus } from "./record.ts";
 import type { Role } from "./roles.ts";
@@ -76,6 +77,11 @@ export interface RunState {
   rolesOff: Role[];
   /** spec D16: an earlier build started the run; this build reads it and never drives it */
   earlier: boolean;
+  /** spec D10: the caps the run started with */
+  caps: Caps;
+  startedAt: string | null;
+  /** the run's time spent in closed pauses, which the wall cap does not count */
+  pausedMs: number;
   arch: ArchState;
   dispatches: Record<string, DispatchView>;
   questions: Record<string, OpenQuestion>;
@@ -106,6 +112,9 @@ export function emptyState(run: string): RunState {
     plan: [],
     rolesOff: [],
     earlier: false,
+    caps: DEFAULT_CAPS,
+    startedAt: null,
+    pausedMs: 0,
     arch: emptyArch(),
     dispatches: {},
     questions: {},
@@ -131,14 +140,20 @@ export function recomputeWake(s: RunState): void {
       : Object.values(s.questions)
           .map(remindDue)
           .filter((at) => at > s.at);
-  const all = [...Object.values(s.holds), ...reminders].sort();
+  const wall = nextWallMark(s);
+  const all = [...Object.values(s.holds), ...reminders, ...(wall ? [wall] : [])].sort();
   s.wakeAt = all[0] ?? null;
 }
 
 function apply(s: RunState, e: RunEvent): void {
   s.seq = e.seq;
   s.at = e.at;
-  if (applyArchitect(s, e)) return;
+  if (!applyArchitect(s, e)) applyRun(s, e);
+  if (checkWall(s, e)) recomputeWake(s);
+}
+
+/** The run's own part: its start, questions, pause, cancel, ticks, reports and end. */
+function applyRun(s: RunState, e: RunEvent): void {
   switch (e.type) {
     case "run.started":
       s.title = e.title;
@@ -147,8 +162,11 @@ function apply(s: RunState, e: RunEvent): void {
       s.plan = e.plan;
       s.rolesOff = e.rolesOff ?? [];
       s.earlier = e.v < EVENTS_SCHEMA;
+      s.caps = e.caps ?? DEFAULT_CAPS;
+      s.startedAt = e.at;
       s.phase = "running";
       s.arch.inbox.push({ seq: e.seq, text: `the run started: ${e.title}`, wakes: true });
+      recomputeWake(s);
       return;
     case "question.parked":
       s.questions[e.unit] = { unit: e.unit, question: e.question, reason: e.reason, at: e.at, reminded: 0 };
@@ -175,9 +193,12 @@ function apply(s: RunState, e: RunEvent): void {
       return;
     case "run.paused":
       s.paused ??= e.at;
+      recomputeWake(s);
       return;
     case "run.resumed":
+      if (s.paused !== null) s.pausedMs += Date.parse(e.at) - Date.parse(s.paused);
       s.paused = null;
+      recomputeWake(s);
       return;
     case "pause.lifted":
       s.held = null;
