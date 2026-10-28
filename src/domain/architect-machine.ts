@@ -48,11 +48,10 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
   if (s.cancelling)
     return [
       ...out,
-      ...(live.length
-        ? failed(s, "cancel")
-          ? []
-          : [{ type: "cancel" as const, dispatchIds: live.map((d) => d.dispatchId) }]
-        : [finish("cancelled")]),
+      ...(live.length && !failed(s, "cancel")
+        ? [{ type: "cancel" as const, dispatchIds: live.map((d) => d.dispatchId) }]
+        : // a cancel that gave up must not leave the run cancelling: finish without the stop
+          [finish("cancelled", live.length > 0 || failed(s, "finish"))]),
     ];
   if (a.finishing) {
     // the architect's own turn ends by itself; every task it left running is stopped

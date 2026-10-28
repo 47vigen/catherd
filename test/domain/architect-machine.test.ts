@@ -205,6 +205,7 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     expect(after(c)).toContainEqual({ type: "cancel", dispatchIds: [a1] });
     fail(c, "cancel");
     expect(after(c).filter((x) => x.type === "cancel")).toEqual([]);
+    expect(after(c)).toContainEqual({ type: "finish", outcome: "cancelled", bare: true });
   });
 
   it("a finishing run whose cancel keeps failing finishes bare instead of staying unfinished", () => {
