@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { newDispatchId } from "../../src/domain/ids.ts";
 import type { RunEventInput } from "../../src/domain/run-events.ts";
 import { logFile } from "../../src/infra/log.ts";
@@ -48,6 +48,19 @@ const record = (run: Run, over: Parameters<typeof makeRecord>[0]) =>
   appendRecord(run, makeRecord({ runId: run.id, dispatchId: newDispatchId(), ...over }));
 
 describe("the run index", () => {
+  it("leaves an earlier build's torn events tail byte for byte as it found it", () => {
+    withHome();
+    const repo = tempRepo();
+    const run = createRun({ repo, title: "earlier", aLines: [], version: "0.0.0-test", now: at(HOUR) });
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, repo, title: "earlier" });
+    const text = `${log.events.map((e) => JSON.stringify(e)).join("\n")}\n{"v":1,"seq":2,"at":"x","ty`;
+    writeFileSync(eventsFile(run), text);
+    chmodSync(eventsFile(run), 0o400);
+    expect(runIndex(deps())).toHaveLength(1);
+    expect(readFileSync(eventsFile(run), "utf8")).toBe(text);
+  });
+
   it("lists every repo's runs newest first, a 1.5 run read-only", async () => {
     withHome();
     const [a, b] = [tempRepo(), tempRepo()] as [string, string];

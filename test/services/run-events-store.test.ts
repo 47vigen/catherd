@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { db } from "../../src/infra/db.ts";
 import type { RunEvent } from "../../src/domain/run-events.ts";
@@ -149,6 +149,15 @@ describe("the event store", () => {
     expect(readEvents(run).map((x) => x.seq)).toEqual([1, 2, 3]);
     writeFileSync(eventsFile(run), `${line(1)}\ngarbage\n`);
     await expect(appendEvent(run, { type: "tick" })).rejects.toMatchObject({ code: "E_RUN_CORRUPT" });
+  });
+
+  it("never repairs a file-backed log when a reader asks for the last seq", () => {
+    const { run } = freshRun();
+    writeFileSync(eventsFile(run), `${line(1)}\n${line(2)}\n{"v":1,"seq":3,"at":"x","ty`);
+    const before = readFileSync(eventsFile(run), "utf8");
+    chmodSync(eventsFile(run), 0o400);
+    expect(lastEventSeq(run)).toBe(2);
+    expect(readFileSync(eventsFile(run), "utf8")).toBe(before);
   });
 
   it("finds the last seq in a file much bigger than one chunk", async () => {

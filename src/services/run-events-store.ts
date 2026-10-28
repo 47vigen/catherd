@@ -121,11 +121,14 @@ export function hasRunEnded(run: Run): boolean {
 
 export const replayRun = (run: Run): RunState => replay(readEvents(run), run.id);
 
-/** The last seq of the file; a torn tail is cut off first, so the next line starts clean. Under the file's lock. */
-function lastSeq(run: Run): number {
+/**
+ * The last seq of the file. With `repair` (only under the file's lock, before an append) a torn tail is cut off
+ * first, so the next line starts clean; a reader never writes.
+ */
+function lastSeq(run: Run, repair = false): number {
   const file = eventsFile(run);
   if (!existsSync(file)) return 0;
-  const fd = openSync(file, "r+");
+  const fd = openSync(file, repair ? "r+" : "r");
   try {
     const size = fstatSync(fd).size;
     let chunk = 64 * 1024;
@@ -142,7 +145,7 @@ function lastSeq(run: Run): number {
         chunk *= 4;
         continue;
       }
-      if (tail && decode(run, tail) === null) {
+      if (repair && tail && decode(run, tail) === null) {
         // a torn append: not an event, never will be one
         ftruncateSync(fd, size - Buffer.byteLength(tail));
         log("warn", "events", { run: run.id, tornTail: Buffer.byteLength(tail) });
@@ -171,7 +174,7 @@ function writeEvents(run: Run, es: RunEventInput[], now: Date = new Date()): Run
   const stamp = (first: number) =>
     es.map((e, i) => RunEventSchema.parse({ v: EVENTS_SCHEMA, seq: first + i, at: now.toISOString(), ...e }));
   if (onFile(run)) {
-    const out = stamp(lastSeq(run) + 1);
+    const out = stamp(lastSeq(run, true) + 1);
     appendJsonlBatch(eventsFile(run), out);
     return out;
   }
