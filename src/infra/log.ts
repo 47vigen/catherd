@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { MIN_SECRET, replaceSecrets, scrubKeyShapes, secretEnvValues } from "../domain/secrets.ts";
+import { replaceSecrets, scrubKeyShapes, secretEnvValues } from "../domain/secrets.ts";
 import { isPlain } from "../domain/util.ts";
 import { logsDir } from "./paths.ts";
 import { appendJsonl, ensureJsonlHeader } from "./store.ts";
@@ -20,17 +20,9 @@ function logLevel(): (typeof LEVELS)[number] {
 
 const rank = (l: string) => LEVELS.indexOf(l as (typeof LEVELS)[number]);
 
-const extra = new Set<string>();
-/** A secret that lives outside the env (the saved decision key): scrubbed from every row from now on. */
-export function addSecret(value: string | null | undefined): void {
-  if (value && value.length >= MIN_SECRET) extra.add(value);
-}
-
-/** Every literal secret a row must not carry: credential-named env values and each added secret. */
-export const knownSecrets = (env: Record<string, string | undefined> = process.env): string[] => [
-  ...secretEnvValues(env),
-  ...extra,
-];
+/** Every literal secret a row must not carry: the credential-named env values. */
+export const knownSecrets = (env: Record<string, string | undefined> = process.env): string[] =>
+  secretEnvValues(env);
 
 /**
  * `v` with every known secret and every key-shaped string replaced by `[redacted]`, in any string at

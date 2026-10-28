@@ -348,8 +348,8 @@ export async function admit(
     const compose = composeProjectOf(run, milestoneOfName(i.lane ?? i.name));
     const resumed = i.thread !== null;
     if (i.composed) {
-      // plan 44 D2: the daemon composed this brief, since the decision had to judge the exact text before the rung
-      // was known; a failover stand-in has no thread to resume, so it reads the whole brief by path
+      // plan 44 D2: the daemon composed this brief before the rung was known; a failover stand-in has no
+      // thread to resume, so it reads the whole brief by path
       writeTextAtomic(p.brief, i.brief);
       if (resumed && i.fullBrief !== undefined) writeTextAtomic(fullBriefPath(p.brief), i.fullBrief);
     } else {

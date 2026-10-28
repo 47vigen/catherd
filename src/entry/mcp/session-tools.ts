@@ -114,7 +114,7 @@ export function registerSessionTools(server: McpServer, deps: Deps): void {
     "result",
     {
       description:
-        "The run's report (the MR body: digests, known issues, the judge's decisions), or with name one role's record.",
+        "The run's report (the MR body: digests, known issues, the architect's decisions), or with name one role's record.",
       inputSchema: { run: RUN, name: z.string().regex(ID_PATTERN).optional() },
     },
     (a) => handle(() => runResult(deps, a)),

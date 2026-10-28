@@ -32,6 +32,8 @@ Left out of plan 49 on purpose:
   parse and are skipped. Fix, if an owner misses them: read an unknown role as a plain string in the read-only views.
 - **A ladder that goes down still climbs to a weaker rung.** The migration keeps the stored order (R1); `profile
   validate` warns. Fix: refuse a descending ladder at `run_start` if runs show it.
+- **M2:** `migrateProfiles` does not re-sync native agent files, so a native `claude:` architect file keeps its
+  `disallowedTools` until `doctor` relinks it.
 
 ### From plan 48 (the reducer, caps and stall)
 

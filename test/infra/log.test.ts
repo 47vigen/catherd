@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { addSecret, knownSecrets, log, logFile, redact, resetRotation, rotate } from "../../src/infra/log.ts";
+import { knownSecrets, log, logFile, redact, resetRotation, rotate } from "../../src/infra/log.ts";
 import { logsDir } from "../../src/infra/paths.ts";
 import { noPosixModes, openModes, snapshotEnv, withHome } from "../helpers.ts";
 
@@ -57,22 +57,21 @@ describe("log", () => {
 });
 
 describe("redact", () => {
-  it("scrubs every *_KEY and *_TOKEN value and added secrets at any depth, and keeps an env map's keys only", () => {
+  it("scrubs every *_KEY and *_TOKEN value and at any depth, and keeps an env map's keys only", () => {
     const env = { OPENAI_API_KEY: "sk-live-0123456789", GH_TOKEN: "ghp_abcdefghij", HOME: "/home/me" };
-    addSecret("tsk-jev-key-000111");
     const secrets = knownSecrets(env);
     expect(
       redact<unknown>(
         {
           argv: ["codex", "--key", "sk-live-0123456789"],
-          note: "token ghp_abcdefghij and tsk-jev-key-000111",
+          note: "token ghp_abcdefghij",
           env,
         },
         secrets,
       ),
     ).toEqual({
       argv: ["codex", "--key", "[redacted]"],
-      note: "token [redacted] and [redacted]",
+      note: "token [redacted]",
       env: ["GH_TOKEN", "HOME", "OPENAI_API_KEY"],
     });
   });

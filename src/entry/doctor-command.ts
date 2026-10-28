@@ -34,8 +34,7 @@ export function formatReport(r: DoctorReport, plain = false): string[] {
 export const doctorCommand = defineCommand({
   meta: {
     name: "doctor",
-    description:
-      "Readiness report: Bun, backends, the decision model, the plugin, agents, the MCP server, locks",
+    description: "Readiness report: Bun, backends, the plugin, agents, the MCP server, locks",
   },
   args: {
     ...HOST_ARG,

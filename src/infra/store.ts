@@ -89,7 +89,7 @@ function newer(file: string, found: number, current: number): CatherdError {
 
 /**
  * The parsed content of a JSON file catherd keeps. The error never carries the parser's message: it
- * quotes the offending text, which for a key pasted into credentials.json is the key itself (audit B1).
+ * quotes the offending text, which for a key pasted into a JSON file is the key itself (audit B1).
  */
 export function readJsonFile(file: string, fix = `fix or delete ${file}`): unknown {
   let text: string;
