@@ -118,16 +118,16 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
 }
 
 /** The line a verifier's PASS gets when it ran nothing (plan 50, spec D8). */
-export const NO_COMMAND_RUN = "FAIL the verdict ran no command: no RAN: line with an exit code";
+export const NO_COMMAND_RUN = "FAIL the verdict ran no command: no RAN: line with exit 0";
 
 /**
  * Plan 44 D8: the RUN commands of the dispatch's brief that the reply's RAN lines do not show run, clean and logged.
- * Plan 50, spec D8: a PASS with no RAN line at all is not a PASS.
+ * Plan 50, spec D8: a PASS with no RAN line that exited 0 is not a PASS.
  */
 function ranShortfall(run: Run, record: RunRecord, reply: string): string[] {
   const brief = record.replyPath ? read(join(run.dir, dirname(record.replyPath), "brief.md")) : "";
   const required = parseRunLines(brief);
-  if (!parseRanLines(reply).some((r) => r.exit !== null)) return [NO_COMMAND_RUN];
+  if (!parseRanLines(reply).some((r) => r.exit === 0)) return [NO_COMMAND_RUN];
   if (required.length === 0) return [];
   const logOk = (path: string): boolean => {
     try {

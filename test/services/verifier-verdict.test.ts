@@ -38,4 +38,14 @@ describe("the one verifier's verdict (plan 50, spec D8)", () => {
     );
     expect(e.verdict).toBe("pass");
   });
+
+  it("reads a PASS whose only RAN lines failed as a FAIL", () => {
+    const log = join(tempDir("catherd-log-"), "a1.log");
+    writeFileSync(log, "boom\n");
+    const e = verdict(
+      `VERDICT: PASS\nHEAD: abc1234\nRAN: bun test — exit 1 — ${log}\nSTATUS: complete — ok\n`,
+    );
+    expect(e.verdict).toBe("fail");
+    expect(e.findings.map((f) => f.text)).toEqual([NO_COMMAND_RUN]);
+  });
 });
