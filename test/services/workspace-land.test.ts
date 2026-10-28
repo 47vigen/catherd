@@ -109,7 +109,7 @@ it("says when a landed milestone differs from the step's only by case (#43 findi
 it("runs the gate's git work before taking the workspace lock (#43 finding 5)", async () => {
   const { deps, run, input } = await setup();
   // no reviewer record and no verifier record: the gate refuses at once
-  writeFileSync(runPaths(run.dir).runs, "");
+  db().query("DELETE FROM dispatches WHERE run_id = ?").run(run.id);
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));
   let entered!: () => void;

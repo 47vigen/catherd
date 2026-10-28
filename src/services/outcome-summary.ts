@@ -11,9 +11,9 @@ import { listRuns, readOutcomes, readRoutes, type Run } from "./run-store.ts";
  * no events.jsonl (a 1.x run) or an unreadable one gives [].
  */
 export function laneRecords(run: Run): LaneRecord[] {
-  if (!isDaemonRun(run)) return [];
   let events: ReturnType<typeof readEvents>;
   try {
+    if (!isDaemonRun(run)) return [];
     events = readEvents(run);
   } catch {
     return [];
