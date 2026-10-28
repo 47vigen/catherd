@@ -23,6 +23,17 @@ export const MIGRATIONS: readonly string[] = [
      UNIQUE (run_id, dispatch_id));
    CREATE TABLE messages (id INTEGER PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), n INTEGER NOT NULL,
      at TEXT NOT NULL, sender TEXT NOT NULL, target TEXT NOT NULL, text TEXT NOT NULL, UNIQUE (run_id, n));`,
+  `CREATE TABLE ledger_tasks (run_id TEXT NOT NULL REFERENCES runs(id), id TEXT NOT NULL, pos INTEGER NOT NULL,
+     body TEXT NOT NULL, PRIMARY KEY (run_id, id));
+   CREATE TABLE ledger_progress (id INTEGER PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
+     at TEXT NOT NULL, text TEXT NOT NULL);`,
+  `ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'notice';
+   ALTER TABLE messages ADD COLUMN mode TEXT NOT NULL DEFAULT 'queue';
+   ALTER TABLE messages ADD COLUMN delivered_at TEXT;`,
+  `CREATE TABLE checks (id INTEGER PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), check_id TEXT NOT NULL,
+     scope TEXT NOT NULL, ref TEXT NOT NULL, tree TEXT, command TEXT NOT NULL, base INTEGER NOT NULL,
+     exit INTEGER, failures TEXT NOT NULL, minutes REAL NOT NULL, cached INTEGER NOT NULL, at TEXT NOT NULL,
+     UNIQUE (run_id, check_id));`,
 ];
 
 export const dbFile = (): string => join(dataDir(), "catherd.db");
@@ -113,19 +124,49 @@ export function insertDispatch(d: Database, runId: string, r: RunRecord): void {
   );
 }
 
-/** One team message. */
+/** One team message; `kind` and `mode` default to a queued notice (plan 47, D13). */
 export function insertMessage(
   d: Database,
   runId: string,
-  m: { n: number; at: string; from: string; to: string; text: string },
+  m: { n: number; at: string; from: string; to: string; text: string; kind?: string; mode?: string },
 ): void {
-  d.query("INSERT INTO messages (run_id, n, at, sender, target, text) VALUES (?, ?, ?, ?, ?, ?)").run(
+  d.query(
+    "INSERT INTO messages (run_id, n, at, sender, target, text, kind, mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(runId, m.n, m.at, m.from, m.to, m.text, m.kind ?? "notice", m.mode ?? "queue");
+}
+
+/** One check result (plan 47, D6): `failures` are its normalized failing lines. */
+export interface CheckRow {
+  checkId: string;
+  scope: string;
+  ref: string;
+  tree: string | null;
+  command: string;
+  base: boolean;
+  exit: number | null;
+  failures: string[];
+  minutes: number;
+  cached: boolean;
+  at: string;
+}
+
+export function insertCheck(d: Database, runId: string, c: CheckRow): void {
+  d.query(
+    `INSERT INTO checks (run_id, check_id, scope, ref, tree, command, base, exit, failures, minutes, cached, at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
     runId,
-    m.n,
-    m.at,
-    m.from,
-    m.to,
-    m.text,
+    c.checkId,
+    c.scope,
+    c.ref,
+    c.tree,
+    c.command,
+    c.base ? 1 : 0,
+    c.exit,
+    JSON.stringify(c.failures),
+    c.minutes,
+    c.cached ? 1 : 0,
+    c.at,
   );
 }
 

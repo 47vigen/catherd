@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { backupDb, db, dbFile, MIGRATIONS, openDb } from "../../src/infra/db.ts";
+import { Database } from "bun:sqlite";
+import { backupDb, db, dbFile, insertCheck, insertMessage, MIGRATIONS, openDb } from "../../src/infra/db.ts";
 import { dataDir } from "../../src/infra/paths.ts";
 import { withHome } from "../helpers.ts";
 
@@ -59,5 +60,63 @@ describe("the database (plan 46, spec D13)", () => {
     writeFileSync(stale, "half");
     backupDb(new Date(Date.UTC(2026, 9, 28)));
     expect(readdirSync(dir)).toEqual(["catherd-2026-10-28.db"]);
+  });
+
+  it("keeps a message a plan-46 database holds, as a queued notice, when it adds the plan-47 tables", () => {
+    const file = join(withHome(), "v2.db");
+    const old = new Database(file, { create: true, strict: true });
+    for (const [i, m] of MIGRATIONS.slice(0, 2).entries()) {
+      old.run(m);
+      old.run(`PRAGMA user_version = ${i + 1}`);
+    }
+    old.run("INSERT INTO runs (id, dir, repo, created_at) VALUES ('r1', '/d', '/r', 'x')");
+    old.run(
+      "INSERT INTO messages (run_id, n, at, sender, target, text) VALUES ('r1', 1, 'x', 'a', 'all', 'hi')",
+    );
+    old.close();
+    const d = openDb(file);
+    expect(d.query("SELECT kind, mode, delivered_at FROM messages").all()).toEqual([
+      { kind: "notice", mode: "queue", delivered_at: null },
+    ]);
+    insertMessage(d, "r1", {
+      n: 2,
+      at: "y",
+      from: "architect",
+      to: "T1",
+      text: "go",
+      kind: "question",
+      mode: "steer",
+    });
+    expect(d.query("SELECT kind, mode FROM messages WHERE n = 2").get()).toEqual({
+      kind: "question",
+      mode: "steer",
+    });
+    for (const t of ["ledger_tasks", "ledger_progress", "checks"])
+      expect(d.query("SELECT count(*) AS n FROM sqlite_master WHERE name = ?").get(t)).toEqual({ n: 1 });
+  });
+
+  it("stores a check's failing lines as JSON and its flags as integers (plan 47)", () => {
+    withHome();
+    const d = db();
+    d.run("INSERT INTO runs (id, dir, repo, created_at) VALUES ('r1', '/d', '/r', 'x')");
+    insertCheck(d, "r1", {
+      checkId: "C1",
+      scope: "full",
+      ref: "HEAD",
+      tree: "t1",
+      command: "bun test",
+      base: false,
+      exit: 1,
+      failures: ["(fail) a > b"],
+      minutes: 0.5,
+      cached: false,
+      at: "2026-10-28T10:00:00.000Z",
+    });
+    expect(d.query("SELECT check_id, base, cached, failures FROM checks").get()).toEqual({
+      check_id: "C1",
+      base: 0,
+      cached: 0,
+      failures: '["(fail) a > b"]',
+    });
   });
 });
