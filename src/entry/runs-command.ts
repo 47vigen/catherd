@@ -12,7 +12,6 @@ import { CatherdError } from "../domain/errors.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { redact } from "../infra/log.ts";
 import { cancel } from "../services/dispatch-service.ts";
-import { registerSavedSecrets } from "../services/decision-service.ts";
 import { runDebug } from "../services/run-debug.ts";
 import { cleanScratch } from "../services/scratch.ts";
 import { repin } from "../services/run-pin.ts";
@@ -89,7 +88,6 @@ export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
  */
 async function printStatus(runId: string | undefined, asJson: boolean, live = false): Promise<void> {
   // redacted as `runs show` is: the state.md tail can quote a secret, and status goes to shared terminals
-  registerSavedSecrets();
   const host = terminalHost(undefined);
   const queue =
     host.host === "codex" && !host.conflict
@@ -240,8 +238,6 @@ const show = defineCommand({
   run({ args }) {
     const run = findRun(args.id);
     // every part redacted, not only the dispatches: state.md and a record's reply can quote a secret too;
-    // the saved decision key is a secret even in a process that never asked the decision model
-    registerSavedSecrets();
     const { summary, records } = redact({
       summary: summarizeRun(defaultDeps(), run),
       records: readRecords(run).records,

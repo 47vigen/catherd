@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { DiscoveredModel } from "../adapters/backend.ts";
-import { discovered, listingRepo, readDiscovery, writeDiscovery } from "../adapters/discovery.ts";
+import { listingRepo, readDiscovery, writeDiscovery } from "../adapters/discovery.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import {
@@ -17,7 +17,7 @@ import {
 } from "../domain/catalog.ts";
 import { type BillingMode, type Cost, costOf, DEFAULT_BILLING } from "../domain/cost.ts";
 import { errorMessage } from "../domain/errors.ts";
-import { ADAPTER_IDS, tryParseRung } from "../domain/ids.ts";
+import { ADAPTER_IDS } from "../domain/ids.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { assetPath } from "../infra/assets.ts";
 import { log } from "../infra/log.ts";
@@ -28,8 +28,6 @@ import { fetchProxy, readIndexFile, writeIndexFile } from "../infra/slopalytics.
 import { PRIVATE_DIR, readVersioned } from "../infra/store.ts";
 import type { CatalogFilter } from "./ports.ts";
 import { type EvidenceTable, evidenceLine, evidenceOf, runEvidence } from "./run-evidence.ts";
-
-const DAY_MS = 24 * 3_600_000;
 
 let models: ModelsFile | null = null;
 export const shippedModels = (): ModelsFile =>
@@ -127,44 +125,6 @@ export async function refreshDiscovery(
     out.push({ backend: id, models: f.models.length, fetchedAt: f.fetchedAt });
   }
   return out;
-}
-
-const tried = new Map<string, number>();
-/** Forget which backends (and repositories) this process already tried to list (tests). */
-export const resetFreshen = (): void => tried.clear();
-
-/**
- * Spec §5.2: `route` lists a backend again at most daily. A backend this process failed to list is not
- * tried again for an hour, so a missing or wedged CLI never slows every route. Due backends are listed
- * in parallel, so the slowest listing bounds the wait, not their sum. A backend listed per repository is
- * listed, cached and backed off in `repo`.
- */
-export async function freshenDiscovery(rungs: string[], now = Date.now(), repo?: string): Promise<void> {
-  const backends = new Set<string>();
-  for (const r of rungs) {
-    const b = tryParseRung(r)?.backend;
-    if (b) backends.add(b === "claude" ? "claude-code" : b); // validate reports a bad rung
-  }
-  const due: { backend: string; listing: Promise<unknown> }[] = [];
-  for (const b of backends) {
-    const adapter = adapterFor(b);
-    const where = listingRepo(b, repo);
-    const key = where === undefined ? b : `${b} ${where}`;
-    if (!adapter || now - (tried.get(key) ?? Number.NEGATIVE_INFINITY) < 3_600_000) continue;
-    const cached = readDiscovery(b, where);
-    if (cached && now - Date.parse(cached.fetchedAt) < DAY_MS) continue;
-    tried.set(key, now);
-    due.push({
-      backend: b,
-      listing: discovered(b, () => adapter.listModels(where), { maxAgeMs: DAY_MS, now, repo: where }),
-    });
-  }
-  // a failed listing keeps the last one (and the hour's backoff above); the log says why it failed
-  const settled = await Promise.allSettled(due.map((d) => d.listing));
-  settled.forEach((r, i) => {
-    if (r.status === "rejected")
-      log("debug", "discovery", { backend: due[i]?.backend, error: errorMessage(r.reason) });
-  });
 }
 
 /** The backend a billing or harness key bills or isolates: `opencode-go` is a provider of the opencode backend. */

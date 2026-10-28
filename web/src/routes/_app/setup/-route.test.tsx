@@ -57,7 +57,6 @@ const setup = (over: object = {}) => ({
     preflightConfirm: false,
     landAutoMerge: false,
     notify: ["milestone", "finish", "blocked"],
-    decision: { url: null, model: null, minConfidence: 0.8 },
     billing: { codex: "chatgpt-plan", opencode: "metered" },
     isolated: { codex: false },
   },
@@ -317,37 +316,11 @@ test("editing the budget previews before → after and saves with the previewed 
   await waitFor(() => expect(count(requests, "GET /api/setup")).toBeGreaterThan(before));
 });
 
-test("settings edit the decision model", async () => {
-  const { requests } = renderRoute(
-    "/setup",
-    api({
-      "POST /api/setup/preview": () => Response.json(preview()),
-      "PUT /api/setup/profile": () => Response.json(saved()),
-    }),
-  );
+test("settings show no decision model", async () => {
+  renderRoute("/setup", api({}));
   await openSettings();
-  for (const gone of [/Objective/, /Jev/, /Difficulty bars/])
+  for (const gone of [/Objective/, /Jev/, /Difficulty bars/, /Decision model/])
     expect(screen.queryByRole("heading", { name: gone })).not.toBeInTheDocument();
-  const decision = await screen.findByRole("region", { name: /Decision model/ });
-  const url = within(decision).getByLabelText("Gateway URL");
-  expect(url).toHaveAttribute("placeholder", "https://<your-gateway>/v1");
-  await userEvent.type(url, "https://gw.example/v1");
-  await userEvent.type(within(decision).getByLabelText("Model"), "router-1");
-  const confidence = within(decision).getByLabelText("Minimum confidence");
-  await userEvent.clear(confidence);
-  await userEvent.type(confidence, "0.9");
-  await userEvent.click(within(decision).getByRole("button", { name: "Review changes" }));
-  const dialog = await screen.findByRole("dialog", { name: "Review changes" });
-  const sent = await requests
-    .find((r) => describeRequest(r) === "POST /api/setup/preview")!
-    .clone()
-    .json();
-  expect(sent).toEqual({
-    patch: { decision: { url: "https://gw.example/v1", model: "router-1", minConfidence: 0.9 } },
-  });
-  await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
-  const put = await waitFor(() => requests.find((r) => describeRequest(r) === "PUT /api/setup/profile")!);
-  expect((await put.clone().json()).patch).toEqual(sent.patch);
 });
 
 test("clearing the budget field sends null for it", async () => {

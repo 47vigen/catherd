@@ -1,11 +1,11 @@
 ---
 name: catherd-setup
-description: Use when the user wants to tune catherd — which models and efforts each role may use, how much each role may touch, the decision model, which subscriptions to lean on, failover, budget, harness isolation — /catherd-setup, "set up catherd", "tune my catherd profile". Not for running a task; that is the catherd skill.
+description: Use when the user wants to tune catherd — which models and efforts each role may use, how much each role may touch, which subscriptions to lean on, failover, budget, harness isolation — /catherd-setup, "set up catherd", "tune my catherd profile". Not for running a task; that is the catherd skill.
 ---
 
 # catherd setup
 
-You tune the user's catherd profile in conversation. A profile says, per role, which rungs it may run on (`backend:model#effort`, in ladder order) and what it may touch (its access mode); the decision model that picks each dispatch's rung; how each backend is billed; which rung stands in when a backend hits its usage limit; the run budget and timeouts; whether each vendor harness runs with the user's customizations or isolated; how many heavy commands run at once; and when to push.
+You tune the user's catherd profile in conversation. A profile says, per role, which rungs it may run on (`backend:model#effort`, in ladder order) and what it may touch (its access mode), the first rung being the role's default and the architect climbing it on a failure; how each backend is billed; which rung stands in when a backend hits its usage limit; the run budget and timeouts; whether each vendor harness runs with the user's customizations or isolated; how many heavy commands run at once; and when to push.
 
 **You never edit a file by hand.** Use `profile({ action: "set" })` for patches and the existing reviewed CLI reset below; both go through ProfileService, as do the `catherd profile` commands and the panel.
 
@@ -22,9 +22,8 @@ You tune the user's catherd profile in conversation. A profile says, per role, w
 
 Ask these, one at a time, each with its recommended answer:
 
-1. **Their decision model.** A run refuses to start without one, so check `profile({ action: "get", repo })` for `decision.url` and `decision.model` first. If they are unset, ask for an OpenAI-compatible endpoint and a model. Recommend `decision.minConfidence` at its default, 0.8. The key is `CATHERD_DECISION_KEY` (or saved by `catherd init`); never ask them to paste it into the conversation.
-2. **The subscriptions they hold:** a ChatGPT plan (Codex), a Claude plan, OpenCode Go, Zen credit or API keys. They set `billing` per key (`codex`, `claude`, `claude-code`, `opencode-go`, `opencode`): `chatgpt-plan`, `claude-plan`, `subscription` or `metered`. Recommend leaning on subscriptions before metered spend. Explain which workers share this conversation's quota from the actual host and billing facts.
-3. **The kind of work they orchestrate:** front-end screens, back-end services, terminal and ops work, docs. Recommend from their own runs when the catalog's `runs:` evidence has any.
+1. **The subscriptions they hold:** a ChatGPT plan (Codex), a Claude plan, OpenCode Go, Zen credit or API keys. They set `billing` per key (`codex`, `claude`, `claude-code`, `opencode-go`, `opencode`): `chatgpt-plan`, `claude-plan`, `subscription` or `metered`. Recommend leaning on subscriptions before metered spend. Explain which workers share this conversation's quota from the actual host and billing facts.
+2. **The kind of work they orchestrate:** front-end screens, back-end services, terminal and ops work, docs. Recommend from their own runs when the catalog's `runs:` evidence has any.
 
 ## 2. Read the facts before proposing
 
@@ -41,17 +40,16 @@ Verify the exact omitted Codex model ID `gpt-6.1-sol` against native catalog dis
 
 Go through these in order, and skip any the user does not care about:
 
-1. `decision.url`, `decision.model` and `decision.minConfidence` (for example `https://<your-gateway>/v1`); the decision model chooses one of the role's rungs before every dispatch, so a role's rungs are the levels it can choose from, and in a fix round the failed rung is the floor;
-2. `billing`, from step 1;
-3. the worker's `rungs` and its `defaultRung`;
-4. the reviewer and the UI reviewer;
-5. the architect and the verifier. Recommend omitted host defaults: on Codex, exactly `codex:gpt-6.1-sol#high` and `codex:gpt-6.1-sol#low`; on Claude Code, the existing native Claude defaults. A `claude:` rung requires a Claude Code host; the daemon runs it as its headless `claude-code:` twin, and `claude-code:` is that headless rung on either host. Codex architect and verifier run as headless processes the daemon starts. Preserve explicit model IDs, efforts, ladder order and all other fields. Never silently convert `claude:` into `claude-code:` in the profile;
-6. the writer, the researcher and the artist;
-7. each role's `access` (below);
-8. `failover` (below);
-9. `budget`, `timeouts` and `preflight.confirm`;
-10. harness isolation, per harness (below);
-11. `lock.heavy` and `notify`.
+1. `billing`, from step 1 of section 1;
+2. the worker's `rungs`, lowest first (its ladder: a coding worker starts on a flash-class rung and climbs on failure), and its `defaultRung`;
+3. the reviewer and the UI reviewer;
+4. the architect and the verifier. Recommend omitted host defaults: on Codex, exactly `codex:gpt-6.1-sol#high` and `codex:gpt-6.1-sol#low`; on Claude Code, the existing native Claude defaults. A `claude:` rung requires a Claude Code host; the daemon runs it as its headless `claude-code:` twin, and `claude-code:` is that headless rung on either host. Codex architect and verifier run as headless processes the daemon starts. Preserve explicit model IDs, efforts, ladder order and all other fields. Never silently convert `claude:` into `claude-code:` in the profile;
+5. the writer, the researcher and the artist;
+6. each role's `access` (below);
+7. `failover` (below);
+8. `budget`, `timeouts` and `preflight.confirm`;
+9. harness isolation, per harness (below);
+10. `lock.heavy` and `notify`.
 
 Existing materialized profiles remain unchanged on read, init, upgrade or host switch. To deliberately opt into host defaults, use the existing CLI from the project directory, naming the profile returned by `profile({ action: "get" })`:
 
@@ -68,7 +66,7 @@ Each proposal has three parts: the change, a worked example from their facts, an
 - Offer only the rungs `catherd catalog list` shows as capable for the role, written `backend:model#effort`.
 - Offer only the indexed pairs `catherd catalog list` shows. A model or effort the Slopalytics index does not list is not offered, and a rung that names one is an error: if the user wants it, say it is not indexed yet and propose the nearest indexed pair. Never pick a worker rung below `#medium`. Use `maxEffort` to keep a model from its highest efforts, rather than removing rungs.
 
-**Access.** Each role runs `read-only`, `workspace-write` or `full`. The defaults: architect, reviewer and researcher `read-only`; worker, writer and artist `workspace-write`; verifier and UI reviewer `full`. `profile({ action: "get" })` says per role whether its backend holds it to that mode (`enforced`: Codex's sandbox) or only asks (`advisory`: claude-code, opencode and native subagents, where the model can still reach past it). Recommend the defaults; when the user wants a role tighter or looser, say what it can no longer do (a read-only reviewer on claude-code or opencode has no shell, so it cannot run `git diff`) and that `profile({ action: "validate" })` will warn about it. A `workspace-write` role also writes catherd's lock dir and the temp dir, reaches the network, binds loopback ports and talks to a local Docker socket, so it runs its own installs and tests; `roles.<role>.network: false` takes the network, loopback and Docker away from that role (Codex enforces it; claude-code drops its web tools; opencode has no sandbox to enforce it). `catherd doctor` probes each of these per backend.
+**Access.** Each role runs `read-only`, `workspace-write` or `full`. The defaults: reviewer and researcher `read-only`; architect, worker, writer and artist `workspace-write`; verifier and UI reviewer `full`. `profile({ action: "get" })` says per role whether its backend holds it to that mode (`enforced`: Codex's sandbox) or only asks (`advisory`: claude-code, opencode and native subagents, where the model can still reach past it). Recommend the defaults; when the user wants a role tighter or looser, say what it can no longer do (a read-only reviewer on claude-code or opencode has no shell, so it cannot run `git diff`) and that `profile({ action: "validate" })` will warn about it. A `workspace-write` role also writes catherd's lock dir and the temp dir, reaches the network, binds loopback ports and talks to a local Docker socket, so it runs its own installs and tests; `roles.<role>.network: false` takes the network, loopback and Docker away from that role (Codex enforces it; claude-code drops its web tools; opencode has no sandbox to enforce it). `catherd doctor` probes each of these per backend.
 
 **Failover.** `failover` maps a rung to its stand-in when that rung's backend hits a usage limit. A stand-in must be indexed, on another quota and at least as intelligent as its rung (Go and Zen bill apart; native `claude` and `claude-code` share the Claude plan). The default profile fails a Codex rung over only to an indexed stand-in at least as intelligent: Go's GPT-6 Luna for Luna high, and Kimi K3 for Sol medium. Sol high and xhigh have none in the profile. Beyond the profile's stand-ins, the daemon moves a unit that hit a limit to the nearest indexed rung, on a free quota, of any backend they have configured that is not weaker (a Claude rung last); when none qualifies, the lane waits for the hold rather than dropping a tier. Say so, and offer to change the profile's stand-ins when they have no Go subscription. `null` removes an entry.
 

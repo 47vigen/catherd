@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { DEFAULT_CAPS } from "../../src/domain/caps.ts";
 import {
   agentName,
   applyPatch,
@@ -8,7 +9,6 @@ import {
   DEFAULT_MAX_EFFORT,
   defaultProfileDoc,
   diffProfiles,
-  LEGACY_DECISION,
   migrateProfileDoc,
   patchAt,
   patchBetween,
@@ -41,7 +41,6 @@ describe("the default profile (spec §7.2)", () => {
       artist: ["codex:gpt-6-sol#medium"],
       writer: ["codex:gpt-6-luna#high"],
       researcher: ["codex:gpt-6-luna#high"],
-      judge: ["claude-code:claude-opus-5-5#medium"],
     });
     // plan 49, spec D7: the worker's ladder starts on its flash-class rung
     expect(p.roles.worker.defaultRung).toBeUndefined();
@@ -49,7 +48,7 @@ describe("the default profile (spec §7.2)", () => {
 
   it("gives each role its default access", () => {
     expect(Object.fromEntries(ROLES.map((r) => [r, p.roles[r].access]))).toEqual({
-      architect: "read-only",
+      architect: "workspace-write",
       verifier: "full",
       worker: "workspace-write",
       reviewer: "read-only",
@@ -57,7 +56,6 @@ describe("the default profile (spec §7.2)", () => {
       artist: "workspace-write",
       writer: "workspace-write",
       researcher: "read-only",
-      judge: "read-only",
     });
   });
 
@@ -479,85 +477,69 @@ describe("limits.memory", () => {
   });
 });
 
-describe("the decision model in the profile (plan 44 D25)", () => {
+describe("the profile migration (plan 44 D25, plan 49)", () => {
   const old = ProfileDocSchema.parse(legacy);
 
-  it("a 1.5 profile migrates to the decision model", () => {
-    const { doc, notes } = migrateProfileDoc(old, true);
+  it("a 1.5 profile loses jev, bars and objective, once", () => {
+    const { doc, notes } = migrateProfileDoc(old);
     expect(doc.jev).toBeUndefined();
     expect(doc.bars).toBeUndefined();
     expect(doc.objective).toBeUndefined();
     expect(doc.roles?.worker?.bars).toBeUndefined();
-    expect(doc.decision).toEqual(LEGACY_DECISION);
+    expect(doc).not.toHaveProperty("decision");
     for (const field of ["jev", "bars", "roles.worker.bars", "objective"])
       expect(notes.some((n) => n.includes(field))).toBe(true);
     expect(old.jev).toBeDefined();
-    expect(migrateProfileDoc(doc, true)).toEqual({ doc, notes: [] });
+    expect(migrateProfileDoc(doc)).toEqual({ doc, notes: [] });
   });
 
-  it("no key, no TypeSafe url", () => {
-    expect(migrateProfileDoc(old, false).doc.decision).toBeUndefined();
-    const own = { url: "https://decision.test/v1", model: "test-decider" };
-    expect(migrateProfileDoc({ ...old, decision: own }, true).doc.decision).toEqual(own);
-  });
-
-  it("a profile whose Jev was off does not move to TypeSafe", () => {
-    const off = { ...old, jev: { use: "off" } };
-    const m = migrateProfileDoc(off, true);
-    expect(m.doc.decision).toBeUndefined();
-    expect(m.doc.jev).toBeUndefined();
-  });
-
-  it("decision.url must be https, or http on loopback", () => {
-    for (const url of [
-      "https://decision.test/v1",
-      "http://127.0.0.1:8080/v1",
-      "http://localhost/v1",
-      "http://[::1]:1/v1",
-    ])
-      expect(ProfilePatchSchema.safeParse({ decision: { url } }).success).toBe(true);
-    for (const url of [
-      "http://decision.test/v1",
-      "http://localhost.evil.test/v1",
-      "http://127.0.0.1.evil.test/v1",
-      "ftp://x/y",
-    ])
-      expect(ProfilePatchSchema.safeParse({ decision: { url } }).success).toBe(false);
-  });
-
-  it("drops a trailing slash from decision.url, and warns about a confidence it cannot use", () => {
-    const doc = {
-      schema: 1 as const,
-      decision: { url: "https://decision.test/v1//", model: "m", minConfidence: 2 },
-    };
-    const p = resolveProfile(doc, "p", "claude-code");
-    expect([p.decision.url, p.decision.minConfidence]).toEqual(["https://decision.test/v1", 0.8]);
-    expect(unknownValues(doc)).toContainEqual({ path: "decision.minConfidence", value: "2", readAs: "0.8" });
-  });
-
-  it("a stored 1.5 profile still resolves", () => {
-    const p = resolveProfile(old, "old", "claude-code");
-    for (const field of ["jev", "bars", "objective"]) expect(p).not.toHaveProperty(field);
-    expect(p.roles.worker).not.toHaveProperty("bars");
-    expect(p.decision.url).toBeNull();
-    expect(unknownValues(old)).toEqual([]);
-  });
-
-  it("the decision block resolves with its default confidence", () => {
-    const doc = { schema: 1 as const, decision: { url: "https://decision.test/v1", model: "test-decider" } };
-    expect(resolveProfile(doc, "p", "claude-code").decision).toEqual({ ...doc.decision, minConfidence: 0.8 });
-    expect(resolveProfile({ schema: 1 }, "p", "claude-code").decision).toEqual({
-      url: null,
-      model: null,
-      minConfidence: 0.8,
+  it("a 2.0 profile drops decision and the judge, gives the architect write access and the caps, once", () => {
+    const before = ProfileDocSchema.parse({
+      schema: 1,
+      decision: { url: "https://decision.test/v1", model: "test-decider", minConfidence: 0.9 },
+      roles: {
+        architect: { access: "read-only", rungs: ["codex:gpt-6.1-sol#high"] },
+        judge: { enabled: true, access: "read-only", rungs: ["claude-code:claude-opus-5-5#medium"] },
+        worker: { rungs: ["codex:gpt-6-sol#high", "codex:gpt-6-luna#high"] },
+      },
     });
+    const { doc, notes } = migrateProfileDoc(before);
+    expect(doc).not.toHaveProperty("decision");
+    expect(doc.roles).not.toHaveProperty("judge");
+    expect(doc.roles?.architect?.access).toBe("workspace-write");
+    expect(doc.caps).toEqual({ ...DEFAULT_CAPS });
+    // the stored order is the ladder: nothing is re-sorted
+    expect(doc.roles?.worker?.rungs).toEqual(["codex:gpt-6-sol#high", "codex:gpt-6-luna#high"]);
+    expect(notes).toEqual([
+      "dropped decision: the role ladders replace the decision model",
+      "dropped roles.judge: the architect does the judge's work",
+      "set roles.architect.access to workspace-write: the architect may change the repository itself",
+      `set caps to wallMin ${DEFAULT_CAPS.wallMin}, attempts ${DEFAULT_CAPS.attempts}: the run's caps`,
+    ]);
+    expect(migrateProfileDoc(doc)).toEqual({ doc, notes: [] });
+    // an access the owner sets after the migration stays his
+    const later = { ...doc, roles: { ...doc.roles, architect: { access: "read-only" as const } } };
+    expect(migrateProfileDoc(later).notes).toEqual([]);
   });
 
-  it("a patch sets the decision model, http(s) urls only", () => {
-    const set = patchAt("decision.url", "https://decision.test/v1");
-    expect(applyPatch({ schema: 1 }, set).decision?.url).toBe("https://decision.test/v1");
-    expect(() => patchAt("decision.url", "ftp://x")).toThrow();
-    expect(() => patchAt("decision.minConfidence", "0.2")).toThrow();
+  it("an unmigrated 2.0 profile resolves without the decision model or the judge, and validates", () => {
+    const doc = ProfileDocSchema.parse({
+      schema: 1,
+      decision: { url: "http://decision.test/v1", minConfidence: 7 },
+      roles: { judge: { rungs: ["claude-code:claude-opus-5-5#medium"] } },
+    });
+    const p = resolveProfile(doc, "p", "claude-code");
+    expect(p).not.toHaveProperty("decision");
+    expect(p.roles).not.toHaveProperty("judge");
+    expect(unknownValues(doc)).toEqual([]);
+  });
+
+  it("a patch naming the decision model or the judge is refused", () => {
+    expect(ProfilePatchSchema.safeParse({ decision: { url: "https://decision.test/v1" } }).success).toBe(
+      false,
+    );
+    expect(() => patchAt("decision.url", "https://decision.test/v1")).toThrow();
+    expect(() => patchAt("roles.judge.enabled", "false")).toThrow();
   });
 });
 
@@ -577,7 +559,7 @@ describe("Cursor retired (plan 45)", () => {
       harness: { cursor: { isolated: false } },
       maxEffort: { "cursor:claude-opus-5-5": "high" },
     });
-    const { doc, notes } = migrateProfileDoc(old, false);
+    const { doc, notes } = migrateProfileDoc(old);
     expect(doc.roles?.worker?.rungs).toEqual(["codex:gpt-6-sol#high"]);
     expect(doc.roles?.reviewer).not.toHaveProperty("rungs");
     expect([doc.failover, doc.harness, doc.maxEffort]).toEqual([{}, {}, {}]);
@@ -586,12 +568,11 @@ describe("Cursor retired (plan 45)", () => {
     expect(notes).toContain(
       "dropped roles.reviewer.rungs: its only rung was Cursor's, so the role takes the default",
     );
-    expect(migrateProfileDoc(doc, false).notes).toEqual([]);
+    expect(migrateProfileDoc(doc).notes).toEqual([]);
   });
 
   it("a Cursor defaultRung goes with its rung, whether Cursor was the only rung or one of several", () => {
     const old = applyPatch(defaultProfileDoc(), {
-      decision: { url: "https://decision.test/v1", model: "test-decider" },
       roles: {
         worker: {
           rungs: [
@@ -606,7 +587,7 @@ describe("Cursor retired (plan 45)", () => {
         reviewer: { rungs: ["cursor:gpt-6#high"], defaultRung: "cursor:gpt-6#high" },
       },
     });
-    const { doc, notes } = migrateProfileDoc(old, false);
+    const { doc, notes } = migrateProfileDoc(old);
     expect(doc.roles?.worker).not.toHaveProperty("defaultRung");
     expect(doc.roles?.reviewer).not.toHaveProperty("defaultRung");
     expect(notes).toContain("dropped roles.worker.defaultRung: Cursor is retired");

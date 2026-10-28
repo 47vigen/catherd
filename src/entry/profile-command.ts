@@ -75,7 +75,7 @@ export function formatProfile(
   const width = Math.max(...ROLES.map((r) => r.length));
   const lines = [
     `profile ${p.name}${o.active ? " (active)" : ""}`,
-    `decision ${p.decision.url && p.decision.model ? `${p.decision.model} at ${p.decision.url}` : "not set"} · heavy slots ${p.lock.heavy} · notify ${p.notify.join(", ") || "none"}`,
+    `heavy slots ${p.lock.heavy} · notify ${p.notify.join(", ") || "none"}`,
     "roles",
   ];
   const accessOf = (role: Role) =>

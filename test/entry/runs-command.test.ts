@@ -12,7 +12,6 @@ import type { RunSummary } from "../../src/services/summary.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 import { fakeDispatch, freshRun, makeRecord } from "../services/helpers.ts";
-import { saveDecisionKey } from "../../src/services/decision-service.ts";
 
 afterEach(snapshotEnv());
 
@@ -270,18 +269,6 @@ describe("catherd runs", () => {
       expect(r.out).toContain("auth failed for [redacted]");
       expect(r.out).not.toContain(secret);
     }
-  });
-
-  it("redacts the saved decision key, which a fresh process never registered by asking the decision model", async () => {
-    const { run } = freshRun("parser");
-    const key = "ts-live-0123456789abcdef";
-    saveDecisionKey(key);
-    const d = await fakeDispatch(run, {}, {});
-    writeFileSync(dispatchPaths(d.dir).stderr, `echoed ${key}\n`);
-    await appendRecord(run, makeRecord({ runId: run.id, replyWhy: `saw ${key}` }));
-    const r = catherd(["runs", "show", run.id, "--debug", "--json"], { CATHERD_DECISION_KEY: "" });
-    expect(r.code).toBe(0);
-    expect(r.out).not.toContain(key);
   });
 
   it("refuses to cancel a role that is not live, with exit 1", () => {

@@ -45,7 +45,6 @@ export function SettingsSections({ view, issues, propose, disabled }: Props) {
   const p = { issues, propose, disabled };
   return (
     <div className="bg-border grid min-w-0 grid-cols-[minmax(0,1fr)] gap-px lg:grid-cols-2 [&>section]:min-w-0">
-      <DecisionSection key={`j${JSON.stringify(s.decision)}`} value={s.decision} {...p} />
       <BudgetSection key={`b${JSON.stringify(s.budget)}`} value={s.budget} {...p} />
       <TimeoutsSection key={`t${JSON.stringify(s.timeouts)}`} value={s.timeouts} {...p} />
       <FailoverSection key={`f${JSON.stringify(s.failover)}`} value={s.failover} roles={view.roles} {...p} />
@@ -66,74 +65,6 @@ type SectionProps<T> = {
   propose: Propose;
   disabled: boolean;
 };
-
-const parseConfidence = (t: string): number | undefined => {
-  const n = Number(t.trim());
-  return t.trim() !== "" && Number.isFinite(n) && n >= 0.5 && n <= 1 ? n : undefined;
-};
-const httpUrl = (t: string) => /^https?:\/\/\S+$/.test(t.trim());
-
-function DecisionSection({ value, issues, propose, disabled }: SectionProps<Settings["decision"]>) {
-  const initial = { url: value.url ?? "", model: value.model ?? "", minConfidence: String(value.minConfidence) };
-  const [d, setD] = useState(initial);
-  const confidence = parseConfidence(d.minConfidence);
-  const badUrl = d.url.trim() !== "" && !httpUrl(d.url) ? "Enter an http or https address, or leave empty." : undefined;
-  return (
-    <SettingSection
-      id="decision"
-      title={<Term name="Decision model">Decision model</Term>}
-      meaning="The model behind an OpenAI-compatible gateway that picks the model and effort of each dispatch. Its key is set with catherd init, not here."
-      issues={issuesAt(issues, "decision")}
-      dirty={changed(d, initial)}
-      valid={confidence !== undefined && badUrl === undefined}
-      disabled={disabled}
-      onReview={() =>
-        propose(
-          patchFor(
-            "decision",
-            {
-              url: d.url.trim() || null,
-              model: d.model.trim() || null,
-              minConfidence: confidence ?? value.minConfidence,
-            },
-            value,
-          ),
-        )
-      }
-    >
-      <div className="flex flex-wrap gap-4">
-        <TextField
-          value={d.url}
-          onChange={(v) => setD({ ...d, url: v })}
-          isInvalid={badUrl !== undefined}
-          isDisabled={disabled}
-          className="min-w-56 flex-1 basis-64"
-        >
-          <Label>Gateway URL</Label>
-          <Input placeholder="https://<your-gateway>/v1" />
-          {badUrl ? <p className="text-danger text-xs">{badUrl}</p> : null}
-        </TextField>
-        <TextField
-          value={d.model}
-          onChange={(v) => setD({ ...d, model: v })}
-          isDisabled={disabled}
-          className="min-w-40 flex-1 basis-48"
-        >
-          <Label>Model</Label>
-          <Input />
-        </TextField>
-        <NumberText
-          label="Minimum confidence"
-          unit="from 0.5 to 1"
-          value={d.minConfidence}
-          invalid={confidence === undefined ? "Enter a number from 0.5 to 1." : undefined}
-          disabled={disabled}
-          onChange={(v) => setD({ ...d, minConfidence: v })}
-        />
-      </div>
-    </SettingSection>
-  );
-}
 
 function BudgetSection({ value, issues, propose, disabled }: SectionProps<Settings["budget"]>) {
   const initial = {

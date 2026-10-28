@@ -52,8 +52,8 @@ export interface ToolContext {
 const SUMMARY_CHARS = 2_000;
 /** Spec O6: the only questions the architect may put to the owner. */
 export const STOP_CLASSES = ["production", "secrets", "irreversible", "stuck"] as const;
-/** The roles a task may be: every role but the architect itself and the judge (spec O5). */
-const TASK_ROLES = ROLES.filter((r) => r !== "architect" && r !== "judge") as [Role, ...Role[]];
+/** The roles a task may be: every role but the architect itself. */
+const TASK_ROLES = ROLES.filter((r) => r !== "architect") as [Role, ...Role[]];
 
 const why = z
   .string()

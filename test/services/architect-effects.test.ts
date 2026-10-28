@@ -28,7 +28,7 @@ describe("an architect run on the real effects (plan 47, spec D1–D3)", () => {
     process.env.PATH = simPath();
     Object.assign(process.env, withScenario({ reply: "Done.\nSTATUS: complete — ok" }).env);
     const view = testView();
-    view.roles.architect = { enabled: true, access: "read-only", rungs: [SOL] };
+    view.roles.architect = { enabled: true, access: "workspace-write", rungs: [SOL] };
     const deps = fakeDeps({ view });
     await appendEvent(run, {
       type: "run.started",
@@ -75,7 +75,7 @@ describe("an architect run on the real effects (plan 47, spec D1–D3)", () => {
     expect(first).toContain("The run's goal: wallet.");
     expect(first).toContain("the run started: wallet");
     expect(first).toMatch(/Writers running: \d of 4/);
-    // on the architect engine the architect may change the repository
+    // the architect may change the repository (its profile access, spec D3)
     expect(readRecords(run).records.find((r) => r.role === "architect")?.access).toBe("workspace-write");
     const report = readFileSync(join(run.dir, "report.md"), "utf8");
     expect(report).toContain("Verdict: stopped — idle");

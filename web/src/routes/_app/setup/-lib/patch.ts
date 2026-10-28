@@ -23,8 +23,6 @@ export interface SectionValues {
   preflight: { confirm: boolean };
   land: { autoMerge: boolean };
   notifications: { notify: Settings["notify"] };
-  /** A cleared url or model is `null`, which removes it. */
-  decision: { url: string | null; model: string | null; minConfidence: number };
   billing: Record<string, Billing>;
   isolation: Record<string, boolean>;
   /** Only the fields given are sent; both timeouts cleared removes the role's own timeouts. */
@@ -99,8 +97,6 @@ function fullPatch<S extends keyof SectionValues>(section: S, values: SectionVal
       return { land: { autoMerge: (v as SectionValues["land"]).autoMerge } };
     case "notifications":
       return { notify: [...(v as SectionValues["notifications"]).notify] };
-    case "decision":
-      return { decision: { ...(v as SectionValues["decision"]) } };
     case "billing":
       return { billing: { ...(v as SectionValues["billing"]) } };
     case "isolation":

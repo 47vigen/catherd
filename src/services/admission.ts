@@ -184,12 +184,8 @@ export async function admit(
   const rung = parseRung(i.rung);
   // spec 1.5: the run's pinned profile, access and isolation, whatever the repo runs on now
   const profile = runProfile(deps, run);
-  const configured = profile.roles[i.role];
-  // plan 47, spec D3: the architect may change the repository itself; a `full` profile keeps full (plan 49 migrates it)
-  const rc =
-    configured && i.role === "architect" && configured.access === "read-only"
-      ? { ...configured, access: "workspace-write" as const }
-      : configured;
+  // spec D3: the architect's `workspace-write` is the profile's own (plan 49's migration writes it)
+  const rc = profile.roles[i.role];
   if (!rc?.enabled)
     throw new CatherdError("E_ADMIT_RUNG", `the ${i.role} role is off in profile ${profile.name}`, {
       fix: "skip the role, or turn it on with profile_set",

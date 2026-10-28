@@ -5,7 +5,6 @@ import type { ExitInfo, RunRecord } from "../domain/record.ts";
 import { awaitsCollect, dispatchPaths, readExit } from "../infra/dispatch-dir.ts";
 import { redact } from "../infra/log.ts";
 import { type Dispatch, listDispatches } from "./dispatches.ts";
-import { registerSavedSecrets } from "./decision-service.ts";
 import { runOwner } from "./sessions.ts";
 import { readRecords, type Run } from "./run-store.ts";
 
@@ -149,7 +148,6 @@ export function tail(file: string, n = TAIL_LINES, chunk = 64 * 1024): string[] 
  * stderr, events.jsonl and supervisor.log, with every known secret redacted. Reads only.
  */
 export function runDebug(run: Run, name?: string): DispatchDebug[] {
-  registerSavedSecrets();
   const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
   return listDispatches(run)
     .filter((d) => name === undefined || d.admit.name === name)

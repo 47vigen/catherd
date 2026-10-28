@@ -122,7 +122,7 @@ export type RunNode = {
     kind: 'start' | 'architect' | 'later' | 'route' | 'preflight' | 'lane' | 'check' | 'commit' | 'review' | 'verify' | 'integrate' | 'land' | 'judge' | 'report' | 'end';
     milestone: string | null;
     lane: string | null;
-    role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'ui-reviewer' | 'artist' | 'writer' | 'researcher' | 'judge' | null;
+    role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'ui-reviewer' | 'artist' | 'writer' | 'researcher' | null;
     title: string;
     status: 'pending' | 'running' | 'done' | 'failed' | 'parked' | 'skipped' | 'cancelled';
     now: string;
@@ -134,22 +134,7 @@ export type RunNode = {
         reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision' | 'owner';
         question: string;
     } | null;
-    decision: NodeDecision | null;
     attempts: Array<Attempt>;
-};
-
-export type NodeDecision = {
-    n: number;
-    rung: string;
-    level: number;
-    levels: number;
-    levelRungs: Array<Array<string>>;
-    p: number | null;
-    source: 'model' | 'floor' | 'failover' | 'coordinator';
-    why: string;
-    probabilities: {
-        [key: string]: number;
-    };
 };
 
 export type Attempt = {
@@ -400,11 +385,6 @@ export type AnsweredList = {
 };
 
 export type ProfilePatch = {
-    decision?: {
-        url?: string | null;
-        model?: string | null;
-        minConfidence?: number;
-    };
     billing?: {
         [key: string]: 'chatgpt-plan' | 'claude-plan' | 'subscription' | 'metered' | null;
     };
@@ -507,11 +487,6 @@ export type Settings = {
     };
     preflightConfirm: boolean;
     landAutoMerge: boolean;
-    decision: {
-        url: string | null;
-        model: string | null;
-        minConfidence: number;
-    };
     notify: Array<'milestone' | 'finish' | 'blocked'>;
     billing: {
         [key: string]: 'chatgpt-plan' | 'claude-plan' | 'subscription' | 'metered';
@@ -609,7 +584,7 @@ export type SetupView = {
         warnings: Array<Issue>;
     };
     roles: Array<{
-        role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'ui-reviewer' | 'artist' | 'writer' | 'researcher' | 'judge';
+        role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'ui-reviewer' | 'artist' | 'writer' | 'researcher';
         enabled: boolean;
         access: 'read-only' | 'workspace-write' | 'full';
         network: boolean;

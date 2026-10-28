@@ -7,7 +7,8 @@
 ```
 
 Autopilot builds from your own Claude Code or native Codex session. Your profile routes the architect, verifier and workers to their backends; Codex, opencode
-or headless Claude Code processes write the code, and a decision model you point it at picks the model and effort for each dispatch.
+or headless Claude Code processes write the code, and the architect picks the model and effort for each dispatch from each
+role's ladder.
 
 - **Your harness, as you set it up.** Every role runs in its vendor's own CLI with your config,
   hooks, skills and `AGENTS.md`. Isolation is an opt-in toggle per profile and harness, for when
@@ -19,8 +20,8 @@ or headless Claude Code processes write the code, and a decision model you point
 - **Questions reach your phone.** A parked question and the final report are sent to your ntfy topic
   (`notify.url`), and answered from the session (`answer`) or the terminal (`catherd answer`).
 - **A protocol the daemon enforces.** Every lane implements its plan tasks as written, and every role, whatever vendor runs it, gets its role's text and ends with the reply contract, and a
-  milestone lands only after a reviewer and a verifier passed it. A judge role decides what no rule can (an
-  ambiguous finding, a stuck fix round, an unmet check) from the run's facts. An owner question parks one milestone,
+  milestone lands only after a reviewer and a verifier passed it. The architect decides what no rule can (an
+  ambiguous finding, a stuck fix round, an unmet check) from the run's facts. An owner question parks one task,
   not the run.
 - **Guard rails for autopilot.** Quota failover to an indexed stand-in at least as intelligent, a preflight check
   before any worker starts, per-repo knowledge carried between runs, and a run budget.
@@ -34,8 +35,6 @@ or headless Claude Code processes write the code, and a decision model you point
   - [opencode](https://opencode.ai) **v2**, 2.0.16 or newer: `curl -fsSL https://opencode.ai/v2/install | bash`
     (the npm package `opencode-ai` is v1 and is not supported)
   - Claude Code's `claude` CLI 2.1.282 or newer, for headless `claude-code:` rungs
-- A decision model: an OpenAI-compatible endpoint and a model name, and a key in `CATHERD_DECISION_KEY` or saved by
-  `catherd init` (below). A run refuses to start without one
 - Optional: [gitleaks](https://github.com/gitleaks/gitleaks) (`brew install gitleaks`): catherd's milestone check
   scans the commits of a milestone with it for a leaked secret; without it the scan is skipped and the record says so
 
@@ -62,12 +61,12 @@ The npm package is `catherd-cli`; the command it installs is `catherd`. `bunx ca
 works too (a terminal with no host evidence cannot pick the architect/verifier defaults, so name the host): `init`
 installs the global command at its own version (`--no-global` skips it) and says `installing catherd…` before
 it does, though the first `bunx` resolve itself prints nothing for up to half a minute: bunx fetches the
-package before catherd's first line, so `bun add -g catherd-cli` first is the quicker start. `init` asks for the
-decision model's url, model and key, fetches the Slopalytics index, writes the default
+package before catherd's first line, so `bun add -g catherd-cli` first is the quicker start. `init` fetches the
+Slopalytics index, writes the default
 profile and links its Claude agents, lists your backends' models, and ends with a readiness report (`--no-input`
 asks nothing and keeps what exists; `--profile <name>` sets up and activates that profile instead of `default`;
-piped, it reads one answer per line once stdin closes: the decision model's url, model and key, the profile,
-whether to replace it, each on its own line even when a question is skipped). Then add the plugin to
+piped, it reads one answer per line once stdin closes: the profile and whether to replace it, each on its own line
+even when a question is skipped). Then add the plugin to
 Claude Code:
 
 ```sh
@@ -99,7 +98,7 @@ In either supported host, use the installed shared skills through that host's sk
 - `/catherd <task>` runs a task on autopilot; `/catherd` alone resumes the latest run. While it runs, keep
   talking: a report arrives through the host's transport and on your phone, and "how is it going?" gets a `status`.
 - `/catherd-setup` tunes your profile in conversation: which models and efforts each role may
-  use, the decision model, isolation, budget and failover.
+  use, isolation, budget and failover.
 
 A session sees six tools:
 
@@ -177,23 +176,14 @@ names the error. A model and effort the index does not list is not offered: it i
 `catherd catalog list`, and a profile that names one fails `profile validate`. `CATHERD_NO_SYNC=1` stops the automatic
 refreshes.
 
-### The decision model
+### Role ladders
 
-A decision model is called before every dispatch and judge. It reads the exact brief of that role and chooses one of
-N levels, where N is the number of rungs the role has. In a fix round the failed rung is the floor, and twice on
-one rung moves the floor up. It is not optional: a run refuses to start without `decision.url` and `decision.model`
-(`E_DECISION_UNSET`), or when the probe fails (`E_DECISION_PROBE`); `catherd doctor` checks both.
-
-```sh
-catherd profile set decision.url https://<your-gateway>/v1
-catherd profile set decision.model <model>
-export CATHERD_DECISION_KEY=<key>   # or let `catherd init` save it
-```
-
-`decision.minConfidence` (default 0.8) is the least probability the pick may have. If the model gives no answer, the
-call is retried three times, a minute apart, and then the unit parks for the coordinator. Every decision is a
-`decision.made` event in the run's log with the levels, the pick, its probability and why, and the panel shows it on the role's
-Decision tab.
+Each role's rungs, in the order the profile lists them, are its ladder; the first (or the role's `defaultRung`) is
+its default. The architect names any rung on a role's ladder when it delegates a task, or none: then the task runs
+on the default, or, for a ledger task tried before, on its last attempt's rung, one step up when that attempt
+failed, timed out, was too hard or drew a review BLOCKER. A stop outside the rung (a provider error, no access, a
+quota limit) never climbs. `capabilities` shows every ladder. A profile from an earlier 2.0 build loses its
+`decision` block and its `judge` role on first read, and `catherd doctor` or `catherd init` writes that back.
 
 A brief has four parts: the role contract, the run facts, the unit context (capped at about 20 KB) and this round.
 Findings in it are capped at 2 KB each, and a resumed fix round sends this round only. The verifier prints
@@ -266,7 +256,6 @@ switch stay.
 
 | Variable                    | What it does                                                                                                                  |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `CATHERD_DECISION_KEY`      | The decision model's key, instead of the one `catherd init` saves                                                             |
 | `CATHERD_NO_SYNC`           | `1`: no automatic fetch of the Slopalytics index (at MCP server start, in `init` and at run start); `catalog sync` still runs |
 | `CATHERD_HOME`              | Puts config and data under `$CATHERD_HOME/config` and `$CATHERD_HOME/data` instead of XDG                                     |
 | `CATHERD_LOG`               | Log level: `off`, `error`, `warn`, `info` (default) or `debug` (what `--verbose` sets)                                        |
@@ -293,7 +282,7 @@ socket from another origin.
   one-line note that tells you what it shows.
 - **Runs**: every run, with its status, models, time, tokens and cost. Open a run to see it as a graph. The graph
   starts at the plan and goes through every step of every milestone: route, preflight, each lane, its checks, the
-  commit, the review, the verify, integrate and land, then the judge and the report. Each milestone is a box, the
+  commit, the review, the verify, integrate and land, then the report. Each milestone is a box, the
   edges show the path the run took, and the running step pulses. A stat sheet above the graph gives the status,
   the time, the tokens, the cost and the rounds. The plan, the report, the milestones, the models and the timeline
   are below it. The page updates live over the run socket.
@@ -301,7 +290,7 @@ socket from another origin.
   cost and why that model ran. Prompt shows the brief's sections. Log shows the role's stream as a readable
   transcript, or the raw lines. Output shows the reply. Changes shows the diff, and Checks shows the check logs.
   A node that waits for you takes the answer in the drawer.
-- **Pause, resume and cancel**: **Pause** stops a run from starting new steps: no new role or judge, and no
+- **Pause, resume and cancel**: **Pause** stops a run from starting new steps: no new role, and no
   landing, push or merge. Live roles finish their work, and their checks and commits still run; no new worktree is
   claimed and no waiting milestone is routed. **Resume** starts the held steps again. **Cancel role** stops one live
   role, and **Cancel run** stops the whole run. Each cancel asks first. A run starts from your session, never from the panel.

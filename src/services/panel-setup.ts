@@ -65,7 +65,6 @@ export const SettingsSchema = z.object({
   memory: z.object({ reserveMb: z.number(), perMilestoneMb: z.number(), floorMb: z.number() }),
   preflightConfirm: z.boolean(),
   landAutoMerge: z.boolean(),
-  decision: z.object({ url: z.string().nullable(), model: z.string().nullable(), minConfidence: z.number() }),
   notify: z.array(z.enum(NOTIFY)),
   billing: z.record(z.string(), z.enum(BILLING_MODES)),
   isolated: z.record(z.string(), z.boolean()),
@@ -125,7 +124,7 @@ function hostSetRoles(deps: Deps, repo: string | null): Set<Role> {
   return new Set(
     ROLES.filter(
       (role) =>
-        (role === "architect" || role === "verifier" || role === "judge") &&
+        (role === "architect" || role === "verifier") &&
         stored !== undefined &&
         stored.roles?.[role]?.rungs === undefined &&
         (g.profile.roles[role]?.enabled ?? false),
@@ -208,7 +207,6 @@ export async function setupView(
       memory: v.limits.memory,
       preflightConfirm: v.preflight.confirm,
       landAutoMerge: v.land.autoMerge,
-      decision: v.decision,
       notify: v.notify as (typeof NOTIFY)[number][],
       billing: v.billing as Record<string, (typeof BILLING_MODES)[number]>,
       isolated: v.isolated as Record<string, boolean>,

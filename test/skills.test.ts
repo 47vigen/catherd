@@ -133,9 +133,6 @@ describe("setup skill", () => {
   it("covers every profile field profile_set stores, access with its enforcement, and the indexed-pairs rule", () => {
     const md = skill("catherd-setup");
     for (const field of [
-      "`decision.url`",
-      "`decision.model`",
-      "`decision.minConfidence`",
       "`billing`",
       "`rungs`",
       "`defaultRung`",
@@ -191,6 +188,7 @@ describe("setup skill", () => {
     };
     for (const [name, text] of Object.entries(docs))
       expect([name, /\bjev\b/i.test(text)]).toEqual([name, false]);
-    expect(docs["README.md"]).toContain("CATHERD_DECISION_KEY");
+    for (const [name, text] of Object.entries(docs))
+      expect([name, /decision model|CATHERD_DECISION_KEY/i.test(text)]).toEqual([name, false]);
   });
 });

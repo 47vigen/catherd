@@ -50,19 +50,11 @@ const RoleDocSchema = z.looseObject({
   timeouts: z.looseObject({ idleMin: positive.optional(), wallMin: positive.optional() }).optional(),
 });
 
-// A 1.5 file's `objective`, `jev`, `bars` and `roles.*.bars` are not in the schema: the loose object keeps them
-// until `migrateProfileDoc` drops them, and nothing resolves them.
+// A 1.5 file's `objective`, `jev`, `bars` and `roles.*.bars`, and a 2.0 file's `decision` and `roles.judge`, are not
+// in the schema: the loose object keeps them until `migrateProfileDoc` drops them, and nothing resolves them.
 export const ProfileDocSchema = z.looseObject({
   schema: z.literal(PROFILE_SCHEMA),
   name: z.string().optional(),
-  // plan 44 D25: no default url or model, the repo is public; unset is a validation warning
-  decision: z
-    .looseObject({
-      url: z.string().optional(),
-      model: z.string().optional(),
-      minConfidence: z.number().optional(),
-    })
-    .optional(),
   billing: z.record(z.string(), z.string()).optional(),
   roles: z.record(z.string(), RoleDocSchema).optional(),
   harness: z.record(z.string(), z.looseObject({ isolated: z.boolean().optional() })).optional(),
@@ -95,13 +87,6 @@ const storedMemory = (doc: ProfileDoc): Record<string, unknown> => {
   const memory = isPlain(doc.limits) ? doc.limits.memory : undefined;
   return isPlain(memory) ? memory : {};
 };
-
-export const DEFAULT_MIN_CONFIDENCE = 0.8;
-/** What to run when a profile names no decision model (D25): the fix of every refusal and warning about it. */
-export const DECISION_UNSET_FIX =
-  "catherd profile set decision.url https://<your-gateway>/v1, then catherd profile set decision.model <model>";
-/** TypeSafe's public endpoint, named only as the value a migrated 1.5 profile that used Jev gets (D24, D25). */
-export const LEGACY_DECISION = { url: "https://api.typesafe.ai/v1", model: "jev-1.13.0" } as const;
 
 const known = <T extends string>(values: readonly T[], v: string | undefined): v is T =>
   v !== undefined && (values as readonly string[]).includes(v);
@@ -140,9 +125,6 @@ export function unknownValues(doc: ProfileDoc): UnknownValue[] {
     }
   for (const role of ROLES)
     check(`roles.${role}.access`, ACCESS, doc.roles?.[role]?.access, STORED_FALLBACK.access);
-  const conf = doc.decision?.minConfidence;
-  if (conf !== undefined && confidenceOf(conf) !== conf)
-    out.push({ path: "decision.minConfidence", value: String(conf), readAs: String(DEFAULT_MIN_CONFIDENCE) });
   for (const n of doc.notify ?? []) check("notify", NOTIFY, n, "skipped");
   for (const [k, v] of Object.entries(storedMemory(doc)))
     if (!(MEMORY_KEYS as readonly string[]).includes(k) || !positiveInt(v))
@@ -175,8 +157,6 @@ export const roleTimeouts = (
 /** A profile with every default filled in: what the run engine, the CLI and the agent files read. */
 export interface Profile {
   name: string;
-  /** plan 44: the model that decides each dispatch's rung; url and model have no default */
-  decision: { url: string | null; model: string | null; minConfidence: number };
   billing: Record<string, BillingMode>;
   roles: Record<Role, RoleConfig>;
   harness: Record<string, { isolated: boolean }>;
@@ -217,7 +197,6 @@ export const BUILTIN_ROLES: Record<Role, RoleConfig> = {
   artist: { enabled: true, access: DEFAULT_ACCESS.artist, rungs: [SOL("medium")] },
   writer: { enabled: true, access: DEFAULT_ACCESS.writer, rungs: [LUNA_HIGH] },
   researcher: { enabled: true, access: DEFAULT_ACCESS.researcher, rungs: [LUNA_HIGH] },
-  judge: { enabled: true, access: DEFAULT_ACCESS.judge, rungs: ["claude-code:claude-opus-5-5#medium"] },
 };
 
 /**
@@ -274,10 +253,10 @@ export function defaultProfileDoc(name = "default"): ProfileDoc {
   };
 }
 
-/** Remove only the architect, verifier and judge execution choices, preserving other stored fields. */
+/** Remove only the architect and verifier execution choices, preserving other stored fields. */
 export function hostDefaultsDoc(doc: ProfileDoc): ProfileDoc {
   const next = structuredClone(doc);
-  for (const role of ["architect", "verifier", "judge"] as const) {
+  for (const role of ["architect", "verifier"] as const) {
     const r = next.roles?.[role];
     if (r) {
       delete r.rungs;
@@ -286,13 +265,6 @@ export function hostDefaultsDoc(doc: ProfileDoc): ProfileDoc {
   }
   return next;
 }
-
-/** The decision key travels as a bearer token: https, or plain http only to this machine. */
-const DECISION_URL = /^(https:\/\/\S+|http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(\/\S*)?)$/;
-export const decisionUrlOk = (url: string): boolean => DECISION_URL.test(url);
-
-const confidenceOf = (v: number | undefined): number =>
-  v !== undefined && v >= 0.5 && v <= 1 ? v : DEFAULT_MIN_CONFIDENCE;
 
 /** Resolve omitted role execution choices from the explicit orchestration host. */
 export function resolveProfile(doc: ProfileDoc, name: string, host: OrchestrationHost): Profile {
@@ -313,9 +285,6 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
             ? []
             : b.rungs;
     }
-    // the judge is Opus by default; on a Codex host it follows the host like the architect and the verifier do
-    if (role === "judge" && d?.rungs === undefined && host === "codex")
-      omitted = ["codex:gpt-6.1-sol#medium"];
     // a role that lists its own rungs never inherits the built-in default rung, which may not be among them
     const defaultRung = d?.defaultRung ?? (d?.rungs === undefined ? b.defaultRung : undefined);
     roles[role] = {
@@ -352,11 +321,6 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
     billing[k] = known(BILLING_MODES, v) ? v : STORED_FALLBACK.billing(k);
   return {
     name,
-    decision: {
-      url: doc.decision?.url?.replace(/\/+$/, "") ?? null,
-      model: doc.decision?.model ?? null,
-      minConfidence: confidenceOf(doc.decision?.minConfidence),
-    },
     billing,
     roles,
     harness,
@@ -409,17 +373,6 @@ const RolePatchSchema = z
   .partial();
 
 export const ProfilePatchSchema = z.strictObject({
-  decision: z
-    .strictObject({
-      url: z
-        .string()
-        .regex(DECISION_URL, "an https url (http only on 127.0.0.1, localhost or [::1])")
-        .nullable(),
-      model: z.string().min(1).nullable(),
-      minConfidence: z.number().min(0.5).max(1),
-    })
-    .partial()
-    .optional(),
   billing: z.partialRecord(z.enum(BILLING_KEYS), z.enum(BILLING_MODES).nullable()).optional(),
   roles: z.partialRecord(z.enum(ROLES), RolePatchSchema).optional(),
   harness: z.partialRecord(z.enum(HARNESS_KEYS), z.strictObject({ isolated: z.boolean() })).optional(),
@@ -456,28 +409,43 @@ export const ProfilePatchSchema = z.strictObject({
 export type ProfilePatch = z.infer<typeof ProfilePatchSchema>;
 
 /**
- * Plan 44 D25: a 1.5 document in the 2.0 shape. `jev`, `bars`, `roles.*.bars` and `objective` go (the decision
- * model replaces them); `LEGACY_DECISION` is named only when the doc used Jev, the user had a TypeSafe key
- * (`hadKey`) and no `decision` block is there. Pure: `doc` is not touched, and an unchanged doc has no notes.
+ * The stored document in this build's shape. Pure: `doc` is not touched, and an unchanged doc has no notes.
+ * - Plan 44 D25: a 1.5 file's `jev`, `bars`, `roles.*.bars` and `objective` go.
+ * - Plan 45 R14: every Cursor rung and key goes.
+ * - Plan 49, spec D16, once: a document that still has a `decision` block or a `roles.judge` entry (every profile a
+ *   2.0 build before plan 49 wrote) loses both, its architect's `read-only` access becomes `workspace-write`, and
+ *   its missing `caps` are written with D10's defaults. Without either key it is never touched again, so an access
+ *   or a cap the owner sets later stays his.
  */
-export function migrateProfileDoc(doc: ProfileDoc, hadKey: boolean): { doc: ProfileDoc; notes: string[] } {
+export function migrateProfileDoc(doc: ProfileDoc): { doc: ProfileDoc; notes: string[] } {
   const out = structuredClone(doc);
   const notes: string[] = [];
-  const drop = (path: string, owner: Record<string, unknown> | undefined, key: string) => {
+  const drop = (path: string, owner: Record<string, unknown> | undefined, key: string, why: string) => {
     if (owner === undefined || !(key in owner)) return;
     delete owner[key];
-    notes.push(`dropped ${path}: the decision model replaces it`);
+    notes.push(`dropped ${path}: ${why}`);
   };
-  const jevOff = isPlain(out.jev) && out.jev.use === "off";
-  if (out.jev !== undefined && !jevOff && hadKey && out.decision === undefined) {
-    out.decision = { ...LEGACY_DECISION };
-    notes.push(`set decision to ${LEGACY_DECISION.url} (${LEGACY_DECISION.model}), the model your key used`);
-  }
-  drop("jev", out, "jev");
-  drop("bars", out, "bars");
-  drop("objective", out, "objective");
-  for (const [role, r] of Object.entries(out.roles ?? {})) drop(`roles.${role}.bars`, r, "bars");
+  for (const k of ["jev", "bars", "objective"]) drop(k, out, k, "the role ladders replace it");
+  for (const [role, r] of Object.entries(out.roles ?? {}))
+    drop(`roles.${role}.bars`, r, "bars", "the role ladders replace it");
   retireCursor(out, notes);
+  if ("decision" in out || out.roles?.judge !== undefined) {
+    drop("decision", out, "decision", "the role ladders replace the decision model");
+    drop("roles.judge", out.roles, "judge", "the architect does the judge's work");
+    const architect = out.roles?.architect;
+    if (architect?.access === "read-only") {
+      architect.access = "workspace-write";
+      notes.push(
+        "set roles.architect.access to workspace-write: the architect may change the repository itself",
+      );
+    }
+    if (out.caps === undefined) {
+      out.caps = { ...DEFAULT_CAPS };
+      notes.push(
+        `set caps to wallMin ${DEFAULT_CAPS.wallMin}, attempts ${DEFAULT_CAPS.attempts}: the run's caps`,
+      );
+    }
+  }
   return { doc: out, notes };
 }
 

@@ -2078,8 +2078,7 @@
                   "ui-reviewer",
                   "artist",
                   "writer",
-                  "researcher",
-                  "judge"
+                  "researcher"
                 ]
               },
               {
@@ -2172,16 +2171,6 @@
               }
             ]
           },
-          "decision": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/NodeDecision"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "attempts": {
             "type": "array",
             "items": {
@@ -2202,79 +2191,7 @@
           "startedAt",
           "endedAt",
           "question",
-          "decision",
           "attempts"
-        ],
-        "additionalProperties": false
-      },
-      "NodeDecision": {
-        "type": "object",
-        "properties": {
-          "n": {
-            "type": "integer",
-            "minimum": -9007199254740991,
-            "maximum": 9007199254740991
-          },
-          "rung": {
-            "type": "string"
-          },
-          "level": {
-            "type": "integer",
-            "minimum": -9007199254740991,
-            "maximum": 9007199254740991
-          },
-          "levels": {
-            "type": "integer",
-            "minimum": -9007199254740991,
-            "maximum": 9007199254740991
-          },
-          "levelRungs": {
-            "type": "array",
-            "items": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          "p": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "source": {
-            "type": "string",
-            "enum": [
-              "model",
-              "floor",
-              "failover",
-              "coordinator"
-            ]
-          },
-          "why": {
-            "type": "string"
-          },
-          "probabilities": {
-            "type": "object",
-            "propertyNames": {
-              "type": "string"
-            },
-            "additionalProperties": {
-              "type": "number"
-            }
-          }
-        },
-        "required": [
-          "n",
-          "rung",
-          "level",
-          "levels",
-          "levelRungs",
-          "p",
-          "source",
-          "why",
-          "probabilities"
         ],
         "additionalProperties": false
       },
@@ -3625,39 +3542,6 @@
       "ProfilePatch": {
         "type": "object",
         "properties": {
-          "decision": {
-            "type": "object",
-            "properties": {
-              "url": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "pattern": "^(https:\\/\\/\\S+|http:\\/\\/(127\\.0\\.0\\.1|localhost|\\[::1\\])(:\\d+)?(\\/\\S*)?)$"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "model": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "minConfidence": {
-                "type": "number",
-                "minimum": 0.5,
-                "maximum": 1
-              }
-            },
-            "additionalProperties": false
-          },
           "billing": {
             "type": "object",
             "propertyNames": {
@@ -3699,8 +3583,7 @@
                 "ui-reviewer",
                 "artist",
                 "writer",
-                "researcher",
-                "judge"
+                "researcher"
               ]
             },
             "additionalProperties": {
@@ -4188,32 +4071,6 @@
           "landAutoMerge": {
             "type": "boolean"
           },
-          "decision": {
-            "type": "object",
-            "properties": {
-              "url": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "model": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "minConfidence": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "url",
-              "model",
-              "minConfidence"
-            ],
-            "additionalProperties": false
-          },
           "notify": {
             "type": "array",
             "items": {
@@ -4259,7 +4116,6 @@
           "memory",
           "preflightConfirm",
           "landAutoMerge",
-          "decision",
           "notify",
           "billing",
           "isolated"
@@ -4638,8 +4494,7 @@
                     "ui-reviewer",
                     "artist",
                     "writer",
-                    "researcher",
-                    "judge"
+                    "researcher"
                   ]
                 },
                 "enabled": {

@@ -42,7 +42,6 @@ import {
   validateNamed,
 } from "../../src/services/profile-store.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
-import { migrateCredentials, saveCredential } from "../../src/services/credentials.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
@@ -60,7 +59,7 @@ describe("reading profiles", () => {
     expect(activeName()).toBe("default");
     expect(profileFor(null, "claude-code").roles.worker.rungs[0]).toBe("codex:gpt-6-luna#high");
     const v = validateNamed(undefined, null, "claude-code");
-    expect([v.errors, v.warnings.map((w) => w.path)]).toEqual([[], ["decision"]]);
+    expect([v.errors, v.warnings.map((w) => w.path)]).toEqual([[], []]);
   });
 
   it("refuses a 0.x profile with the init fix, and a newer schema with the upgrade fix", () => {
@@ -613,7 +612,6 @@ describe("host-specific profiles", () => {
     expect(p.diff.map((x) => x.path).sort()).toEqual([
       "roles.architect.defaultRung",
       "roles.architect.rungs",
-      "roles.judge.rungs",
       "roles.verifier.defaultRung",
       "roles.verifier.rungs",
     ]);
@@ -816,44 +814,43 @@ describe("1.5 profiles", () => {
 
   it("old profiles migrate once, under the lock", () => {
     seed();
-    saveCredential("typesafeApiKey", "k");
     expect(migrateProfiles().map((d) => d.profile)).toEqual(["old"]);
     const doc = JSON.parse(readFileSync(file("old"), "utf8"));
-    expect(doc.decision).toEqual({ url: "https://api.typesafe.ai/v1", model: "jev-1.13.0" });
+    expect(doc.decision).toBeUndefined();
     expect(doc.jev).toBeUndefined();
     const before = lstatSync(file("old")).mtimeMs;
     expect(migrateProfiles()).toEqual([]);
     expect(lstatSync(file("old")).mtimeMs).toBe(before);
   });
 
-  it("a moved TypeSafe key keeps the url; a gateway key saved after the move does not", () => {
-    seed();
-    saveCredential("typesafeApiKey", "k");
-    migrateCredentials();
-    migrateProfiles();
-    expect(JSON.parse(readFileSync(file("old"), "utf8")).decision.url).toBe("https://api.typesafe.ai/v1");
-    seed();
-    saveCredential("decisionKey", "gateway-key");
-    migrateProfiles();
-    expect(JSON.parse(readFileSync(file("old"), "utf8")).decision).toBeUndefined();
-  });
-
-  it("replacing a moved key with another clears its TypeSafe origin", () => {
-    seed();
-    saveCredential("typesafeApiKey", "k");
-    migrateCredentials();
-    saveCredential("decisionKey", "gateway-key");
-    migrateProfiles();
-    expect(JSON.parse(readFileSync(file("old"), "utf8")).decision).toBeUndefined();
-  });
-
-  it("a gateway key in the env does not name the TypeSafe url", () => {
-    seed();
-    process.env.CATHERD_DECISION_KEY = "gateway-key";
-    migrateProfiles();
-    const doc = JSON.parse(readFileSync(file("old"), "utf8"));
-    expect(doc.jev).toBeUndefined();
-    expect(doc.decision).toBeUndefined();
+  it("a 2.0 profile with the decision model and the judge migrates once, and still loads before it does", () => {
+    withHome();
+    mkdirSync(profilesDir(), { recursive: true });
+    const old = {
+      schema: 1,
+      decision: { url: "https://decision.test/v1", model: "test-decider" },
+      roles: { architect: { access: "read-only" }, judge: { rungs: ["claude-code:claude-opus-5-5#medium"] } },
+    };
+    writeFileSync(file("two"), JSON.stringify(old));
+    expect(profileFor(null, "claude-code")).toBeDefined();
+    expect(migrateProfiles()).toEqual([
+      {
+        profile: "two",
+        notes: [
+          "dropped decision: the role ladders replace the decision model",
+          "dropped roles.judge: the architect does the judge's work",
+          "set roles.architect.access to workspace-write: the architect may change the repository itself",
+          expect.stringMatching(/^set caps to wallMin \d+, attempts \d+: the run's caps$/),
+        ],
+      },
+    ]);
+    const doc = JSON.parse(readFileSync(file("two"), "utf8"));
+    expect([doc.decision, doc.roles.judge, doc.roles.architect.access]).toEqual([
+      undefined,
+      undefined,
+      "workspace-write",
+    ]);
+    expect(migrateProfiles()).toEqual([]);
   });
 
   it("a patch over an old profile saves", () => {

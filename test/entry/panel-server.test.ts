@@ -28,7 +28,7 @@ import {
 import { CatalogViewSchema } from "../../src/services/panel-catalog.ts";
 import { ProfileSavedSchema } from "../../src/services/panel-setup.ts";
 import { probeCache } from "../../src/services/probe-cache.ts";
-import { CHANGED_ON_DISK, patchProfile } from "../../src/services/profile-service.ts";
+import { CHANGED_ON_DISK } from "../../src/services/profile-service.ts";
 import { dispatchDir } from "../../src/services/run-files.ts";
 import { daemonLauncher } from "../../src/services/daemon.ts";
 import { runStart } from "../../src/services/run-client.ts";
@@ -44,12 +44,7 @@ afterEach(snapshotEnv());
 const real = daemonLauncher.launch;
 const TOKEN = "t".repeat(43);
 const host = { host: "codex", session: null, conflict: null } as const;
-const real0 = defaultDeps(host);
-// a run starts only on a decision model that answers: this one does, from a fake
-const deps = {
-  ...real0,
-  routing: { ...real0.routing, probe: async () => ({ ok: true as const, latencyMs: 1 }) },
-};
+const deps = defaultDeps(host);
 let repo: string;
 let panel: Panel;
 let base: string;
@@ -58,11 +53,6 @@ beforeEach(() => {
   delete process.env.ANTHROPIC_API_KEY;
   withHome();
   repo = tempRepo();
-  patchProfile(
-    "default",
-    { decision: { url: "https://decider.example/v1", model: "test-decider" } },
-    { host: "codex" },
-  );
   daemonLauncher.launch = () => 1;
   const dist = mkdtempSync(join(tmpdir(), "catherd-dist-"));
   mkdirSync(join(dist, "assets"));

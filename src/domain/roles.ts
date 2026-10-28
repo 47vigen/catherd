@@ -9,13 +9,12 @@ export const ROLES = [
   "artist",
   "writer",
   "researcher",
-  "judge",
 ] as const;
 export type Role = (typeof ROLES)[number];
 
 /** Spec §7.1: the access mode a role runs with unless its profile says otherwise. */
 export const DEFAULT_ACCESS: Record<Role, Access> = {
-  architect: "read-only",
+  architect: "workspace-write",
   reviewer: "read-only",
   researcher: "read-only",
   worker: "workspace-write",
@@ -23,5 +22,4 @@ export const DEFAULT_ACCESS: Record<Role, Access> = {
   artist: "workspace-write",
   verifier: "full",
   "ui-reviewer": "full",
-  judge: "read-only",
 };

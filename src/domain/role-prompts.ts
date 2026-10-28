@@ -138,9 +138,6 @@ const researcher = [
   `A dossier lists: the files and folders involved, one line each on what they hold; the existing patterns the work should copy, by path; the build, test and run commands, with how long the full suite takes when the docs, the CI config or a log say so (never run the suite to find out; write "unknown" instead); the lint and type-check commands, and how to scope each to one package; the symbols the change will call or alter, with their signatures; the project rules (CLAUDE.md, AGENTS.md, conventions) that bind this work; and risks: shared files, generated code, slow or flaky tests. It may run to 200 lines. Write it with catherd run-file write to the path the brief names, and reply with that path. ${runFiles(true)}`,
 ].join("\n");
 
-/** Plan 48 deleted the judge; its name stays in profiles until plan 49's migration, and nothing dispatches it. */
-const judge = "The judge role is retired: no catherd run dispatches it.";
-
 const BODIES: Record<Role, (version: string) => string> = {
   architect: () => ARCHITECT_LOOP,
   verifier: () => verifier,
@@ -150,7 +147,6 @@ const BODIES: Record<Role, (version: string) => string> = {
   artist: () => artist,
   writer: () => writer,
   researcher: () => researcher,
-  judge: () => judge,
 };
 
 const STATUS_LINE = `The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>. ${BLOCKED_LINE}`;
@@ -168,7 +164,6 @@ const CONTRACTS: Record<Role, string> = {
   artist: REPLY,
   writer: REPLY,
   researcher: `For a single question, reply in at most 15 lines. ${STATUS_LINE}`,
-  judge: STATUS_LINE,
 };
 
 export const replyContract = (role: Role): string => CONTRACTS[role];
@@ -195,7 +190,6 @@ export const NEXT_LINE: Record<Role, string> = {
     "After you: your BLOCKER and BUG lines go, as written, to a worker who will not see your screenshots, and catherd counts them.",
   verifier:
     "After you: your record of the check is what lands the milestone; your FAIL lines go, as written, to a worker in a fix round.",
-  judge: "",
 };
 
 const DONE_WHEN: Record<Role, string> = {
@@ -212,7 +206,6 @@ const DONE_WHEN: Record<Role, string> = {
   artist: "Every image the brief names is at its .webp path, with its provenance line.",
   writer: "The files the brief names describe what the code does now.",
   researcher: "Every claim has its file:line; a dossier is written to the path the brief names.",
-  judge: "",
 };
 
 /**

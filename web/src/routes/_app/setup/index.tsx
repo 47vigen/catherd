@@ -98,7 +98,6 @@ function SettingsGlance({ s }: { s: SetupView["settings"] }) {
         value={`${s.timeouts.idleMin} / ${s.timeouts.wallMin}`}
         hint="minutes silent / in all"
       />
-      <Tile.Stat label="Decision model" value={s.decision.model ?? "Not set"} hint="picks the model per dispatch" />
       <Tile.Stat label="Confirm first" value={s.preflightConfirm ? "Yes" : "No"} hint="before any worker starts" />
       <Tile.Stat label="Land" value={s.landAutoMerge ? "catherd" : "Owner"} hint="merges each landed milestone" />
       <Tile.Stat label="Notify" value={`${s.notify.length} of 3`} hint="moments of a run" />

@@ -129,11 +129,8 @@ describe("launchDetached and the daemon's launch", () => {
     await waitFor(() => (existsSync(log) && readFileSync(log, "utf8").includes("hello x") ? true : null));
   });
 
-  it("the daemon gets the decision key", () => {
-    expect(daemonEnv({ PATH: "/bin", CATHERD_DECISION_KEY: "dk" })).toEqual({
-      PATH: "/bin",
-      CATHERD_DECISION_KEY: "dk",
-    });
+  it("the daemon gets no decision key (plan 49: there is no decision model)", () => {
+    expect(daemonEnv({ PATH: "/bin", CATHERD_DECISION_KEY: "dk" })).toEqual({ PATH: "/bin" });
   });
 
   it("gives the daemon the launcher's env without its session identity or any role's scope", () => {

@@ -5,8 +5,6 @@ import { adapterFor } from "../../src/adapters/registry.ts";
 import { BUILTIN_ROLES, defaultProfileDoc } from "../../src/domain/profile.ts";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { claudeAgentsDir } from "../../src/infra/paths.ts";
-import { credentialsPath, migrateCredentials } from "../../src/services/credentials.ts";
-import { decisionKey } from "../../src/services/decision-service.ts";
 import { activate, patchProfile } from "../../src/services/profile-service.ts";
 import {
   agentsRoot,
@@ -78,11 +76,10 @@ describe("initSetup", () => {
     expect(initHost()).toBe("codex");
   });
 
-  it("replaces the 0.x agent links with 1.0 ones, never a file of the user's, and keeps the 1.5 key, moved to the decision key", async () => {
+  it("replaces the 0.x agent links with 1.0 ones, never a file of the user's", async () => {
     withHome();
     process.env.PATH = "/nonexistent";
     delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.CATHERD_DECISION_KEY;
     legacyFiles();
     // 0.x linked catherd-<role>-<model>-<effort> into the agents dir, from catherd's own config folder
     const old = join(agentsRoot(), "fast", "catherd-architect-claude-opus-5-5-high.md");
@@ -91,15 +88,12 @@ describe("initSetup", () => {
     mkdirSync(claudeAgentsDir(), { recursive: true });
     symlinkSync(old, join(claudeAgentsDir(), "catherd-architect-claude-opus-5-5-high.md"));
     writeFileSync(join(claudeAgentsDir(), "mine.md"), "the user's own agent");
-    writeFileSync(credentialsPath(), JSON.stringify({ typesafeApiKey: "tsk-0x-key" }));
     await initSetup({ host: { host: "claude-code", session: null, conflict: null } });
     expect(readdirSync(claudeAgentsDir()).sort()).toEqual([
       "catherd-default-architect-claude-opus-5-5-high.md",
       "catherd-default-verifier-claude-opus-5-5-low.md",
       "mine.md",
     ]);
-    migrateCredentials();
-    expect(decisionKey()).toBe("tsk-0x-key");
   });
 
   it("writes and activates nothing when the defaults do not validate here, and says why", async () => {

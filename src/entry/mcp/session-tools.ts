@@ -7,7 +7,6 @@ import { PROFILE_NAME, ProfilePatchSchema } from "../../domain/profile.ts";
 import { knownQueueCapability } from "../../infra/codex-queue.ts";
 import { gitToplevel } from "../../infra/git.ts";
 import { redact } from "../../infra/log.ts";
-import { registerSavedSecrets } from "../../services/decision-service.ts";
 import { pausesOver } from "../../services/pause.ts";
 import type { Deps } from "../../services/ports.ts";
 import { inspectionHost } from "../../services/run-debug.ts";
@@ -73,7 +72,6 @@ export function registerSessionTools(server: McpServer, deps: Deps): void {
     },
     (a) =>
       handle(() => {
-        registerSavedSecrets();
         const listing = a.run ? null : listRuns();
         const views = a.run ? [runView(deps, a.run)] : listRunViews(deps);
         const open = views.filter(unfinished);

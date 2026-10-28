@@ -1,13 +1,10 @@
-import { afterAll, afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { afterEach, describe, expect, it } from "bun:test";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { mark } from "../../src/entry/cli-kit.ts";
 import { formatCheck, formatReport } from "../../src/entry/doctor-command.ts";
 import { glyph } from "../../src/entry/glyphs.ts";
-import { logsDir } from "../../src/infra/paths.ts";
 import { VERSION } from "../../src/infra/version.ts";
-import { credentialsPath } from "../../src/services/credentials.ts";
-import { decisionQuestions } from "../../src/services/decision-service.ts";
 import { patchProfile } from "../../src/services/profile-service.ts";
 import { bunOnlyBin, snapshotEnv, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
@@ -16,47 +13,8 @@ import { withClaudeScenario, withOpencodeScenario } from "../sim/sim-scenarios.t
 
 afterEach(snapshotEnv());
 
-/** A decision model that answers every probe, on a local port: the spawned doctor never leaves the machine. */
-const decider = Bun.serve({
-  hostname: "127.0.0.1",
-  port: 0,
-  fetch: () =>
-    Response.json({
-      model: "test-decider",
-      answers: {
-        difficulty: {
-          type: "score",
-          score: 1,
-          probabilities: { "0": 0.1, "1": 0.8, "2": 0.1 },
-          confidence: 0.9,
-        },
-        ...Object.fromEntries(
-          Object.keys(decisionQuestions().sets.difficulty.nouls).map((id) => [
-            id,
-            { type: "noul", noul: 0.1 },
-          ]),
-        ),
-      },
-      usage: { input_tokens: 10, output_tokens: 2 },
-    }),
-});
-afterAll(() => decider.stop(true));
-
 const FX = join(import.meta.dir, "..", "fixtures", "adapters");
 const fx = (p: string) => JSON.parse(readFileSync(join(FX, p), "utf8"));
-
-const BARE_KEY = "tsk_FAKEKEY_DO_NOT_USE_1234567890";
-/** Every 6-character piece of the pasted key that `text` contains: none, when nothing leaked. */
-const keyPieces = (text: string): string[] =>
-  Array.from({ length: BARE_KEY.length - 5 }, (_, i) => BARE_KEY.slice(i, i + 6)).filter((p) =>
-    text.includes(p),
-  );
-const allLogs = (): string =>
-  existsSync(logsDir())
-    ? readdirSync(logsDir())
-        .map((f) => readFileSync(join(logsDir(), f), "utf8"))
-        .join("")
-    : "";
 
 function machine(): void {
   const home = withHome();
@@ -85,7 +43,7 @@ function doctor(...args: string[]) {
   return { code: p.exitCode, out: p.stdout.toString() };
 }
 
-/** The same, asynchronous: the local decision model above answers only while the test's loop runs. */
+/** The same, asynchronous. */
 async function doctorAsync(...args: string[]) {
   const p = Bun.spawn([process.execPath, join(SRC, "cli.ts"), "doctor", ...args], {
     env: { ...process.env, CATHERD_ORCHESTRATION_HOST: "claude-code", ANTHROPIC_API_KEY: "" },
@@ -185,21 +143,6 @@ describe("catherd doctor", () => {
     expect(doctor("--plain").out).toContain("+ ready              Bun");
   }, 30_000);
 
-  it("never prints or logs a bare key pasted into credentials.json, and names the file (B1)", () => {
-    machine();
-    mkdirSync(dirname(credentialsPath()), { recursive: true });
-    writeFileSync(credentialsPath(), `${BARE_KEY}\n`, { mode: 0o600 });
-    const json = doctor("--json");
-    const text = doctor("--plain");
-    expect(keyPieces(json.out + text.out + allLogs())).toEqual([]);
-    expect(JSON.parse(json.out).checks.find((c: { id: string }) => c.id === "credentials")).toMatchObject({
-      state: "warn",
-      detail: `${credentialsPath()} is not valid JSON`,
-      fix: expect.stringContaining('"decisionKey"'),
-    });
-    expect(allLogs()).toContain(`${credentialsPath()} is not valid JSON`);
-  }, 60_000);
-
   it("exits 3 when not ready, and its JSON shows the real MCP server answering over stdio", () => {
     machine();
     const r = doctor("--json");
@@ -224,17 +167,10 @@ describe("catherd doctor", () => {
       join(plugins, "installed_plugins.json"),
       JSON.stringify({ version: 2, plugins: { "catherd@catherd": [{ version: VERSION }] } }),
     );
-    patchProfile(
-      "default",
-      { decision: { url: `http://127.0.0.1:${decider.port}/v1`, model: "test-decider" } },
-      { host: "claude-code" },
-    );
+    patchProfile("default", {}, { host: "claude-code" });
     const r = await doctorAsync("--plain");
     expect(r.code).toBe(0);
     expect(r.out.trim().split("\n").at(-1)).toBe("+ ready");
-    expect(r.out).toMatch(
-      /\+ ready +decision model — test-decider at http:\/\/127\.0\.0\.1:\d+\/v1 · no key sent · answers in \d+ ms\n/,
-    );
   }, 60_000);
 });
 

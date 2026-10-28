@@ -264,7 +264,7 @@ describe("A-line owner tags", () => {
     expect(readsALine("writer", "worker")).toBe(true);
     expect(readsALine("ui-reviewer", "reviewer")).toBe(true);
     expect(readsALine("ui-reviewer", "verifier")).toBe(false);
-    for (const owner of A_LINE_OWNERS) expect(readsALine("judge", owner)).toBe(true);
+    for (const owner of A_LINE_OWNERS) expect(readsALine("architect", owner)).toBe(true);
     expect(readsALine("architect", "verifier")).toBe(true);
   });
 });

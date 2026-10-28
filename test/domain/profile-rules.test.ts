@@ -43,7 +43,7 @@ describe("validateProfile", () => {
     expect(check()).toEqual({ errors: [], warnings: [] });
   });
 
-  it("a stored decision.url over plain http warns that the key travels in the clear", () => {
+  it("an old decision block warns about nothing: nothing reads it (plan 49)", () => {
     const doc = ProfileDocSchema.parse({
       schema: 1,
       decision: { url: "http://decision.test/v1", model: "m" },
@@ -55,15 +55,7 @@ describe("validateProfile", () => {
       doc,
       "claude-code",
     );
-    expect(v.warnings).toContainEqual(expect.objectContaining({ path: "decision.url" }));
-  });
-
-  it("a profile without a decision model warns", () => {
-    const v = check({}, catalog(), false);
-    expect(v.errors).toEqual([]);
-    expect(v.warnings).toContainEqual(
-      expect.objectContaining({ path: "decision", message: "the decision model is not set" }),
-    );
+    expect(v).toEqual({ errors: [], warnings: [] });
   });
 
   it("refuses a disabled worker", () => {
