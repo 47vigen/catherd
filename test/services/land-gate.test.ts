@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { db } from "../../src/infra/db.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -27,7 +28,6 @@ import {
   findRun,
   readAgentRuns,
   type Run,
-  runPaths,
 } from "../../src/services/run-store.ts";
 import { writeDeliveryAttempt } from "../../src/infra/delivery.ts";
 import { result, recordAgentRun, startRun } from "../../src/services/run-service.ts";
@@ -619,15 +619,12 @@ describe("the land gate (spec 1.1 §6)", () => {
     const { repo, run } = freshRun();
     const c = commitFiles(repo, ["src/a.ts"]);
     await passGate(run, "M1");
-    const records = runPaths(run.dir).runs;
     // the verifier's record without its head field: the reply's HEAD: line alone is not what land reads
-    writeFileSync(
-      records,
-      readFileSync(records, "utf8")
-        .split("\n")
-        .map((l) => (l.includes('"name":"verifier-M1"') ? l.replace(/,"head":"[0-9a-f]+"/, "") : l))
-        .join("\n"),
-    );
+    db()
+      .query(
+        "UPDATE dispatches SET body = json_remove(body, '$.head') WHERE run_id = ? AND json_extract(body, '$.name') = 'verifier-M1'",
+      )
+      .run(run.id);
     const e = await refusal(land(fakeDeps(), landing(run.id, c)));
     expect(e.message).toContain("names no HEAD");
     expect(e.fix).toContain("HEAD: <sha>");

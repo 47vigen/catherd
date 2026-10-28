@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError, UPGRADE } from "../domain/errors.ts";
+import type { RunRecord } from "../domain/record.ts";
 import type { RunEvent } from "../domain/run-events.ts";
 import { dataDir } from "./paths.ts";
 import { ensurePrivateDir, PRIVATE_FILE } from "./store.ts";
@@ -15,6 +16,12 @@ export const MIGRATIONS: readonly string[] = [
      legacy INTEGER NOT NULL DEFAULT 0);
    CREATE TABLE events (id INTEGER PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), seq INTEGER NOT NULL,
      type TEXT NOT NULL, at TEXT NOT NULL, body TEXT NOT NULL, UNIQUE (run_id, seq));`,
+  `CREATE TABLE dispatches (id INTEGER PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
+     dispatch_id TEXT NOT NULL, role TEXT NOT NULL, lane TEXT, rung TEXT NOT NULL, status TEXT NOT NULL,
+     started_at TEXT NOT NULL, ended_at TEXT NOT NULL, cost_usd REAL, body TEXT NOT NULL,
+     UNIQUE (run_id, dispatch_id));
+   CREATE TABLE messages (id INTEGER PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), n INTEGER NOT NULL,
+     at TEXT NOT NULL, sender TEXT NOT NULL, target TEXT NOT NULL, text TEXT NOT NULL, UNIQUE (run_id, n));`,
 ];
 
 export const dbFile = (): string => join(dataDir(), "catherd.db");
@@ -83,5 +90,24 @@ export function insertEvent(d: Database, runId: string, e: RunEvent): void {
     e.type,
     e.at,
     JSON.stringify(e),
+  );
+}
+
+/** One dispatch's record. */
+export function insertDispatch(d: Database, runId: string, r: RunRecord): void {
+  d.query(
+    `INSERT INTO dispatches (run_id, dispatch_id, role, lane, rung, status, started_at, ended_at, cost_usd, body)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    runId,
+    r.dispatchId,
+    r.role,
+    r.lane,
+    r.rung,
+    r.status,
+    r.startedAt,
+    r.endedAt,
+    r.costUsd,
+    JSON.stringify(r),
   );
 }

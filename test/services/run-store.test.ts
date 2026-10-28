@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
+import { db } from "../../src/infra/db.ts";
 import { runsDir } from "../../src/infra/paths.ts";
 import {
   appendRecord,
@@ -34,7 +43,7 @@ const code = (f: () => unknown) => {
 };
 
 describe("run folder", () => {
-  it("creates meta, ledger header, JSONL headers and the lanes, roles and shots folders", () => {
+  it("creates meta, ledger header, JSONL headers and the lanes, roles and shots folders, and no runs.jsonl", () => {
     const { repo, run } = freshRun("Add login!");
     expect(run.id).toMatch(/^\d{8}-\d{6}-add-login$/);
     expect(run.dir.startsWith(runsDir(repo))).toBe(true);
@@ -47,7 +56,7 @@ describe("run folder", () => {
       catherdVersion: "0.0.0-test",
     });
     expect(readFileSync(runPaths(run.dir).ledger, "utf8")).toBe(`${LEDGER_HEADER}\n`);
-    expect(readFileSync(runPaths(run.dir).runs, "utf8")).toBe('{"schema":1,"kind":"runs"}\n');
+    expect(existsSync(runPaths(run.dir).runs)).toBe(false);
     expect(findRun(run.id).meta.title).toBe("Add login!");
   });
 
@@ -91,8 +100,9 @@ describe("run folder", () => {
 });
 
 describe("records", () => {
-  it("skips a crash-truncated tail and keeps every row after it whole", async () => {
+  it("skips a crash-truncated tail of an earlier build's runs.jsonl and keeps every row after it whole", async () => {
     const { run } = freshRun();
+    writeFileSync(runPaths(run.dir).runs, '{"schema":1,"kind":"runs"}\n');
     await appendRecord(run, makeRecord({ dispatchId: "D1" }));
     appendFileSync(runPaths(run.dir).runs, '{"schema":1,"runId":"r1","dispa');
     expect(readRecords(run)).toMatchObject({ records: [{ dispatchId: "D1" }], corrupt: 1 });
@@ -105,8 +115,14 @@ describe("records", () => {
     const r = makeRecord({ dispatchId: "D1" });
     const out = await Promise.all([1, 2, 3, 4, 5].map((n) => appendRecord(run, { ...r, secs: n })));
     expect(new Set(out.map((x) => x.secs)).size).toBe(1);
-    const rows = readFileSync(runPaths(run.dir).runs, "utf8").trim().split("\n");
-    expect(rows).toHaveLength(2);
+    expect(existsSync(runPaths(run.dir).runs)).toBe(false);
+    expect(
+      db().query("SELECT dispatch_id, role, status FROM dispatches WHERE run_id = ?").all(run.id),
+    ).toEqual([{ dispatch_id: "D1", role: r.role, status: r.status }]);
+    expect(readRecords(run)).toMatchObject({
+      records: [{ dispatchId: "D1", secs: out[0]?.secs }],
+      corrupt: 0,
+    });
   });
 
   it("drops duplicate and invalid rows another writer left in the file", () => {

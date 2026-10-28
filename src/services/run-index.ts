@@ -163,7 +163,7 @@ export function runIndex(deps: Deps, o: { repo?: string } = {}): RunCard[] {
   }
   for (const run of listing.runs) {
     try {
-      const key = `${lastEventSeq(run)}|${stamp(runPaths(run.dir).runs)}`;
+      const key = `${lastEventSeq(run)}|${stamp(runPaths(run.dir).runs)}|${readRecords(run).records.length}`;
       const hit = cache.get(run.dir);
       if (hit?.key === key) {
         out.push(hit.card);

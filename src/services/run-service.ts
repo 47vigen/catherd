@@ -245,6 +245,7 @@ export function writeRunFile(i: { run: string; path: string; content: string }):
 /** Plan 46: what a role still reads as a run file though its rows are in the database, as the file it was. */
 const ROWS_AS_FILE: Record<string, (run: Run) => unknown[]> = {
   "events.jsonl": (run) => readEvents(run),
+  "runs.jsonl": (run) => readRecords(run).records,
 };
 
 export function readRunFile(i: { run: string; path: string }): string {

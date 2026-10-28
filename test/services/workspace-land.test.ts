@@ -1,4 +1,5 @@
 import { afterEach, expect, it } from "bun:test";
+import { db, ensureRunRow } from "../../src/infra/db.ts";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { admitPath } from "../../src/services/dispatches.ts";
@@ -129,7 +130,12 @@ it("runs the gate's git work before taking the workspace lock (#43 finding 5)", 
 
 it("refuses landing with corrupted dispatch records", async () => {
   const { deps, run, input } = await setup();
-  appendFileSync(runPaths(run.dir).runs, "{broken-record\n");
+  ensureRunRow(db(), run);
+  db()
+    .query(
+      "INSERT INTO dispatches (run_id, dispatch_id, role, rung, status, started_at, ended_at, body) VALUES (?, 'x', 'worker', 'r', 'ok', '', '', '{broken-record')",
+    )
+    .run(run.id);
   await expect(land(deps, input)).rejects.toMatchObject({ code: "E_RUN_CORRUPT" });
   expect(landedMilestones(run)).toEqual([]);
 });

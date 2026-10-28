@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { db } from "../../src/infra/db.ts";
 import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -507,7 +508,7 @@ describe("finalizeDispatch", () => {
     const [a, b] = await Promise.all([finalizeDispatch(run, d), finalizeDispatch(run, d)]);
     expect(a).toEqual(b);
     expect(readRecords(run).records).toHaveLength(1);
-    expect(readFileSync(runPaths(run.dir).runs, "utf8").trim().split("\n")).toHaveLength(2);
+    expect(db().query("SELECT count(*) AS n FROM dispatches WHERE run_id = ?").get(run.id)).toEqual({ n: 1 });
   });
 
   it("finishes a dispatch whose claimer died before writing the record", async () => {
