@@ -41,8 +41,10 @@ export interface ArchTask {
   read: boolean;
   /** the seq of its `dispatch.ended`, for the stall rule */
   endedSeq: number | null;
-  /** spec D7: it ended for a reason a stronger rung may fix (failed, timeout, too_hard, a review BLOCKER) */
+  /** spec D7: it ended for a reason a stronger rung may fix (failed, timeout, too_hard) */
   climbs: boolean;
+  /** spec D7: a review that found a BLOCKER, which climbs the worker's ladder, never its own */
+  blocks: boolean;
 }
 
 export interface ArchCheck {
@@ -204,7 +206,11 @@ export function ladderRung(
   const last = lastEnded(tries.filter((t) => t.role === role));
   const at = last ? ladder.indexOf(last.rung) : -1;
   if (!last || at < 0) return dflt;
-  const climb = tries.some((t) => t.climbs && (t.endedSeq as number) >= (last.endedSeq as number));
+  const climb = tries.some(
+    (t) =>
+      (t.endedSeq as number) >= (last.endedSeq as number) &&
+      (t === last ? t.climbs : t.blocks && !REVIEW_ROLES.includes(role)),
+  );
   return (climb ? ladder[at + 1] : undefined) ?? last.rung;
 }
 
@@ -356,11 +362,8 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       t.state = "ended";
       t.outcome = `${e.status}/${e.replyStatus ?? "none"}`;
       t.endedSeq = e.seq;
-      t.climbs =
-        e.status === "failed" ||
-        e.status === "timeout" ||
-        e.reason === "too_hard" ||
-        (REVIEW_ROLES.includes(t.role) && e.findings.some((f) => f.label === "BLOCKER"));
+      t.climbs = e.status === "failed" || e.status === "timeout" || e.reason === "too_hard";
+      t.blocks = REVIEW_ROLES.includes(t.role) && e.findings.some((f) => f.label === "BLOCKER");
       const mine = byArchitect(t.by);
       const notes = [
         ...(e.reason ? [e.reason] : []),
@@ -395,6 +398,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         read: false,
         endedSeq: null,
         climbs: false,
+        blocks: false,
       };
       if (byArchitect(e.by)) a.idle = 0;
       else push(a, e, `${e.by} delegated ${e.taskId} to the ${e.role}: ${e.why}`, false, e.taskId);

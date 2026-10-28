@@ -118,4 +118,24 @@ describe("spec D7: the ladder's default, climbed on observed failure", () => {
     attempt(log, "T1", "codex:gone#high", { status: "failed", replyStatus: null });
     expect(next(log)).toBe(LOW);
   });
+
+  it("never lets a reviewer's BLOCKER climb the reviewer's own re-review", () => {
+    const log = run();
+    attempt(
+      log,
+      "T1",
+      MID,
+      { findings: [{ label: "BLOCKER", text: "loses the refund", file: "src/pay.ts" }] },
+      "reviewer",
+    );
+    expect(next(log, "L1", "reviewer")).toBe(MID);
+    expect(next(log, "L1", "ui-reviewer")).toBe(LOW);
+  });
+
+  it("never lets another role's failure climb a worker", () => {
+    const log = run();
+    attempt(log, "T1", LOW, {});
+    attempt(log, "T2", MID, { status: "failed", replyStatus: null }, "researcher");
+    expect(next(log)).toBe(LOW);
+  });
 });
