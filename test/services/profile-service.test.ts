@@ -58,7 +58,7 @@ describe("reading profiles", () => {
     withHome();
     expect(listProfiles()).toEqual(["default"]);
     expect(activeName()).toBe("default");
-    expect(profileFor(null, "claude-code").roles.worker.defaultRung).toBe("codex:gpt-6-sol#medium");
+    expect(profileFor(null, "claude-code").roles.worker.rungs[0]).toBe("codex:gpt-6-luna#high");
     const v = validateNamed(undefined, null, "claude-code");
     expect([v.errors, v.warnings.map((w) => w.path)]).toEqual([[], ["decision"]]);
   });

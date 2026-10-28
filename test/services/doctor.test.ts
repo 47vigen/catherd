@@ -210,7 +210,6 @@ describe("doctor", () => {
     expect(check(await run(), "backend:codex")?.fix?.split("\n")).toEqual([
       "npm i -g @openai/codex",
       "or move its roles to claude-code: /catherd-setup in Claude Code, or run (artist needs codex, so it is turned off)",
-      "catherd profile set roles.worker.defaultRung null --profile default --host claude-code",
       to("worker"),
       to("reviewer"),
       to("ui-reviewer"),

@@ -43,7 +43,8 @@ describe("the default profile (spec §7.2)", () => {
       researcher: ["codex:gpt-6-luna#high"],
       judge: ["claude-code:claude-opus-5-5#medium"],
     });
-    expect(p.roles.worker.defaultRung).toBe("codex:gpt-6-sol#medium");
+    // plan 49, spec D7: the worker's ladder starts on its flash-class rung
+    expect(p.roles.worker.defaultRung).toBeUndefined();
   });
 
   it("gives each role its default access", () => {
@@ -337,14 +338,14 @@ describe("patchBetween", () => {
     const a = { ...defaultProfileDoc(), theme: "ginger" } as ReturnType<typeof defaultProfileDoc>;
     const b = applyPatch(a, {
       budget: { usd: 5 },
-      roles: { worker: { rungs: ["codex:gpt-6-sol#high"], defaultRung: null } },
+      roles: { worker: { rungs: ["codex:gpt-6-sol#high"], defaultRung: "codex:gpt-6-sol#high" } },
       failover: { "codex:gpt-6-sol#medium": null },
       notify: ["finish"],
     });
     const p = patchBetween(a, b);
     expect(p).toEqual({
       budget: { usd: 5 },
-      roles: { worker: { rungs: ["codex:gpt-6-sol#high"], defaultRung: null } },
+      roles: { worker: { rungs: ["codex:gpt-6-sol#high"], defaultRung: "codex:gpt-6-sol#high" } },
       failover: { "codex:gpt-6-sol#medium": null },
       notify: ["finish"],
     });

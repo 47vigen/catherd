@@ -41,6 +41,8 @@ export interface ArchTask {
   read: boolean;
   /** the seq of its `dispatch.ended`, for the stall rule */
   endedSeq: number | null;
+  /** spec D7: it ended for a reason a stronger rung may fix (failed, timeout, too_hard, a review BLOCKER) */
+  climbs: boolean;
 }
 
 export interface ArchCheck {
@@ -159,17 +161,51 @@ export const attemptsOn = (a: ArchState, ledgerTask: string): ArchTask[] =>
     (t) => t.ledgerTask === ledgerTask && t.state !== "cancelled" && t.state !== "refused",
   );
 
+/** The attempt that ended last, by its `dispatch.ended` seq (parallel attempts end out of insertion order). */
+const lastEnded = (tries: ArchTask[]): ArchTask | undefined =>
+  tries
+    .filter((t) => t.state === "ended" && t.endedSeq !== null)
+    .reduce<ArchTask | undefined>(
+      (a, t) => (!a || (t.endedSeq as number) > (a.endedSeq as number) ? t : a),
+      undefined,
+    );
+
 /**
  * Spec D10's stall: the ledger task's last attempt ended short of complete, nothing new came in since (no edit of that ledger task,
  * owner answer or check result), and the next would run on the same rung. Returns that attempt, else null.
  */
 export function stalled(s: RunState, ledgerTask: string, rung: string): ArchTask | null {
-  const last = attemptsOn(s.arch, ledgerTask).findLast((t) => t.state === "ended");
+  const last = lastEnded(attemptsOn(s.arch, ledgerTask));
   // a quota end (`limit`) is transient, not a failure the same rung would repeat
   if (!last || last.endedSeq === null || last.outcome === "ok/complete" || last.outcome?.startsWith("limit/"))
     return null;
   const news = Math.max(s.arch.newsSeq, s.arch.ledgerNews[ledgerTask] ?? 0);
   return last.rung === rung && news < last.endedSeq ? last : null;
+}
+
+/** The roles whose BLOCKER finding climbs the ledger task's ladder (spec D7). */
+const REVIEW_ROLES: readonly Role[] = ["reviewer", "ui-reviewer"];
+
+/**
+ * Spec D7: the rung a `delegate_task` with no rung runs on. With no ledger task or no earlier attempt of this role on
+ * it: the ladder's default. Else that attempt's rung, one step up the ladder when it, or an attempt on the same ledger
+ * task that ended after it (a review), ended for a rung reason; at the top it stays there. A rung the ladder no longer
+ * holds falls back to the default.
+ */
+export function ladderRung(
+  a: ArchState,
+  role: Role,
+  ledgerTask: string | null,
+  ladder: readonly string[],
+  dflt: string,
+): string {
+  if (ledgerTask === null) return dflt;
+  const tries = attemptsOn(a, ledgerTask).filter((t) => t.state === "ended" && t.endedSeq !== null);
+  const last = lastEnded(tries.filter((t) => t.role === role));
+  const at = last ? ladder.indexOf(last.rung) : -1;
+  if (!last || at < 0) return dflt;
+  const climb = tries.some((t) => t.climbs && (t.endedSeq as number) >= (last.endedSeq as number));
+  return (climb ? ladder[at + 1] : undefined) ?? last.rung;
 }
 
 /** The dispatches that worked a ledger task, for `ledger/tasks.json`. */
@@ -320,6 +356,11 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       t.state = "ended";
       t.outcome = `${e.status}/${e.replyStatus ?? "none"}`;
       t.endedSeq = e.seq;
+      t.climbs =
+        e.status === "failed" ||
+        e.status === "timeout" ||
+        e.reason === "too_hard" ||
+        (REVIEW_ROLES.includes(t.role) && e.findings.some((f) => f.label === "BLOCKER"));
       const mine = byArchitect(t.by);
       const notes = [
         ...(e.reason ? [e.reason] : []),
@@ -353,6 +394,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         outcome: null,
         read: false,
         endedSeq: null,
+        climbs: false,
       };
       if (byArchitect(e.by)) a.idle = 0;
       else push(a, e, `${e.by} delegated ${e.taskId} to the ${e.role}: ${e.why}`, false, e.taskId);

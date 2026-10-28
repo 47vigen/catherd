@@ -209,8 +209,8 @@ export const BUILTIN_ROLES: Record<Role, RoleConfig> = {
   worker: {
     enabled: true,
     access: DEFAULT_ACCESS.worker,
+    // spec D7: a coding worker starts on the flash-class rung and climbs on observed failure
     rungs: [LUNA_HIGH, SOL("medium"), SOL("high"), SOL("xhigh")],
-    defaultRung: SOL("medium"),
   },
   reviewer: { enabled: true, access: DEFAULT_ACCESS.reviewer, rungs: [SOL("high")] },
   "ui-reviewer": { enabled: true, access: DEFAULT_ACCESS["ui-reviewer"], rungs: [SOL("medium")] },
