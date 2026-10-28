@@ -20,6 +20,7 @@ import {
   type ScorecardTask,
   ScorecardTaskSchema,
   type ScorecardTaskId,
+  runsOf,
   type TaskScore,
 } from "../domain/scorecard.ts";
 import { coveredMs } from "../domain/util.ts";
@@ -28,7 +29,10 @@ import { assetPath } from "../infra/assets.ts";
 import { git, gitHead } from "../infra/git.ts";
 import { dataDir } from "../infra/paths.ts";
 import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
-import { landedMilestones, reviewRounds } from "./run-history.ts";
+import { ledgerOf } from "./ledger-store.ts";
+import { landedMilestones } from "./run-history.ts";
+import { isDaemonRun, replayRun } from "./run-events-store.ts";
+import { metricsOf } from "./run-metrics.ts";
 import { pauseSpans } from "./pause.ts";
 import { checkEnvFor, runCheck } from "./check-command.ts";
 import { openQuestions } from "./questions.ts";
@@ -274,13 +278,18 @@ export async function scoreTask(i: {
   const p = readPrepared(i.dir);
   const task = loadTask(p.task, i.root);
   const run = pickRun(p, i.run);
-  const milestones = runMilestones(run);
-  const landed = landedMilestones(run);
-  const finished =
-    milestones.length > 0 &&
-    milestones.every((m) => landed.includes(m)) &&
-    openQuestions(run).length === 0 &&
-    !supersededBy(run);
+  const s = isDaemonRun(run) ? replayRun(run) : null;
+  // plan 51: an architect run's milestones are its ledger tasks, and it finished when it ended done
+  const ledger = s && s.arch.turns > 0 ? ledgerOf(run, s) : null;
+  const milestones = ledger ? ledger.map((t) => t.id) : runMilestones(run);
+  const landed = ledger ? ledger.filter((t) => t.state === "done").map((t) => t.id) : landedMilestones(run);
+  const finished = ledger
+    ? s?.phase === "ended" && s.outcome === "done"
+    : milestones.length > 0 &&
+      milestones.every((m) => landed.includes(m)) &&
+      openQuestions(run).length === 0 &&
+      !supersededBy(run);
+  const metrics = metricsOf(run, i.now);
   const end = runEnd(run);
   const start = Date.parse(run.meta.createdAt);
 
@@ -336,9 +345,8 @@ export async function scoreTask(i: {
     landed,
     finished,
     interventions: interventionsOf(run, end, i.chat ?? 0),
-    reviewRounds: milestones.reduce((n, m) => n + reviewRounds(run, m), 0),
-    // shortcut: outcomes.jsonl is gone (plan 50); plan 51's views count tasks and climbs from the database
-    lanes: { total: 0, landed: 0, climbs: 0 },
+    reviewRounds: metrics.rounds.total,
+    lanes: { total: milestones.length, landed: landed.length, climbs: metrics.climbs },
     wallMinutes: minutes(Math.max(0, end - start - coveredMs(start, end, pauseSpans(run)))),
     pausedMinutes: minutes(pausedMs(run, end)),
     quota: {
@@ -355,6 +363,7 @@ export async function scoreTask(i: {
           }
         : null,
     recordedAt: new Date(i.now).toISOString(),
+    metrics,
   };
 }
 
@@ -369,6 +378,9 @@ export function saveTaskScore(file: string, label: string, s: TaskScore): Promis
   ensurePrivateDir(dirname(file));
   return withFileLock(file, () => {
     const f = readScorecard(file) ?? { schema: 1 as const, label, tasks: {} };
+    // plan 51: every run of a task is kept; recording the same run again replaces it
+    const runs = runsOf(f, s.task).filter((r) => r.run !== s.run);
+    f.runs = { ...f.runs, [s.task]: [...runs, s] };
     f.tasks[s.task] = s;
     writeJsonAtomic(file, f);
     return f;

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { errorMessage } from "../domain/errors.ts";
 import { PARK_REASONS, describeEvent, type ParkReason, type RunEvent } from "../domain/run-events.ts";
 import { type RunState, liveDispatches } from "../domain/run-state.ts";
+import { RunMetricsSchema } from "../domain/run-metrics.ts";
 import { coveredMs } from "../domain/util.ts";
 import { log } from "../infra/log.ts";
 import { daemonAlive, ensureDaemon, readHeartbeat } from "./daemon.ts";
@@ -12,6 +13,7 @@ import type { Deps } from "./ports.ts";
 import { pauseSpans } from "./pause.ts";
 import { openQuestions } from "./questions.ts";
 import { isDaemonRun, readEvents, replayRun, tailEvents } from "./run-events-store.ts";
+import { safeMetrics } from "./run-metrics.ts";
 import { findRun, listRuns, type Run } from "./run-store.ts";
 
 /**
@@ -77,6 +79,8 @@ export const RunViewSchema = z.object({
   waitingSec: z.number(),
   /** when `elapsedSec` was read, while the run is live and no pause is open: the page counts on from it */
   countingSince: z.string().nullable(),
+  /** plan 51, spec D17: idle, concurrency, blocked time, check share, rounds; null when the run cannot be read */
+  metrics: RunMetricsSchema.nullable(),
 });
 export type RunView = z.infer<typeof RunViewSchema>;
 
@@ -148,6 +152,7 @@ function view15(deps: Deps, run: Run): RunView {
     elapsedSec: 0,
     waitingSec: 0,
     countingSince: null,
+    metrics: safeMetrics(run, now),
   };
 }
 
@@ -196,6 +201,7 @@ export function runView(deps: Deps, runId: string): RunView {
   const beat = readHeartbeat(run);
   const events = readEvents(run);
   const last = events.at(-1);
+  const metrics = safeMetrics(run, deps.now(), { events, s });
   return {
     id: run.id,
     title: run.meta.title,
@@ -214,7 +220,7 @@ export function runView(deps: Deps, runId: string): RunView {
       title: t.goal,
       status: t.state,
       round: t.attempts.length,
-      reviews: 0,
+      reviews: metrics?.rounds.perTask[t.id] ?? 0,
       commit: null,
     })),
     live: liveDispatches(s).map((d) => ({
@@ -236,6 +242,7 @@ export function runView(deps: Deps, runId: string): RunView {
       s.phase === "ended" ? Date.parse(last?.at ?? run.meta.createdAt) : deps.now(),
       s.phase !== "ended",
     ),
+    metrics,
   };
 }
 

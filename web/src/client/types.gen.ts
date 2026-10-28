@@ -43,6 +43,27 @@ export type RunView = {
     elapsedSec: number;
     waitingSec: number;
     countingSince: string | null;
+    metrics: {
+        wallMin: number;
+        idlePct: number;
+        concurrency: number;
+        blockedMin: {
+            [key: string]: number;
+        };
+        checkShare: number | null;
+        rounds: {
+            perTask: {
+                [key: string]: number;
+            };
+            max: number;
+            total: number;
+        };
+        climbs: number;
+        costUsd: number | null;
+        standingStartSec: number | null;
+        ownerQuestions: number;
+        verifierFails: number;
+    } | null;
 };
 
 export type RunCard = {
@@ -122,7 +143,7 @@ export type RunNode = {
     kind: 'start' | 'architect' | 'later' | 'route' | 'preflight' | 'lane' | 'check' | 'commit' | 'review' | 'verify' | 'integrate' | 'land' | 'judge' | 'report' | 'end';
     milestone: string | null;
     lane: string | null;
-    role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'ui-reviewer' | 'artist' | 'writer' | 'researcher' | null;
+    role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'artist' | 'writer' | 'researcher' | null;
     title: string;
     status: 'pending' | 'running' | 'done' | 'failed' | 'parked' | 'skipped' | 'cancelled';
     now: string;
@@ -248,19 +269,14 @@ export type DispatchDetail = {
         isolated: boolean;
         cliVersion: string | null;
     } | null;
-    route: {
-        source: string;
-        decidedBy: string;
-        why: string;
-        ladder: Array<string>;
-    } | null;
     brief: string | null;
     reply: string | null;
     stderr: string | null;
     findings: Array<{
-        label: 'BLOCKER' | 'BUG' | 'NIT';
+        label: 'IMPORTANT' | 'NIT' | 'PRE-EXISTING' | 'BLOCKER' | 'BUG';
         text: string;
         file: string | null;
+        class?: string;
     }>;
     aLines: Array<{
         id: string;
@@ -584,7 +600,7 @@ export type SetupView = {
         warnings: Array<Issue>;
     };
     roles: Array<{
-        role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'ui-reviewer' | 'artist' | 'writer' | 'researcher';
+        role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'artist' | 'writer' | 'researcher';
         enabled: boolean;
         access: 'read-only' | 'workspace-write' | 'full';
         network: boolean;

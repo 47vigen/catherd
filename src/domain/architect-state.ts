@@ -1,9 +1,9 @@
 import { CAP_GRACE_MS, CAP_WARN } from "./caps.ts";
 import { quotaOf } from "./failover.ts";
-import { tryParseRung } from "./ids.ts";
+import { modelFamily, tryParseRung } from "./ids.ts";
 import type { TaskAttempt } from "./ledger.ts";
 import type { Role } from "./roles.ts";
-import { RUN_UNIT, type RunEvent } from "./run-events.ts";
+import { type Finding, type Handling, RUN_UNIT, type RunEvent } from "./run-events.ts";
 import { HOLD_MS, liveDispatches, type RunState, recomputeWake } from "./run-state.ts";
 
 /**
@@ -43,8 +43,16 @@ export interface ArchTask {
   endedSeq: number | null;
   /** spec D7: it ended for a reason a stronger rung may fix (failed, timeout, too_hard) */
   climbs: boolean;
-  /** spec D7: a review that found a BLOCKER, which climbs the worker's ladder, never its own */
+  /** spec D7: a review that found an IMPORTANT (or a BLOCKER), which climbs the worker's ladder, never its own */
   blocks: boolean;
+  /** the seq of its `task.delegated` */
+  delegatedSeq: number;
+  /** plan 51, spec D8: a review's findings, numbered from 1 in this order, and how the architect handled each */
+  findings: Finding[];
+  handled: Record<number, Handling>;
+  /** a review's snapshot of the tree it read, the next review's base; a review on its author's family */
+  snapshot: string | null;
+  sameFamily: boolean;
 }
 
 export interface ArchCheck {
@@ -166,7 +174,10 @@ export function checkWall(s: RunState, e: RunEvent): boolean {
     );
   }
   if (a.wall === "capped" && spent >= cap + CAP_GRACE_MS)
-    a.finishing = { verdict: "stopped", why: `cap: the run's wall time (${hours(cap)}) is spent` };
+    a.finishing = {
+      verdict: "stopped",
+      why: `cap: the run's wall time (${hours(cap)}) is spent`,
+    };
   return `${a.wall}/${a.finishing === null}` !== before;
 }
 
@@ -198,8 +209,67 @@ export function stalled(s: RunState, ledgerTask: string, rung: string): ArchTask
   return last.rung === rung && news < last.endedSeq ? last : null;
 }
 
-/** The roles whose BLOCKER finding climbs the ledger task's ladder (spec D7). */
-const REVIEW_ROLES: readonly Role[] = ["reviewer", "ui-reviewer"];
+/** The role whose IMPORTANT finding climbs the ledger task's ladder (spec D7, D8). */
+const REVIEW_ROLES: readonly Role[] = ["reviewer"];
+/** Roles whose dispatch on a ledger task is not an attempt at it: they read or check the work (spec D10's cap). */
+const READERS: readonly Role[] = ["reviewer", "verifier", "researcher"];
+/** Spec D8: review rounds on one ledger task before the architect must replan it. */
+export const REVIEW_ROUNDS = 3;
+
+/** Spec D10's attempts cap counts the dispatches that worked the ledger task, never its reviews or checks. */
+export const workAttempts = (a: ArchState, ledgerTask: string): ArchTask[] =>
+  attemptsOn(a, ledgerTask).filter((t) => !READERS.includes(t.role));
+
+/** A review that ended without a usable reply (failed, timed out, blocked or refused): no round, no diff base. */
+const failedReview = (t: ArchTask): boolean =>
+  t.outcome !== null &&
+  (!t.outcome.startsWith("ok/") || t.outcome === "ok/blocked" || t.outcome === "ok/refused");
+
+/**
+ * Spec D8: the reviews of a ledger task since the architect last edited it: a replan starts the count again. A review
+ * that ended without a usable reply is no round.
+ */
+export const reviewRounds = (a: ArchState, ledgerTask: string): ArchTask[] =>
+  attemptsOn(a, ledgerTask).filter(
+    (t) => t.role === "reviewer" && !failedReview(t) && t.delegatedSeq > (a.ledgerNews[ledgerTask] ?? 0),
+  );
+
+/** The ledger task's last usable review that ended with a snapshot: a re-review reads only the diff since it (spec D8). */
+export const lastReview = (a: ArchState, ledgerTask: string): ArchTask | undefined =>
+  lastEnded(
+    attemptsOn(a, ledgerTask).filter((t) => t.role === "reviewer" && t.snapshot !== null && !failedReview(t)),
+  );
+
+/**
+ * The rung whose work a review reads: the ledger task's latest work attempt that started (running or ended; a queued,
+ * cancelled or refused one has done no work), else the run's latest such attempt; null when nothing was worked yet.
+ */
+export function authorRung(a: ArchState, ledgerTask: string | null): string | null {
+  const work = Object.values(a.tasks).filter(
+    (t) =>
+      !READERS.includes(t.role) && t.dispatchId !== null && t.state !== "cancelled" && t.state !== "refused",
+  );
+  const mine = ledgerTask === null ? [] : work.filter((t) => t.ledgerTask === ledgerTask);
+  const pick = (ts: ArchTask[]) =>
+    ts.reduce<ArchTask | undefined>((x, t) => (!x || t.delegatedSeq > x.delegatedSeq ? t : x), undefined);
+  return (pick(mine) ?? pick(work))?.rung ?? null;
+}
+
+/**
+ * Spec D8: a review with no rung runs on the first rung of another model family than the author's, from `from` (the
+ * ladder's pick) upward, then from the bottom; with none on the ladder it runs on `from`, marked same-family.
+ */
+export function crossFamilyRung(
+  ladder: readonly string[],
+  from: string,
+  author: string | null,
+): { rung: string; sameFamily: boolean } {
+  const family = author === null ? null : modelFamily(author);
+  if (family === null) return { rung: from, sameFamily: false };
+  const at = Math.max(0, ladder.indexOf(from));
+  const other = [...ladder.slice(at), ...ladder.slice(0, at)].find((r) => modelFamily(r) !== family);
+  return other === undefined ? { rung: from, sameFamily: true } : { rung: other, sameFamily: false };
+}
 
 /**
  * Spec D7: the rung a `delegate_task` with no rung runs on. With no ledger task or no earlier attempt of this role on
@@ -227,6 +297,27 @@ export function ladderRung(
   return (climb ? ladder[at + 1] : undefined) ?? last.rung;
 }
 
+/**
+ * Spec D8, D11: the merge request's Known issues. Ledger tasks set impossible or blocked; every review's PRE-EXISTING
+ * finding and each one the architect logged as a known issue; an IMPORTANT one it logged no handling for.
+ */
+export function knownIssues(
+  a: ArchState,
+  ledger: readonly { id: string; state: string; goal: string }[],
+): string[] {
+  const out = ledger
+    .filter((t) => t.state === "impossible" || t.state === "blocked")
+    .map((t) => `${t.id} ${t.state}: ${t.goal}`);
+  for (const t of Object.values(a.tasks))
+    t.findings.forEach((f, i) => {
+      const how = t.handled[i + 1];
+      if (f.label === "PRE-EXISTING" || how === "known-issue") out.push(`${t.taskId} #${i + 1}: ${f.text}`);
+      else if (f.label === "IMPORTANT" && how === undefined)
+        out.push(`${t.taskId} #${i + 1} (no handling logged): ${f.text}`);
+    });
+  return out;
+}
+
 /** The dispatches that worked a ledger task, for `ledger/tasks.json`. */
 export const taskAttempts = (a: ArchState): TaskAttempt[] =>
   Object.values(a.tasks)
@@ -242,6 +333,13 @@ export const taskAttempts = (a: ArchState): TaskAttempt[] =>
 /** The architect's own calls, and the owner's through `catherd call`: their results wake the architect. */
 const byArchitect = (by: string): boolean =>
   by === "owner" || by === "architect" || by.startsWith("architect-");
+
+/** A review's findings in one digest note: `2 important, 1 nit`, or `clean`. */
+function findingCounts(fs: Finding[]): string {
+  const n = new Map<string, number>();
+  for (const f of fs) n.set(f.label.toLowerCase(), (n.get(f.label.toLowerCase()) ?? 0) + 1);
+  return n.size ? [...n].map(([l, c]) => `${c} ${l}`).join(", ") : "clean";
+}
 
 function push(a: ArchState, e: RunEvent, text: string, wakes = true, taskId?: string): void {
   a.inbox.push({ seq: e.seq, text, wakes, ...(taskId ? { taskId } : {}) });
@@ -339,7 +437,12 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       const dv = s.dispatches[e.dispatchId];
       if (!dv) return true;
       dv.thread = e.thread ?? dv.thread;
-      dv.ended = { at: e.at, status: e.status, replyStatus: e.replyStatus, reason: e.reason };
+      dv.ended = {
+        at: e.at,
+        status: e.status,
+        replyStatus: e.replyStatus,
+        reason: e.reason,
+      };
       const rung = tryParseRung(dv.rung);
       if (rung) {
         if (e.status === "limit") s.holds[quotaOf(rung)] = new Date(Date.parse(e.at) + HOLD_MS).toISOString();
@@ -362,7 +465,10 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         }
         a.idle += 1;
         if (a.idle >= 2)
-          a.finishing = { verdict: "stopped", why: "idle: two turns in a row ended with nothing running" };
+          a.finishing = {
+            verdict: "stopped",
+            why: "idle: two turns in a row ended with nothing running",
+          };
         else
           push(
             a,
@@ -377,12 +483,18 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       t.outcome = `${e.status}/${e.replyStatus ?? "none"}`;
       t.endedSeq = e.seq;
       t.climbs = !e.lost && (e.status === "failed" || e.status === "timeout" || e.reason === "too_hard");
-      t.blocks = REVIEW_ROLES.includes(t.role) && e.findings.some((f) => f.label === "BLOCKER");
+      t.blocks =
+        REVIEW_ROLES.includes(t.role) &&
+        e.findings.some((f) => f.label === "IMPORTANT" || f.label === "BLOCKER");
+      if (t.role === "reviewer") t.findings = e.findings;
       const mine = byArchitect(t.by);
       const notes = [
         ...(e.reason ? [e.reason] : []),
-        ...(t.ledgerTask
-          ? [`attempt ${attemptsOn(a, t.ledgerTask).length} of ${s.caps.attempts} on ${t.ledgerTask}`]
+        ...(t.ledgerTask && !READERS.includes(t.role)
+          ? [`attempt ${workAttempts(a, t.ledgerTask).length} of ${s.caps.attempts} on ${t.ledgerTask}`]
+          : []),
+        ...(t.role === "reviewer" && e.status === "ok"
+          ? [findingCounts(t.findings), ...(t.sameFamily ? ["same-family"] : [])]
           : []),
       ];
       const ended = `ended ${t.outcome}${notes.length ? ` (${notes.join(", ")})` : ""}`;
@@ -413,6 +525,11 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         endedSeq: null,
         climbs: false,
         blocks: false,
+        delegatedSeq: e.seq,
+        findings: [],
+        handled: {},
+        snapshot: e.snapshot ?? null,
+        sameFamily: e.sameFamily === true,
       };
       if (byArchitect(e.by)) a.idle = 0;
       else push(a, e, `${e.by} delegated ${e.taskId} to the ${e.role}: ${e.why}`, false, e.taskId);
@@ -456,7 +573,12 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       return true;
     }
     case "land.requested":
-      a.lands[e.landId] = { landId: e.landId, final: e.final, why: e.why, state: "queued" };
+      a.lands[e.landId] = {
+        landId: e.landId,
+        final: e.final,
+        why: e.why,
+        state: "queued",
+      };
       a.idle = 0;
       return true;
     case "land.done": {
@@ -471,7 +593,13 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       for (const id of e.tasks) a.ledgerNews[id] = e.seq;
       return true;
     case "thread.sent":
+    case "review.missed":
       return true;
+    case "findings.handled": {
+      const t = a.tasks[e.taskId];
+      if (t) for (const h of e.handled) t.handled[h.n] = h.as;
+      return true;
+    }
     case "run.finishing":
       a.idle = 0;
       a.finishing ??= { verdict: e.verdict, why: e.why };
@@ -486,7 +614,10 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       push(a, e, `the owner answered (${e.unit}): ${e.answer}`);
       // spec D11: the merge question is the run's last; the run does not wait on the merge itself
       if (e.unit === RUN_UNIT && a.mergeAsked)
-        a.finishing ??= { verdict: "done", why: `the owner answered the merge question: ${e.answer}` };
+        a.finishing ??= {
+          verdict: "done",
+          why: `the owner answered the merge question: ${e.answer}`,
+        };
       return true;
     case "effect.failed": {
       if (e.action === "report" || e.action === "notify" || e.action === "remind") return true;

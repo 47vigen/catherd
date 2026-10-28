@@ -177,16 +177,15 @@ describe("rolePrompt", () => {
     expect(roleContract("worker", "1.0.0")).not.toBe(roleContract("verifier", "1.0.0"));
   });
 
-  it("gives the reviewer t3herd's rules and the plan rule", () => {
+  it("gives the reviewer t3herd's rules on the spec D8 scale", () => {
     const text = rolePrompt("reviewer", "1.0.0");
     for (const s of [
-      "A problem is a BUG, never a NIT, when it breaks a standing rule",
-      "names every place in the diff",
+      "a broken standing rule of the repository",
+      "every place the work has that class",
       "closest sibling",
-      "never findings: catherd writes the commits",
+      "are never findings",
       "in this one pass",
       "do not run the test suites",
-      "departs from its plan task with no DESIGN: answer",
     ])
       expect(text).toContain(s);
   });

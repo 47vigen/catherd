@@ -1569,6 +1569,103 @@
               "string",
               "null"
             ]
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "wallMin": {
+                    "type": "number"
+                  },
+                  "idlePct": {
+                    "type": "number"
+                  },
+                  "concurrency": {
+                    "type": "number"
+                  },
+                  "blockedMin": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "number"
+                    }
+                  },
+                  "checkShare": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "rounds": {
+                    "type": "object",
+                    "properties": {
+                      "perTask": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": "number"
+                        }
+                      },
+                      "max": {
+                        "type": "number"
+                      },
+                      "total": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "perTask",
+                      "max",
+                      "total"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "climbs": {
+                    "type": "number"
+                  },
+                  "costUsd": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "standingStartSec": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "ownerQuestions": {
+                    "type": "number"
+                  },
+                  "verifierFails": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "wallMin",
+                  "idlePct",
+                  "concurrency",
+                  "blockedMin",
+                  "checkShare",
+                  "rounds",
+                  "climbs",
+                  "costUsd",
+                  "standingStartSec",
+                  "ownerQuestions",
+                  "verifierFails"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1589,7 +1686,8 @@
           "updatedAt",
           "elapsedSec",
           "waitingSec",
-          "countingSince"
+          "countingSince",
+          "metrics"
         ],
         "additionalProperties": false
       },
@@ -2075,7 +2173,6 @@
                   "verifier",
                   "worker",
                   "reviewer",
-                  "ui-reviewer",
                   "artist",
                   "writer",
                   "researcher"
@@ -2799,40 +2896,6 @@
               }
             ]
           },
-          "route": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "source": {
-                    "type": "string"
-                  },
-                  "decidedBy": {
-                    "type": "string"
-                  },
-                  "why": {
-                    "type": "string"
-                  },
-                  "ladder": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                },
-                "required": [
-                  "source",
-                  "decidedBy",
-                  "why",
-                  "ladder"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "brief": {
             "type": [
               "string",
@@ -2859,9 +2922,11 @@
                 "label": {
                   "type": "string",
                   "enum": [
+                    "IMPORTANT",
+                    "NIT",
+                    "PRE-EXISTING",
                     "BLOCKER",
-                    "BUG",
-                    "NIT"
+                    "BUG"
                   ]
                 },
                 "text": {
@@ -2872,6 +2937,9 @@
                     "string",
                     "null"
                   ]
+                },
+                "class": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -2930,7 +2998,6 @@
           "replyStatus",
           "why",
           "record",
-          "route",
           "brief",
           "reply",
           "stderr",
@@ -3580,7 +3647,6 @@
                 "verifier",
                 "worker",
                 "reviewer",
-                "ui-reviewer",
                 "artist",
                 "writer",
                 "researcher"
@@ -4491,7 +4557,6 @@
                     "verifier",
                     "worker",
                     "reviewer",
-                    "ui-reviewer",
                     "artist",
                     "writer",
                     "researcher"

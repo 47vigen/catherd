@@ -99,3 +99,33 @@ describe("run events (plan 48: the reducer's vocabulary, spec D4)", () => {
     expect(RunEventSchema.safeParse({ ...started, engine: "3.0" }).success).toBe(false);
   });
 });
+
+describe("an earlier run's ui-reviewer (plan 51, spec D16)", () => {
+  it("reads its dispatch and its task as the reviewer's", () => {
+    const base = { v: EVENTS_SCHEMA, seq: 2, at: "2026-10-27T10:00:00.000Z" };
+    const started = RunEventSchema.parse({
+      ...base,
+      type: "dispatch.started",
+      dispatchId: "D1",
+      name: "T3",
+      role: "ui-reviewer",
+      unit: "T3",
+      lane: null,
+      rung: "codex:gpt-6-sol#medium",
+      thread: null,
+    });
+    expect(started).toMatchObject({ role: "reviewer" });
+    const delegated = RunEventSchema.parse({
+      ...base,
+      type: "task.delegated",
+      taskId: "T3",
+      role: "ui-reviewer",
+      rung: "codex:gpt-6-sol#medium",
+      thread: null,
+      ledgerTask: null,
+      by: "architect-1",
+      why: "screens",
+    });
+    expect(delegated).toMatchObject({ role: "reviewer" });
+  });
+});

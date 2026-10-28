@@ -202,7 +202,6 @@ export const ROLE_NEEDS: Record<Role, { toolUse?: true; imageIn?: true; imageGen
   verifier: { toolUse: true },
   worker: { toolUse: true },
   reviewer: { toolUse: true },
-  "ui-reviewer": { toolUse: true, imageIn: true },
   artist: { imageGen: true },
   writer: { toolUse: true },
   researcher: { toolUse: true },
@@ -214,18 +213,17 @@ export const ROLE_NEEDS: Record<Role, { toolUse?: true; imageIn?: true; imageGen
  */
 export function capableFor(c: Catalog, info: RungInfo, role: Role): boolean {
   const need = ROLE_NEEDS[role];
-  const listedImage = listingOf(c, info.parsed.backend)?.models.find(
-    (m) => m.id === info.parsed.model,
-  )?.imageIn;
-  const caps = info.family?.capabilities ?? {
-    toolUse: true,
-    imageIn: listedImage ?? false,
-    reasoning: false,
-  };
-  if (need.toolUse && !caps.toolUse) return false;
-  if (need.imageIn && !caps.imageIn) return false;
+  const toolUse = info.family?.capabilities.toolUse ?? true;
+  if (need.toolUse && !toolUse) return false;
+  if (need.imageIn && !seesImages(c, info)) return false;
   if (need.imageGen && !c.backends[info.parsed.backend]?.imageGen) return false;
   return true;
+}
+
+/** Whether the rung's model reads images: its family's capability, else its backend listing's (plan 51: a UI pass). */
+export function seesImages(c: Catalog, info: RungInfo): boolean {
+  if (info.family) return info.family.capabilities.imageIn;
+  return listingOf(c, info.parsed.backend)?.models.find((m) => m.id === info.parsed.model)?.imageIn ?? false;
 }
 
 /** An effort the rung's model offers; `default` (no effort flag, spec §5.1) always is. */

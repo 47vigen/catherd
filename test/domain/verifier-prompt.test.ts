@@ -101,9 +101,7 @@ describe("plan 45: no walls, and gates judge the product", () => {
     expect(verifier).toContain("Judge the product, never the process");
     const architect = rolePrompt("architect", "1.5.0");
     expect(architect).not.toContain("what no worker may touch");
-    expect(rolePrompt("reviewer", "1.5.0")).toContain(
-      "A file changed outside its lane's Owns is no finding by itself",
-    );
+    expect(rolePrompt("reviewer", "1.5.0")).toContain("which files it touched: judge the change");
   });
 
   it("the architect changes the plan mid-run with no approval and no test refusal", () => {

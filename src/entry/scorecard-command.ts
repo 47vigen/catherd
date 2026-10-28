@@ -6,6 +6,8 @@ import {
   SCORECARD_TASKS,
   type ScorecardFile,
   type ScorecardTaskId,
+  type StageVerdict,
+  stageBar,
   type Verdict,
 } from "../domain/scorecard.ts";
 import {
@@ -69,6 +71,29 @@ export function formatComparison(
     `scorecard ${current.label} against ${baseline ? baseline.label : "no baseline"}`,
     ...SCORECARD_TASKS.map((id) => row(id, current, baseline)),
     ...v.notes.map((n) => `NOTE: ${n}`),
+    ...(v.pass ? ["PASS"] : v.failures.map((f) => `FAIL: ${f}`)),
+  ];
+}
+
+const opt = (n: number | null, unit = ""): string => (n === null ? "?" : `${num(n)}${unit}`);
+
+/** Spec D17: a stage against its baseline, one line per task, then each failure, then the verdict. */
+export function formatStage(current: ScorecardFile, baseline: ScorecardFile, v: StageVerdict): string[] {
+  return [
+    `stage ${current.label} against ${baseline.label}, per task (medians)`,
+    ...v.rows.map((r) =>
+      [
+        r.task,
+        `runs ${r.runs} (${r.finished} finished)`,
+        `wall ${opt(r.wallMin, " min")} (${opt(r.baselineWallMin, " min")})`,
+        `idle ${opt(r.idlePct, "%")}`,
+        `concurrency ${opt(r.concurrency)}`,
+        `blocked ${opt(r.blockedMin, " min")}`,
+        `checks ${r.checkShare === null ? "?" : `${num(r.checkShare * 100)}%`}`,
+        `rounds ${opt(r.rounds)}`,
+        `climbs ${opt(r.climbs)}`,
+      ].join("  "),
+    ),
     ...(v.pass ? ["PASS"] : v.failures.map((f) => `FAIL: ${f}`)),
   ];
 }
@@ -179,10 +204,41 @@ const compare = defineCommand({
   },
 });
 
+const stage = defineCommand({
+  meta: {
+    name: "stage",
+    description:
+      "Compare a label's runs with a baseline's, task by task, on two or more runs each (spec D17)",
+  },
+  args: {
+    label: { type: "positional", required: true, description: "the stage's label" },
+    baseline: { type: "string", required: true, description: "the label of the stage before it" },
+    ...RESULTS_ARG,
+    ...JSON_ARG,
+  },
+  run({ args }) {
+    const dir = resultsDir(checkoutRoot(), args.results);
+    const current = readScorecard(resultsFile(dir, args.label));
+    if (!current)
+      throw new CatherdError("E_INPUT_INVALID", `no scorecard ${args.label} yet`, {
+        fix: `catherd scorecard record <dir> --label ${args.label}`,
+      });
+    const baseline = readScorecard(resultsFile(dir, args.baseline));
+    if (!baseline)
+      throw new CatherdError("E_INPUT_INVALID", `no scorecard ${args.baseline} yet`, {
+        fix: `catherd scorecard record <dir> --label ${args.baseline}`,
+      });
+    const verdict = stageBar(current, baseline);
+    process.exitCode = verdict.pass ? 0 : 1;
+    if (args.json) return printJson({ current: current.label, baseline: baseline.label, verdict });
+    for (const line of formatStage(current, baseline, verdict)) console.log(line);
+  },
+});
+
 export const scorecardCommand = defineCommand({
   meta: {
     name: "scorecard",
     description: "Contributors: measure a catherd version on four fixed tasks against the 1.5.0 baseline",
   },
-  subCommands: { prepare, record, compare },
+  subCommands: { prepare, record, compare, stage },
 });

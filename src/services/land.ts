@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { ArchLand } from "../domain/architect-state.ts";
+import { type ArchLand, knownIssues } from "../domain/architect-state.ts";
 import { isGithub, landSubject, mrCommand, runBranch } from "../domain/branch.ts";
 import { errorMessage } from "../domain/errors.ts";
 import { isTestPath, mrBody, SKIP_LINE } from "../domain/mr-body.ts";
@@ -8,7 +8,7 @@ import { db } from "../infra/db.ts";
 import { currentBranch, fetchBase, gitOrigin, gitRun } from "../infra/git.ts";
 import { ensurePrivateDir, writeTextAtomic } from "../infra/store.ts";
 import { ledgerTasks } from "./ledger-store.ts";
-import { appendEvent, readEvents } from "./run-events-store.ts";
+import { appendEvent, readEvents, replayRun } from "./run-events-store.ts";
 import type { Run } from "./run-store.ts";
 import { branchPusher } from "./run-tree.ts";
 import { runTree } from "./tree-path.ts";
@@ -166,6 +166,8 @@ const WHY_EVENTS = new Set([
   "thread.sent",
   "run.finishing",
   "land.requested",
+  "findings.handled",
+  "review.missed",
 ]);
 
 /**
@@ -251,9 +253,7 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
       audit: events
         .filter((e) => WHY_EVENTS.has(e.type) || (e.type === "question.parked" && e.why))
         .map((e) => describeEvent(e)),
-      knownIssues: tasks
-        .filter((t) => t.state === "impossible" || t.state === "blocked")
-        .map((t) => `${t.id} ${t.state}: ${t.goal}`),
+      knownIssues: knownIssues(replayRun(run).arch, tasks),
       tests: {
         deleted: lines(await out(tree, ["diff", "--name-only", "--diff-filter=D", mb, "HEAD"])).filter(
           isTestPath,

@@ -3,21 +3,26 @@ import { join } from "node:path";
 import { z } from "zod";
 import {
   type ArchTask,
-  attemptsOn,
+  authorRung,
+  crossFamilyRung,
   isStanding,
   ladderRung,
+  REVIEW_ROUNDS,
+  reviewRounds,
   STANDING_CAP,
   stalled,
   taskAttempts,
   WRITER_CAP,
+  workAttempts,
 } from "../domain/architect-state.ts";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
-import { headlessRung, ID_PATTERN } from "../domain/ids.ts";
+import { headlessRung, ID_PATTERN, modelFamily } from "../domain/ids.ts";
 import { LedgerPatchSchema } from "../domain/ledger.ts";
 import { type ArchitectTool, DELEGATOR_TOOLS } from "../domain/role-tools.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
-import { RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
+import { HANDLINGS, RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
 import type { RunState } from "../domain/run-state.ts";
+import { snapshotTree } from "../infra/git.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import { researchFile, taskBriefFile } from "./architect-run.ts";
 import { budgetOf } from "./budget.ts";
@@ -28,6 +33,7 @@ import { isEarlierRun, replayRun, withEventsLock } from "./run-events-store.ts";
 import { runProfile } from "./run-pin.ts";
 import { readRecords, type Run } from "./run-store.ts";
 import { MESSAGE_KINDS, teamRead, teamSend } from "./team.ts";
+import { runTree } from "./tree-path.ts";
 
 /**
  * Plan 47, spec D3 and D12: the architect's tools on the architect engine. Each one only reads the run or appends the
@@ -105,7 +111,13 @@ const defaultOf = (rc: { rungs: string[]; defaultRung?: string }): string =>
 async function delegate(
   c: ToolContext,
   i: { role: Role; task: string; rung?: string; ledgerTask?: string; thread?: string | null; why: string },
-): Promise<{ taskId: string; rung: string; thread: string | null; reportPath: string | null }> {
+): Promise<{
+  taskId: string;
+  rung: string;
+  sameFamily: boolean;
+  thread: string | null;
+  reportPath: string | null;
+}> {
   if (!isArchitect(c.caller) && !isStanding(i.role))
     throw new CatherdError(
       "E_ROLE_SCOPE",
@@ -124,7 +136,11 @@ async function delegate(
     if (!ledgerTasks(c.run).some((t) => t.id === i.ledgerTask))
       throw invalid(`the ledger has no task ${i.ledgerTask}`, "add it with ledger first");
   }
+  const review = i.role === "reviewer";
+  // plan 51: the tree a review reads, so the next review of the same ledger task reads only what changed since
+  const snapshot = review ? await reviewSnapshot(c.run) : null;
   let rung = "";
+  let sameFamily = false;
   const id = await withEventsLock(c.run, (add) => {
     const s = replayRun(c.run);
     // spec D7: no rung is the ladder's default, or one step up after a rung failure on this ledger task
@@ -132,10 +148,23 @@ async function delegate(
       i.rung === undefined
         ? ladderRung(s.arch, i.role, i.ledgerTask ?? null, ladder, defaultOf(rc))
         : headlessRung(i.rung);
-    if (i.ledgerTask !== undefined) {
+    if (review) {
+      // spec D8: a review runs on another model family than the work it reads, and says so when it cannot
+      const author = authorRung(s.arch, i.ledgerTask ?? null);
+      if (i.rung === undefined) ({ rung, sameFamily } = crossFamilyRung(ladder, rung, author));
+      else sameFamily = author !== null && modelFamily(author) === modelFamily(rung);
+    }
+    if (i.ledgerTask !== undefined && review) {
+      const rounds = reviewRounds(s.arch, i.ledgerTask).length;
+      if (rounds >= REVIEW_ROUNDS)
+        throw invalid(
+          `ledger task ${i.ledgerTask} has had ${rounds} review rounds since you last changed it`,
+          `replan it: rewrite its goal or split it with ledger, then review the new approach`,
+        );
+    } else if (i.ledgerTask !== undefined && i.role !== "verifier" && i.role !== "researcher") {
       // spec D10: a ledger task's attempts cap, and no same-rung retry without new information
       const cap = s.caps.attempts;
-      if (attemptsOn(s.arch, i.ledgerTask).length >= cap)
+      if (workAttempts(s.arch, i.ledgerTask).length >= cap)
         throw invalid(
           `ledger task ${i.ledgerTask} has had its ${cap} attempts`,
           `replan or split it, ask the owner, or set it impossible with ledger`,
@@ -159,6 +188,8 @@ async function delegate(
         ledgerTask: i.ledgerTask ?? null,
         by: c.caller.name,
         why: i.why,
+        ...(sameFamily ? { sameFamily: true as const } : {}),
+        ...(snapshot ? { snapshot } : {}),
       },
       at(c),
     );
@@ -167,9 +198,21 @@ async function delegate(
   return {
     taskId: id,
     rung,
+    sameFamily,
     thread: i.thread ?? null,
     reportPath: i.role === "researcher" ? researchFile(id) : null,
   };
+}
+
+/** The tree a review reads, as a commit no ref holds; null before a base run's tree exists or on a git failure. */
+async function reviewSnapshot(run: Run): Promise<string | null> {
+  let tree: string;
+  try {
+    tree = runTree(run);
+  } catch {
+    return null;
+  }
+  return snapshotTree(tree);
 }
 
 /** Appends one event under the events lock. */
@@ -218,7 +261,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
     },
   ),
   delegate_task: spec(
-    "Start one task with only `task` as its brief (catherd adds the role's contract). rung: any rung on the role's ladder. No rung: the ladder's default, or for a ledger task the rung its last attempt ran on, one step up when that attempt failed, timed out, was too hard, or a review of it found a BLOCKER. It returns at once with the rung; the task's end wakes you. A worker or a writer may delegate only to the researcher or the writer.",
+    "Start one task with only `task` as its brief (catherd adds the role's contract). rung: any rung on the role's ladder. No rung: the ladder's default, or for a ledger task the rung its last attempt ran on, one step up when that attempt failed, timed out, was too hard, or a review of it found an IMPORTANT finding. A reviewer with no rung runs on the first rung of another model family than the work it reads (sameFamily: true when its ladder has none); a reviewer on a ledger task with three review rounds since your last edit of it is refused: replan it. It returns at once with the rung; the task's end wakes you. A worker or a writer may delegate only to the researcher or the writer.",
     {
       role: z.enum(TASK_ROLES),
       task: z.string().min(1),
@@ -260,6 +303,18 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
         stopReason:
           t.state === "ended" ? t.outcome : t.state === "queued" || t.state === "working" ? null : t.state,
         costUsd: record?.costUsd ?? null,
+        ...(t.role === "reviewer"
+          ? {
+              sameFamily: t.sameFamily,
+              findings: t.findings.map((f, n) => ({
+                n: n + 1,
+                severity: f.label,
+                class: f.class ?? null,
+                text: f.text,
+                handled: t.handled[n + 1] ?? null,
+              })),
+            }
+          : {}),
       };
     },
   ),
@@ -418,6 +473,64 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
       const arch = replayRun(c.run).arch;
       renderLedger(c.run, arch ? taskAttempts(arch) : []);
       return { tasks: tasks.length };
+    },
+  ),
+  findings: spec(
+    "Log what you did with a review's findings, numbered as task_status lists them: fix, rejected, intentional, not-worth-it, or known-issue (the merge request lists it under Known issues; a PRE-EXISTING finding is listed there without this). missed: a bug a review of that ledger task did not report and a check, the verifier, the owner or a later review caught; it joins the reviewer eval set.",
+    {
+      taskId: taskId.optional(),
+      handled: z.array(z.object({ n: z.number().int().min(1), as: z.enum(HANDLINGS) })).optional(),
+      missed: z
+        .object({
+          ledgerTask: z.string().regex(ID_PATTERN),
+          bug: z.string().min(1),
+          caughtBy: z.enum(["check", "verifier", "owner", "review"]),
+          review: taskId.optional(),
+        })
+        .optional(),
+      why,
+    },
+    false,
+    async (c, a) => {
+      if (!a.handled && !a.missed)
+        throw invalid("findings: nothing to log", "pass handled with taskId, or missed");
+      const s = replayRun(c.run);
+      if (a.handled) {
+        if (!a.taskId) throw invalid("handled needs the review's taskId", "pass taskId");
+        const t = taskOf(c, s, a.taskId);
+        const over = a.handled.find((h) => h.n > t.findings.length);
+        if (t.role !== "reviewer" || over)
+          throw invalid(
+            `${t.taskId} has no finding ${over?.n ?? 1}`,
+            "task_status lists a review's findings by number",
+          );
+        await append(c, {
+          type: "findings.handled",
+          taskId: t.taskId,
+          handled: a.handled,
+          by: c.caller.name,
+          why: a.why,
+        });
+      }
+      if (a.missed) {
+        if (!ledgerTasks(c.run).some((t) => t.id === a.missed?.ledgerTask))
+          throw invalid(`the ledger has no task ${a.missed.ledgerTask}`, "name a ledger task");
+        if (a.missed.review && s.arch.tasks[a.missed.review]?.role !== "reviewer")
+          throw invalid(
+            `${a.missed.review} is not a review of this run`,
+            "name the review's taskId, or omit it",
+          );
+        await append(c, {
+          type: "review.missed",
+          ledgerTask: a.missed.ledgerTask,
+          review: a.missed.review ?? null,
+          bug: a.missed.bug,
+          caughtBy: a.missed.caughtBy,
+          by: c.caller.name,
+          why: a.why,
+        });
+      }
+      return { logged: true };
     },
   ),
   land: spec(

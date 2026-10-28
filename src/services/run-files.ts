@@ -94,9 +94,6 @@ export const DispatchDetailSchema = z.object({
       cliVersion: z.string().nullable(),
     })
     .nullable(),
-  route: z
-    .object({ source: z.string(), decidedBy: z.string(), why: z.string(), ladder: z.array(z.string()) })
-    .nullable(),
   brief: z.string().nullable(),
   reply: z.string().nullable(),
   stderr: z.string().nullable(),
@@ -149,8 +146,6 @@ export function dispatchDetail(run: Run, dispatchId: string): DispatchDetail {
   const role = started?.role ?? record?.role ?? "";
   const lane = started ? started.lane : (record?.lane ?? null);
   const startedAt = started?.at ?? record?.startedAt ?? "";
-  // plan 50: route rows are gone; the field stays null until the panel's pass drops it (plan 51)
-  const route: DispatchDetail["route"] = null;
   return {
     dispatchId,
     name,
@@ -176,7 +171,6 @@ export function dispatchDetail(run: Run, dispatchId: string): DispatchDetail {
           cliVersion: record.cliVersion,
         }
       : null,
-    route,
     brief,
     reply,
     stderr,

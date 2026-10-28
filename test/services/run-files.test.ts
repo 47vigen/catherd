@@ -104,7 +104,7 @@ describe("a dispatch's files", () => {
       truncated: [],
     });
     expect(d.record).toMatchObject({ attempt: 2, failoverFrom: null, isolated: false });
-    expect(d.route).toBeNull(); // plan 50: no route rows
+    expect(d).not.toHaveProperty("route"); // plan 51: the panel no longer shows a route
     expect(d.findings).toEqual([{ label: "BUG", text: "BUG off by one", file: "src/a/x.ts" }]);
     expect(d.aLines).toEqual([
       { id: "A1", pass: true, text: "bun test" },

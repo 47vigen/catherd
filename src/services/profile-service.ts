@@ -4,7 +4,7 @@ import { type MemoryLimits, memoryLimitsOf } from "../domain/milestone-memory.ts
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { CatherdError } from "../domain/errors.ts";
+import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { parseRung } from "../domain/ids.ts";
 import {
   agentName,
@@ -32,7 +32,7 @@ import { withFileLockSync } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
 import { configDir } from "../infra/paths.ts";
 import { ensurePrivateDir, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
-import { apply, plan, pruneProfileAgents, type Synced } from "./agent-links.ts";
+import { apply, linkedProfiles, plan, pruneProfileAgents, type Synced } from "./agent-links.ts";
 import { loadCatalog } from "./catalog-service.ts";
 import type { ProfilePort, ProfileSaved, ProfileView } from "./ports.ts";
 import {
@@ -69,9 +69,9 @@ const writeDoc = (name: string, doc: ProfileDoc) => writeJsonAtomic(profileFile(
 const migrated = (doc: ProfileDoc): ProfileDoc => migrateProfileDoc(doc).doc;
 
 /**
- * Plan 44 D25: every stored profile in the 2.0 shape, under the profiles lock, writing only a changed one (no
- * relink: agents do not depend on the dropped fields). A profile this catherd cannot read is left to the
- * command that names it. Called at `catherd init`, `catherd doctor` and `run_start`.
+ * Plan 44 D25: every stored profile in the 2.0 shape, under the profiles lock, writing only a changed one. A changed
+ * one that is linked is relinked, so the agents of a role the migration dropped (plan 51's ui-reviewer) go. A profile
+ * this catherd cannot read is left to the command that names it. Called at `catherd init`, `catherd doctor` and `run_start`.
  */
 export function migrateProfiles(): { profile: string; notes: string[] }[] {
   return locked(() => {
@@ -90,6 +90,15 @@ export function migrateProfiles(): { profile: string; notes: string[] }[] {
       writeDoc(profile, m.doc);
       for (const note of m.notes) log("info", "profile.migrated", { profile, note });
       done.push({ profile, notes: m.notes });
+    }
+    for (const { profile } of done) {
+      if (!linkedProfiles().includes(profile)) continue;
+      try {
+        syncFor(profile, "claude-code", [profile]);
+      } catch (e) {
+        // the links are repaired by `catherd doctor`; the migrated file stands
+        log("warn", "profile.migrate-relink", { profile, error: errorMessage(e) });
+      }
     }
     return done;
   });

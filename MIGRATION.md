@@ -178,7 +178,29 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
   verifier's role lock.
 - Removed: `catherd gate`, `catherd lock --role` and `--run` (`catherd lock -- <command>` stays), `catherd catalog
   outcomes`, `<run>/routes.jsonl`, `<run>/outcomes.jsonl`, and the answer mirror into `questions.jsonl`. The panel's
-  route view and the run index's climbs read empty until plan 51.
+  route view is gone (plan 51).
+
+### Converging reviews and the ui-reviewer fold (plan 51)
+
+- A reviewer reports `IMPORTANT`, `NIT` or `PRE-EXISTING`, each with its bug class in parentheses. An IMPORTANT
+  finding needs an input from the acceptance lines or an existing caller; a PRE-EXISTING one never starts a fix round
+  and is listed under the MR's Known issues. An IMPORTANT finding climbs the worker's ladder, as BLOCKER did.
+- A review with no rung runs on the first rung of another model family than the work it reads. When the reviewer's
+  ladder has none, it runs anyway, marked `same-family` in the digest and the MR's change log. The shipped ladder is
+  one family: add a rung of another family to your profile's reviewer.
+- A review on a ledger task snapshots the tree; the next review of that task reads only the diff since and never
+  repeats the earlier findings. A fourth review round on one task is refused until the architect edits the task.
+  Reviews no longer count against the attempts cap.
+- The architect logs what it did with each finding, and any bug a review missed, with the new `findings` tool.
+  Known issues list PRE-EXISTING findings, findings logged `known-issue`, and IMPORTANT ones with no handling logged.
+- The `ui-reviewer` role is gone. A UI pass is a reviewer brief that names the screens. A profile's
+  `roles.ui-reviewer` is migrated once: an enabled one adds its first rung to a stored reviewer ladder and gives a
+  read-only reviewer `full` access (a UI pass runs a browser); `profile validate` names each change. The reviewer's
+  default access is `full`. An earlier run's UI reviews read as reviews.
+- `catherd runs metrics [<id>]` prints each run's idle %, concurrency, blocked minutes by reason, check share, review
+  rounds and climbs, and each reviewer rung's findings, their handling and its misses. The run page has a Metrics
+  tile. `catherd scorecard stage <label> --baseline <label>` compares two stages task by task, on two or more runs of
+  each (docs/dev/scorecard.md, "Stage comparison").
 
 ### Grok Build and Antigravity are removed
 
@@ -271,12 +293,12 @@ difficulty bars, the objective, the climb, the learned start and the cheap try a
 
 ### New and removed names
 
-|                         | Added                                                                                                                        | Removed                                                                                                                                                                                                                                        |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Error codes             | `E_ALL_HELD`, `E_RUN_CANCELLED`, `E_TREE`                                                                                    | `E_CONFIG_KEYBIND`                                                                                                                                                                                                                             |
-| Environment variables   | `CATHERD_PANEL_DIST`, `CATHERD_HEAVY_LOAD_WAIT_MS` (how long a heavy slot waits while the load is high; `0` = no wait)       | `CATHERD_REDUCED_MOTION`, `CATHERD_NO_KITTY`, `CATHERD_STORY`                                                                                                                                                                                  |
-| Config and profile keys | `notify.url`, `maxEffort`, `limits.memory`                                                                                   | `decision.url`, `decision.model`, `decision.minConfidence`, `roles.judge`, `keybinds`, `billing.grok`, `billing.antigravity`, `harness.grok`, `harness.antigravity` (ignored), `jev`, `bars`, `roles.<role>.bars`, `objective` (migrated away) |
-| Files                   | `<run>/events.jsonl`, `<run>/slopalytics.json`, `plan-input/`, `plan-approved.md`, `~/.local/share/catherd/slopalytics.json` | `catalog.override.json`, `~/.local/share/catherd/sources/`, `docs/tui-frames.md`                                                                                                                                                               |
+|                         | Added                                                                                                                        | Removed                                                                                                                                                                                                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Error codes             | `E_ALL_HELD`, `E_RUN_CANCELLED`, `E_TREE`                                                                                    | `E_CONFIG_KEYBIND`                                                                                                                                                                                                                                                  |
+| Environment variables   | `CATHERD_PANEL_DIST`, `CATHERD_HEAVY_LOAD_WAIT_MS` (how long a heavy slot waits while the load is high; `0` = no wait)       | `CATHERD_REDUCED_MOTION`, `CATHERD_NO_KITTY`, `CATHERD_STORY`                                                                                                                                                                                                       |
+| Config and profile keys | `notify.url`, `maxEffort`, `limits.memory`                                                                                   | `decision.url`, `decision.model`, `decision.minConfidence`, `roles.judge`, `roles.ui-reviewer`, `keybinds`, `billing.grok`, `billing.antigravity`, `harness.grok`, `harness.antigravity` (ignored), `jev`, `bars`, `roles.<role>.bars`, `objective` (migrated away) |
+| Files                   | `<run>/events.jsonl`, `<run>/slopalytics.json`, `plan-input/`, `plan-approved.md`, `~/.local/share/catherd/slopalytics.json` | `catalog.override.json`, `~/.local/share/catherd/sources/`, `docs/tui-frames.md`                                                                                                                                                                                    |
 
 ## From 1.4 to 1.5
 

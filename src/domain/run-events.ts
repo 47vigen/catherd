@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { BLOCKED_REASONS } from "./blocked.ts";
 import { REPLY_STATUSES, RUN_STATUSES } from "./record.ts";
-import { ROLES } from "./roles.ts";
+import { ROLES, readRole } from "./roles.ts";
 
 /**
  * Every event carries `v`; a newer catherd's events are refused (E_RUNTIME_TOO_OLD). Plan 48 (spec D4, D16): 2 is the
@@ -65,10 +65,20 @@ export const ACTION_TYPES = [
 ] as const;
 export type ActionType = (typeof ACTION_TYPES)[number];
 
+/** Spec D8: what the architect did with a review finding; `known-issue` puts it under the MR's Known issues. */
+export const HANDLINGS = ["fix", "rejected", "intentional", "not-worth-it", "known-issue"] as const;
+export type Handling = (typeof HANDLINGS)[number];
+
+/**
+ * Spec D8: a reviewer reports `IMPORTANT`, `NIT` or `PRE-EXISTING`, each naming its bug class; a verifier's failing
+ * lines are BLOCKERs; BUG is an earlier build's reviewer severity, still read.
+ */
 export const FindingSchema = z.object({
-  label: z.enum(["BLOCKER", "BUG", "NIT"]),
+  label: z.enum(["IMPORTANT", "NIT", "PRE-EXISTING", "BLOCKER", "BUG"]),
   text: z.string(),
   file: z.string().nullable(),
+  /** the bug class a reviewer named, so one fix covers every instance */
+  class: z.string().optional(),
 });
 export type Finding = z.infer<typeof FindingSchema>;
 
@@ -86,7 +96,7 @@ const ev = <T extends string, S extends z.ZodRawShape>(type: T, shape: S) =>
   z.object({ ...base, type: z.literal(type), ...shape });
 
 const strings = z.array(z.string());
-const role = z.enum(ROLES);
+const role = z.preprocess(readRole, z.enum(ROLES));
 const reason = z.enum(PARK_REASONS);
 const outcome = z.enum(["done", "cancelled", "failed"]);
 
@@ -177,6 +187,26 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     rung: z.string(),
     thread: z.string().nullable(),
     ledgerTask: z.string().nullable(),
+    by: z.string(),
+    why: z.string(),
+    /** plan 51, spec D8: a review on a rung of the author's own model family */
+    sameFamily: z.literal(true).optional(),
+    /** plan 51: a review's snapshot of the tree it reviews (a commit no ref holds), the next review's base */
+    snapshot: z.string().optional(),
+  }),
+  /** plan 51, spec D8: how the architect handled a review's findings, numbered as task_status lists them */
+  ev("findings.handled", {
+    taskId: z.string(),
+    handled: z.array(z.object({ n: z.number().int().min(1), as: z.enum(HANDLINGS) })),
+    by: z.string(),
+    why: z.string(),
+  }),
+  /** plan 51, spec D8: a bug a review missed and something later caught: the reviewer eval set */
+  ev("review.missed", {
+    ledgerTask: z.string(),
+    review: z.string().nullable(),
+    bug: z.string(),
+    caughtBy: z.enum(["check", "verifier", "owner", "review"]),
     by: z.string(),
     why: z.string(),
   }),
@@ -283,7 +313,11 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
     case "tick":
       return "tick";
     case "task.delegated":
-      return `${e.by} delegated ${e.taskId} to the ${e.role} on ${e.rung}: ${one(e.why)}`;
+      return `${e.by} delegated ${e.taskId} to the ${e.role} on ${e.rung}${e.sameFamily ? " (same-family review)" : ""}: ${one(e.why)}`;
+    case "findings.handled":
+      return `${e.by} handled ${e.taskId}'s findings (${e.handled.map((h) => `${h.n} ${h.as}`).join(", ")}): ${one(e.why)}`;
+    case "review.missed":
+      return `${e.by} logged a bug the review missed on ${e.ledgerTask}, caught by the ${e.caughtBy}: ${one(e.bug)}`;
     case "task.cancelled":
       return `${e.by} cancelled ${e.taskId}: ${one(e.why)}`;
     case "task.read":

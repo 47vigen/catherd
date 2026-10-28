@@ -53,7 +53,7 @@ export const OPENCODE_AGENT_FILES: Record<string, string> = {
   ].join("\n"),
   "catherd-full": [
     "---",
-    "description: catherd full-access roles (verifier, ui-reviewer). Written by catherd.",
+    "description: catherd full-access roles (verifier, reviewer). Written by catherd.",
     "mode: primary",
     "permissions:",
     rule("*", "*", "allow"),

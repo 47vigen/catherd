@@ -157,3 +157,24 @@ describe("unlistedFail", () => {
     });
   });
 });
+
+describe("parseFindings on the spec D8 scale (plan 51)", () => {
+  it("reads IMPORTANT, NIT and PRE-EXISTING lines with their bug class, and an earlier build's BUG", () => {
+    const reply = [
+      "IMPORTANT (unchecked null) src/a.ts:3 — crashes — on an empty cart — guard it",
+      "- PRE-EXISTING (paging off by one): src/b.ts:9 — skips a row",
+      "NIT none",
+      "BUG src/c.ts — old severity",
+    ].join("\n");
+    expect(parseFindings(reply)).toEqual([
+      { label: "IMPORTANT", text: reply.split("\n")[0] as string, file: "src/a.ts", class: "unchecked null" },
+      {
+        label: "PRE-EXISTING",
+        text: "- PRE-EXISTING (paging off by one): src/b.ts:9 — skips a row",
+        file: "src/b.ts",
+        class: "paging off by one",
+      },
+      { label: "BUG", text: "BUG src/c.ts — old severity", file: "src/c.ts" },
+    ]);
+  });
+});

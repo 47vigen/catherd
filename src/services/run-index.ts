@@ -12,6 +12,7 @@ import type { Deps } from "./ports.ts";
 import { openQuestions } from "./questions.ts";
 import { isDaemonRun, lastEventSeq, readEvents } from "./run-events-store.ts";
 import { listRuns, readRecords, type Run, runPaths } from "./run-store.ts";
+import { safeMetrics } from "./run-metrics.ts";
 import { interventionsOf, runEnd } from "./scorecard-metrics.ts";
 
 /**
@@ -88,6 +89,7 @@ function compute(deps: Deps, run: Run): RunCard {
   const ended = events.findLast((e) => e.type === "run.ended");
   const endMs = state ? (state.phase === "ended" ? Date.parse(ended?.at ?? state.at) : null) : runEnd(run);
   const startedAt = run.meta.createdAt;
+  const metrics = safeMetrics(run, deps.now(), { events, s: state });
 
   const tokens = { input: 0, cached: 0, cacheWrite: 0, output: 0 };
   const backends = new Map<string, { tokens: number; costUsd: number }>();
@@ -147,10 +149,8 @@ function compute(deps: Deps, run: Run): RunCard {
       // shortcut: superseded counts refresh with the run's own files only, upgrade if the scorecard needs them live
       interventions: interventionsOf(run, endMs ?? deps.now(), 0).total,
       failovers: records.filter((r) => r.failoverFrom !== null).length,
-      // shortcut: route rows are gone (plan 50); plan 51's views count a ladder climb per task
-      climbs: 0,
-      // shortcut: plan 51's rounds per task replace this count; an architect run has no review rounds yet
-      rounds: 0,
+      climbs: metrics?.climbs ?? 0,
+      rounds: metrics?.rounds.total ?? 0,
     },
     byBackend: [...backends].map(([backend, v]) => ({ backend, ...v })),
     byModel: [...models].map(([model, t]) => ({ model, tokens: t })),

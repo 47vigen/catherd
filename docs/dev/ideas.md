@@ -16,6 +16,29 @@ judge on the role's exact brief (plan 44). Since 2.0 the daemon runs all of it (
 
 ## 2.0 follow-ups
 
+### From plan 51 (converging reviews, the ui-reviewer fold, the metrics)
+
+Left out of plan 51 on purpose:
+
+- **The reviewer eval set is recorded, not replayed.** `review.missed` events list every bug a review missed; running
+  a rung against them to score it is stage 4's.
+- **The shipped reviewer ladder is one family.** A default review of the default (gpt) workers is `same-family`; a
+  headless Claude rung in the shipped ladder would make a Codex-only machine need Claude Code. The owner adds a rung of
+  another family to his profile.
+- **A review snapshot has no ref.** A `git gc --prune=now` during a run loses it, and that re-review reads the whole
+  tree instead of the diff.
+- **A model family is the model name's first part.** One lab under two prefixes reads as two families; read the
+  catalog's lab if that happens.
+- **Standing-role start is to the dispatch's start,** not to its first output, which nothing records yet (spec D12).
+- **`PARK_REASONS` keeps every value.** It is the read vocabulary of earlier runs; only `owner` and `land` are written.
+- **The MR body has no oracle-overrides line.** It comes with the oracle rule (spec D9, stage 2).
+- **The climbs metric counts any change of rung.** A reviewer's family switch and a downward change count too; it
+  should count only climbs up the ladder.
+- **`roleMs` in the concurrency metric is not clipped by pauses.** A dispatch that spans a pause counts its paused
+  minutes, against R21.
+- **A re-review sees only the previous round's findings.** It should see every earlier round's since the last ledger
+  edit, so a finding fixed two rounds ago is not reported again.
+
 ### From plan 50 (landing and the one verifier)
 
 Left out of plan 50 on purpose:
@@ -25,10 +48,6 @@ Left out of plan 50 on purpose:
 - **The run's tree gets no `.env*` files.** A repo that needs them names a copy in the plan's `Setup:` line.
 - **`land` cannot tell a squash merge.** The owner's answer to the merge question ends the run; catherd never merges
   and never checks that the MR merged.
-- **`DispatchDetail.route` is always null** and the panel's route view shows nothing; plan 51's metric views drop it
-  with the other 2.0 fields. Climbs in the run index and lanes in the scorecard read 0 until then.
-- **`PARK_REASONS` keeps `push` and `land`.** A new run parks a land question as `land` on the run unit; the rest go
-  with plan 51's panel pass.
 - **The verifier's RAN rule is read from its reply only.** A PASS whose RAN lines name commands it did not run is not
   caught; the check rows are the proof the land gate trusts.
 - **A forge CLI that is missing or not signed in** leaves the branch pushed and the MR unopened; the land message
@@ -38,8 +57,6 @@ Left out of plan 50 on purpose:
 
 Left out of plan 49 on purpose:
 
-- **The ui-reviewer still has its own ladder.** D16's migration drops it and appends an image-capable rung to the
-  reviewer's ladder; that comes with the reviewer fold (plan 51).
 - **Listings refresh only at `doctor`, `init`, setup and `catalog refresh`.** The daily refresh at dispatch went with
   the decision model (`freshenDiscovery`); a listing can go stale between them. Fix: refresh at `run_start` if runs
   show a stale listing refusing a rung.
@@ -55,10 +72,6 @@ Left out of plan 49 on purpose:
 
 Left out of plan 48 on purpose:
 
-- **`PARK_REASONS` keeps the 2.0 reasons** (`approval`, `judge`, `decision`, `push`, `land`, …) so the panel's
-  generated types and older runs stay as they are; shrink it with plan 51's panel pass.
-- **The reviewer's contract still says lane and milestone.** The writer's and verifier's lost them in plan 50; the
-  reviewer's changes with converging reviews (plan 51).
 - **Failover on a quota hold is not wired into the reducer.** A task on a held rung waits for the hold; plan 49's
   ladder never climbs on a quota limit (D7), so this is still open.
 - **The idle cap is still plan 47's two idle turns,** not D10's 15 minutes with nothing running; and the budget's 80%
@@ -67,7 +80,6 @@ Left out of plan 48 on purpose:
   answer or check result in between is refused; a plan-file edit alone does not count as news.
 - **The events lock stays.** `withEventsLock` still guards `answer` and `delegate_task`, which check state and append
   in one step (plan 46's R4).
-- **Rounds and approvals in the scorecard read 0** for a run this build starts; plan 51's metric views replace them.
 - **"attempt n of N" counts later attempts** when a ledger task's attempts run in parallel; the end line should use the
   task's position in its attempts instead of how many exist when it ends.
 - **A cap stop leaves the architect's own `workspace-write` turn running.** The stop cancels the tasks, not the turn;
@@ -110,8 +122,6 @@ Left out of plan 46 on purpose:
 - **Files still beside the database.** `outcomes.jsonl`, `routes.jsonl`, `state.json`, `sessions.jsonl`,
   `agents.jsonl`, `harness.jsonl` and a workspace's `meta.json` stay files (R5): plan 50 deleted the first two, and
   the rest move when their mechanisms move or go.
-- **No metric views yet.** `sqlite3 <data dir>/catherd.db` answers an ad-hoc question; the idle, concurrency,
-  blocked-time and check-share views and the per-task comparison come with plan 51 (R11).
 - **One backup per day.** `backups/catherd-<date>.db` is replaced by every run that ends the same day, so a busy day
   keeps only its last end (R9). Keep one per run end if a bad write ever needs an hour-level restore.
 - **The run index and the session view read every record of every run per poll.** That defeats the run index cache.

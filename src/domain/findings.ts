@@ -1,6 +1,7 @@
 import type { Finding } from "./run-events.ts";
 
-const LINE = /^\s*(?:[-*]\s+|\d+[.)]\s+)?\**(BLOCKER|BUG|NIT)\b\**\s*:?\s*(.*)$/;
+const LINE =
+  /^\s*(?:[-*]\s+|\d+[.)]\s+)?\**(IMPORTANT|PRE-EXISTING|BLOCKER|BUG|NIT)(?![\w-])\**\s*:?\s*(?:\(([^)]+)\)\s*)?(.*)$/;
 /** What a reviewer writes where it has nothing to report: `BUG: none`, `NIT n/a`, a lone dash. */
 const NOTHING = /^(?:none|n\/a|nil|no findings?|clean|[-—–]+)\.?\**$/i;
 const PATH = /^[`'"(]*((?:\.{0,2}\/)?[\w@~.+-]+(?:\/[\w@~.+-]+)*)(?::[L~]?\d+(?:[-,:][L~]?\d+)*)?[`'"),;:]*$/;
@@ -26,15 +27,25 @@ export function fileOf(text: string): string | null {
   return filesOf(text)[0] ?? null;
 }
 
-/** A reviewer's reply as findings, in order: its BLOCKER, BUG and NIT lines, as written; "none" lines left out. */
+/**
+ * A reviewer's reply as findings, in order: its IMPORTANT, NIT and PRE-EXISTING lines (spec D8), each with the bug
+ * class in parentheses after the severity, as written; an earlier build's BLOCKER and BUG lines too; "none" lines
+ * left out.
+ */
 export function parseFindings(reply: string): Finding[] {
   const out: Finding[] = [];
   for (const line of reply.split("\n")) {
     const m = LINE.exec(line);
     if (!m) continue;
-    const rest = (m[2] ?? "").trim();
+    const rest = (m[3] ?? "").trim();
     if (!rest || NOTHING.test(rest)) continue;
-    out.push({ label: m[1] as Finding["label"], text: line.trim(), file: fileOf(rest) });
+    const cls = m[2]?.trim();
+    out.push({
+      label: m[1] as Finding["label"],
+      text: line.trim(),
+      file: fileOf(rest),
+      ...(cls ? { class: cls } : {}),
+    });
   }
   return out;
 }

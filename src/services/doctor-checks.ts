@@ -206,30 +206,22 @@ export function agentsCheck(
  */
 export const hostFlag = (host: OrchestrationHost): string => (host === "unknown" ? "" : ` --host ${host}`);
 
-/** The browser CLI the ui-reviewer's prompt takes its screenshots with. */
+/** The browser CLI a reviewer's UI pass takes its screenshots with. */
 const UI_BROWSER = "agent-browser";
 
 /**
- * The ui-reviewer takes screenshots with agent-browser: a profile that turns it on, on a machine without it,
- * dispatches a role that cannot do its job. Nothing to say when it is on PATH or no profile turns the role on.
+ * Plan 51: a reviewer's UI pass takes screenshots with agent-browser: on a machine without it, a profile whose
+ * reviewer is on cannot do one. Nothing to say when it is on PATH or no profile turns the reviewer on.
  */
-export function uiBrowserCheck(
-  profiles: Profile[],
-  onPath: (bin: string) => string | null,
-  host: OrchestrationHost = "unknown",
-): Check | null {
-  const on = profiles.filter((p) => p.roles["ui-reviewer"].enabled).map((p) => p.name);
+export function uiBrowserCheck(profiles: Profile[], onPath: (bin: string) => string | null): Check | null {
+  const on = profiles.filter((p) => p.roles.reviewer.enabled).map((p) => p.name);
   if (!on.length || onPath(UI_BROWSER)) return null;
   return {
     id: "ui-browser",
     label: UI_BROWSER,
     state: "warn",
     word: "missing",
-    detail: `${UI_BROWSER} is not on PATH, so ui-reviewer (${on.join(", ")}) cannot take screenshots`,
-    fix: [
-      `npm i -g ${UI_BROWSER}`,
-      "or turn the role off:",
-      ...on.map((n) => `catherd profile set roles.ui-reviewer.enabled false --profile ${n}${hostFlag(host)}`),
-    ].join("\n"),
+    detail: `${UI_BROWSER} is not on PATH, so the reviewer (${on.join(", ")}) cannot take a UI pass's screenshots`,
+    fix: `npm i -g ${UI_BROWSER}`,
   };
 }

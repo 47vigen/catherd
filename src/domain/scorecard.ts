@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CatherdError } from "./errors.ts";
+import { median, type RunMetrics } from "./run-metrics.ts";
 
 export const SCORECARD_TASKS = [
   "raqam-myanmar",
@@ -82,12 +83,90 @@ export interface TaskScore {
   firstTry: boolean;
   injected: { limits: number; standInOk: boolean } | null;
   recordedAt: string;
+  /** plan 51, spec D17: the run's metrics; absent on a row an earlier build recorded */
+  metrics?: RunMetrics | null;
 }
 
 export interface ScorecardFile {
   schema: 1;
   label: string;
+  /** each task's last recorded run: what the pass bar reads */
   tasks: Partial<Record<ScorecardTaskId, TaskScore>>;
+  /** plan 51: every recorded run of each task, for the per-task stage comparison; absent before plan 51 */
+  runs?: Partial<Record<ScorecardTaskId, TaskScore[]>>;
+}
+
+/** A task's recorded runs: its `runs`, else the one row a file written before plan 51 holds. */
+export const runsOf = (f: ScorecardFile, t: ScorecardTaskId): TaskScore[] =>
+  f.runs?.[t] ?? (f.tasks[t] ? [f.tasks[t] as TaskScore] : []);
+
+/** Spec D17: a stage is compared on at least this many runs of each task. */
+export const STAGE_RUNS = 2;
+
+export interface StageRow {
+  task: ScorecardTaskId;
+  runs: number;
+  finished: number;
+  /** medians over the task's runs; null where no run recorded the metric */
+  wallMin: number | null;
+  baselineWallMin: number | null;
+  idlePct: number | null;
+  concurrency: number | null;
+  blockedMin: number | null;
+  checkShare: number | null;
+  rounds: number | null;
+  climbs: number | null;
+}
+
+export interface StageVerdict {
+  pass: boolean;
+  rows: StageRow[];
+  failures: string[];
+}
+
+const med = (rows: TaskScore[], f: (m: RunMetrics) => number | null): number | null =>
+  median(rows.flatMap((r) => (r.metrics ? [f(r.metrics)] : [])).filter((n): n is number => n !== null));
+
+/**
+ * Spec D17 (amended): a stage against its baseline, per task and never only in aggregate. Each task needs
+ * STAGE_RUNS runs; it fails when one did not finish, or when its median wall time is more than 10 % over the
+ * baseline's median for that task. The other metrics are reported, never gated.
+ */
+export function stageBar(current: ScorecardFile, baseline: ScorecardFile): StageVerdict {
+  const failures: string[] = [];
+  const rows = SCORECARD_TASKS.map((task): StageRow => {
+    const runs = runsOf(current, task);
+    const base = runsOf(baseline, task);
+    const wall = median(runs.map((r) => r.wallMinutes));
+    const baseWall = median(base.map((r) => r.wallMinutes));
+    const finished = runs.filter((r) => r.finished).length;
+    if (runs.length < STAGE_RUNS)
+      failures.push(`${task}: ${runs.length} run(s); a stage is compared on ${STAGE_RUNS} or more per task`);
+    if (base.length < STAGE_RUNS)
+      failures.push(
+        `${task}: ${base.length} run(s) in ${baseline.label}; a stage is compared on ${STAGE_RUNS} or more per task`,
+      );
+    if (finished < runs.length)
+      failures.push(`${task}: ${runs.length - finished} of ${runs.length} runs did not finish`);
+    if (wall !== null && baseWall !== null && wall > baseWall * (1 + WALL_TOLERANCE))
+      failures.push(
+        `${task}: median wall ${Math.round(wall)} min against ${baseline.label}'s ${Math.round(baseWall)} min (more than 10 % slower)`,
+      );
+    return {
+      task,
+      runs: runs.length,
+      finished,
+      wallMin: wall,
+      baselineWallMin: baseWall,
+      idlePct: med(runs, (m) => m.idlePct),
+      concurrency: med(runs, (m) => m.concurrency),
+      blockedMin: med(runs, (m) => Object.values(m.blockedMin).reduce((n, x) => n + x, 0)),
+      checkShare: med(runs, (m) => m.checkShare),
+      rounds: med(runs, (m) => m.rounds.max),
+      climbs: med(runs, (m) => m.climbs),
+    };
+  });
+  return { pass: failures.length === 0, rows, failures };
 }
 
 export const ScorecardFileSchema = z.looseObject({
@@ -123,7 +202,10 @@ const TaskScoreRowSchema = z.looseObject({
 
 /** Checks every row `passBar` consumes; a malformed one fails naming the label, the task and the field. */
 export function assertScorecardRows(f: z.infer<typeof ScorecardFileSchema>, file: string): ScorecardFile {
-  for (const [task, row] of Object.entries(f.tasks)) {
+  const runs = Object.entries((f.runs ?? {}) as Record<string, unknown>).flatMap(([task, rows]) =>
+    Array.isArray(rows) ? rows.map((row) => [task, row] as const) : [[task, rows] as const],
+  );
+  for (const [task, row] of [...Object.entries(f.tasks), ...runs]) {
     const r = TaskScoreRowSchema.safeParse(row);
     const issue = r.success ? null : r.error.issues[0];
     const field = issue ? issue.path.join(".") || "row" : null;

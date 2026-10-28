@@ -68,7 +68,7 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
   let probe: string | null = null;
   let noVerdict = false;
   let shortfall: string[] = [];
-  let findings = record.role === "reviewer" || record.role === "ui-reviewer" ? parseFindings(reply) : [];
+  let findings = record.role === "reviewer" ? parseFindings(reply) : [];
   if (record.role === "verifier") {
     const first = replyVerdict(run, record) ?? "";
     probe = blockedByEnvironment(first);

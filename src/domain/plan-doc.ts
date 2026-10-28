@@ -42,7 +42,7 @@ export function aLineOwner(line: string): ALineOwner | null {
 
 const OWNER_ROLES: Record<ALineOwner, readonly Role[]> = {
   worker: ["worker", "writer", "artist", "researcher"],
-  reviewer: ["reviewer", "ui-reviewer"],
+  reviewer: ["reviewer"],
   verifier: ["verifier"],
   run: [],
 };

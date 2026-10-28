@@ -86,12 +86,12 @@ describe("the profile tools on the profile service", () => {
   it("the profile tool shows each role's access and its backend's enforcement", async () => {
     withHome();
     const r = await call(await mcpClient(), "profile", { action: "get" });
-    expect(r.data.profile.roles.reviewer).toEqual({
+    expect(r.data.profile.roles.researcher).toEqual({
       enabled: true,
       access: "read-only",
-      rungs: ["codex:gpt-6-sol#high"],
+      rungs: ["codex:gpt-6-luna#high"],
     });
-    expect(r.data.enforcement).toMatchObject({ reviewer: "enforced", architect: "advisory" });
+    expect(r.data.enforcement).toMatchObject({ researcher: "enforced", architect: "advisory" });
     expect(r.data.profile.isolated).toMatchObject({ codex: false, "claude-code": false, opencode: false });
   });
 
