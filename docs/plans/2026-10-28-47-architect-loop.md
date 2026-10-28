@@ -216,7 +216,7 @@ Every task's code and tests are built and green in the scratch reference (below)
 
 ## Scratch reference
 
-`/Users/vigen/agora/lab/.worktree/plan47-architect/catherd/.superpowers/plan47-scratch` (gitignored), branch `plan47-scratch` on main `7e307412`, one commit per milestone, each with the full gate green:
+`.superpowers/plan47-scratch` (gitignored), branch `plan47-scratch` on main `7e307412`, one commit per milestone, each with the full gate green:
 
 - M1 — `a093debb` feat(db): the ledger, check and message columns for the architect loop
 - M2 — `a4dfa05e` feat(engine): the architect loop behind engine: architect
