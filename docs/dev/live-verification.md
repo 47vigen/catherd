@@ -648,3 +648,17 @@ On a machine with opencode ≥ 2.1 and a run with a running opencode lane:
    `delivery: steered`, and the lane's opencode session shows the message before its turn ends.
 2. **The body shape is accepted.** opencode ≥ 2.1 accepts the steer body `{text, delivery: "steer"}`; until this
    check passes, a steer may fall back to the queue (`delivery: queued`) and reach the lane in its next brief.
+
+## 23. Landing (2.0, plan 50)
+
+Needs a throwaway repository on a forge you can push to, with `gh` or `glab` signed in.
+
+1. **A base run lands on its own branch.** `catherd` a small task with `base: main`. The run's tree is
+   `<run>/trees/run`; `git -C <run>/trees/run branch --show-current` names the run, not `main`.
+2. **Land opens one MR.** After the architect's first `land`, the forge shows one MR from the run's branch into
+   `main`, whose body starts with `## Problem`. A second `land` updates the same MR; `main` on origin is unchanged.
+3. **No forge CLI.** Rename `gh` (or `glab`) away and land: the branch is pushed, and the land line in the timeline
+   gives the command that opens the MR.
+4. **Final land asks once.** `land {final}` without a verifier PASS is refused with its reason. After a full check and
+   a verifier PASS on the pushed commit, the run parks one question, merge?; any answer ends the run `done`, and
+   catherd never merges.

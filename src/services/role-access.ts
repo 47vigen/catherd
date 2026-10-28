@@ -6,7 +6,7 @@ import { findRun } from "./run-store.ts";
 
 /**
  * Spec 1.5 plan 21: what the role server lets a role do, for the CLI forms any role can run
- * (`catherd run-file`, `catherd gate`). Outside a role (`scope` null: the user's own terminal) everything is
+ * (`catherd run-file`). Outside a role (`scope` null: the user's own terminal) everything is
  * allowed. In a role, only its own run, and only the operations its role server would list (`tool`).
  */
 export function assertRoleMay(scope: RoleScope | null, run: string, tool: string): void {

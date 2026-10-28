@@ -134,7 +134,7 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
 - A run an earlier build started is read, never driven: `status`, `result` and the panel show it (each role it ran as
   one node), and `answer`, `cancel`, `pause` and `resume` refuse it, naming the build that started it
   (`npx catherd-cli@<version>`). This build's own events carry version 2; an earlier build refuses to read them.
-- `run_start` refuses a `base` until landing arrives: start without one, and the run works in the checkout.
+- `run_start` refused a `base` until landing arrived in plan 50 (below).
 - Caps (spec D10), pinned when the run starts: `caps.wallMin` (720) and `caps.attempts` (4 per ledger task), with
   `catherd profile set caps.wallMin 360`. At 80% of the wall time the architect is woken; at 100% no new task starts
   and the run stops 10 minutes later. The cost cap is still the profile's `budget`.
@@ -160,6 +160,25 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
   both, its architect's `read-only` becomes `workspace-write`, and it gets `caps` with the defaults when it has none.
   `catherd init`, `catherd doctor` and `run_start` write that back and `init` prints a line per change; until then the
   old file loads as it is and nothing in it is read. After the migration, an access or cap you set stays yours.
+
+### Landing and the one verifier (plan 50)
+
+- `run_start` takes `base` again. A base run works in one tree of its own, on a branch named after the run and made
+  from `origin/<base>` (set up once with the `Setup:` line under `plan.md`'s title); its writers, checks and
+  verifier work there. A run without `base` works in the checkout, as before, and cannot land.
+- The architect lands with `land`: catherd commits the tree, pushes the run's branch and opens (or updates) one MR per
+  run with `gh` or `glab`. It never force-pushes and never pushes `base`, `main`, `master` or origin's default branch.
+  When the forge CLI cannot open the MR, the branch stays pushed and the message gives the command.
+- `land {final}` needs a green full check and a verifier PASS on the pushed commit. When `base` moved under the run's
+  files it merges `base` first and refuses the final land. Then it asks you one question, merge?, and your answer
+  ends the run `done`. catherd never merges.
+- One verifier, run once on the integrated product. It must run commands: a `VERDICT: PASS` with no `RAN:` line and
+  exit code is read as a FAIL.
+- The milestone branches above (a branch and a park per milestone) are gone, and so are the land gate and the
+  verifier's role lock.
+- Removed: `catherd gate`, `catherd lock --role` and `--run` (`catherd lock -- <command>` stays), `catherd catalog
+  outcomes`, `<run>/routes.jsonl`, `<run>/outcomes.jsonl`, and the answer mirror into `questions.jsonl`. The panel's
+  route view and the run index's climbs read empty until plan 51.
 
 ### Grok Build and Antigravity are removed
 
