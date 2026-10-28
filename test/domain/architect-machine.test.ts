@@ -207,6 +207,17 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     expect(after(c).filter((x) => x.type === "cancel")).toEqual([]);
   });
 
+  it("a finishing run whose cancel keeps failing finishes bare instead of staying unfinished", () => {
+    const log = architectRun();
+    turn(log, 1);
+    delegate(log, "T1");
+    const t1 = startDispatch(log, { name: "T1", unit: "T1", lane: null, rung: RUNG });
+    log.add("run.finishing", { verdict: "stopped", by: "daemon", why: "cap" });
+    expect(after(log)).toContainEqual({ type: "cancel", dispatchIds: [t1] });
+    for (let i = 0; i < 2; i++) log.add("effect.failed", { action: "cancel", unit: "run", message: "boom" });
+    expect(after(log)).toContainEqual({ type: "finish", outcome: "failed", bare: true });
+  });
+
   it("starts a fresh thread after a failed turn or a daemon restart, and stops after three failed turns", () => {
     const log = architectRun();
     endDispatch(log, turn(log, 1), { name: "architect-1", unit: "run", status: "timeout", thread: "th-a" });

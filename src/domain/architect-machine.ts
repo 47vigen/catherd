@@ -43,8 +43,8 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
       : []),
     ...owedActions(s),
   ];
-  const finish = (outcome: "done" | "cancelled" | "failed"): Action =>
-    failed(s, "finish") ? { type: "finish", outcome, bare: true } : { type: "finish", outcome };
+  const finish = (outcome: "done" | "cancelled" | "failed", bare = failed(s, "finish")): Action =>
+    bare ? { type: "finish", outcome, bare: true } : { type: "finish", outcome };
   if (s.cancelling)
     return [
       ...out,
@@ -59,11 +59,10 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
     const tasks = live.filter((d) => d.role !== "architect");
     return [
       ...out,
-      ...(tasks.length
-        ? failed(s, "cancel")
-          ? []
-          : [{ type: "cancel" as const, dispatchIds: tasks.map((d) => d.dispatchId) }]
-        : [finish(OUTCOME[a.finishing.verdict])]),
+      ...(tasks.length && !failed(s, "cancel")
+        ? [{ type: "cancel" as const, dispatchIds: tasks.map((d) => d.dispatchId) }]
+        : // a cancel that gave up must not leave the run unfinished: finish without the stop
+          [finish(OUTCOME[a.finishing.verdict], tasks.length > 0 || failed(s, "finish"))]),
     ];
   }
   const strays = live.filter((d) => a.tasks[d.name]?.state === "cancelled");
