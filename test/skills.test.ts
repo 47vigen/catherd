@@ -38,14 +38,14 @@ describe("orchestrator skill", () => {
     expect(md.split("\n").length).toBeLessThan(120);
   });
 
-  it("starts with the A-lines and the notify url, answers parked units, and pushes only on the owner's word", () => {
+  it("starts with the A-lines and the notify url, answers parked units, and leaves the merge to the owner", () => {
     const md = skill("catherd");
     expect(md.replace(/\s+/g, " ")).toContain("Ask the owner every product question first");
     expect(md).toContain("`plan: <path>[, <path>…]`");
     expect(md).toContain("the notify url");
     expect(md).toContain("`answer(run, unit, answer)`");
     expect(md).toContain("`result(run)`");
-    expect(md).toContain("Push and the merge request only on the owner's word");
+    expect(md).toContain("The merge request is the owner's to merge");
   });
 
   it("starts a run on the owner's plan, approves the architect's, and keeps MR titles short", () => {
@@ -60,12 +60,16 @@ describe("orchestrator skill", () => {
       expect(md).toContain(s);
   });
 
-  it("tells the session about base runs, the push answer and that catherd never merges (plan 35)", () => {
+  it("tells the session about base runs, the one MR and the merge question that ends the run (plan 50, D11)", () => {
     const md = skill("catherd");
     expect(md).toContain("run_start(repo, title, a_lines, base)");
-    expect(md).toContain("answer push");
-    expect(md).toContain("catherd never opens an MR or merges");
-    expect(md).toContain("limits.memory");
+    expect(md).toContain("one branch");
+    expect(md).toContain("one merge request per run");
+    expect(md).toContain("The architect lands");
+    expect(md).toContain("the merge question");
+    expect(md).toContain("catherd never merges");
+    for (const gone of ["answer push", "limits.memory", "After:", "each be their own branch", "opens an MR"])
+      expect(md).not.toContain(gone);
   });
 
   it("tells the orchestrator what to do with the report's rules review (plan 34)", () => {

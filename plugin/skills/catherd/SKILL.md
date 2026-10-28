@@ -7,8 +7,8 @@ description: Use when the user asks for a task or a project to be orchestrated w
 
 ## Overview
 
-catherd runs the work in a background daemon: it plans, dispatches the roles, reviews, verifies and lands each
-milestone by itself, and writes everything it does to the run's event log. You are the owner's front door to
+catherd runs the work in a background daemon: it plans, dispatches the roles, reviews, verifies and lands the
+run's branch by itself, and writes everything it does to the run's event log. You are the owner's front door to
 it, not its driver. Your job is four things:
 
 - write the A-lines the run must meet;
@@ -47,11 +47,11 @@ Six tools, nothing else.
    waits once for the owner's approval of it.
 3. Call `run_start(repo, title, a_lines, plan?)` with the repo's absolute path. If it fails, `error.code` and
    `error.fix` say what to do; relay them.
-   A run whose milestones should each be their own branch and merge request takes a `base`, a branch on origin
-   (`run_start(repo, title, a_lines, base)`). Each milestone then works in its own worktree from `origin/<base>`;
-   independent milestones run side by side while the machine has the memory for them (the profile's
-   `limits.memory`); a milestone that builds on another names it on an `After:` line. Without `base`, the run
-   works in the repo, one milestone at a time.
+   A run that should end in a merge request takes a `base`, a branch on origin
+   (`run_start(repo, title, a_lines, base)`). The run then works in one tree of its own, on one branch named after the
+   run and cut from `origin/<base>`: its writers, checks and verifier all work there, and the plan's `Setup:` line
+   prepares it. That is one branch and one merge request per run; a change too big for one MR is split across runs.
+   Without `base`, the run works in the repo and cannot land: the owner commits by hand.
 4. Tell the owner the run id and the notify url (an ntfy topic) to subscribe to on the phone: that is where a
    parked question and the final report arrive.
 5. End the turn. **The run does not need this session: it continues if the session is compacted or closed.**
@@ -71,10 +71,12 @@ phone notice and asks. Either way:
    then pass `answer approve` (the owner's yes) or the owner's changes as the answer; the architect revises and the
    run asks again, the same way. It asks again later only when an architect change edits an approved `D<n>`
    decision. A parked lane whose question quotes a DESIGN: line is a conflict between the plan and the code: the
-   owner answers it (the plan or the code changes). A question may also be a `push` (a landed milestone of a run with a base branch waits for the owner: relay the
-   question with its commands; an `answer push` has catherd push the branch and ask again with the MR command, and
-   any other answer, once the MR is merged, unblocks the milestones after it, which matters when the repo squash-merges)
-   or a `check_broken` (the milestone's check cannot run, so fix the environment, then answer).
+   owner answers it (the plan or the code changes).
+   The run's last question is the merge question. The architect lands the branch (`land` pushes it and opens or
+   updates the run's one MR), and only after a green full check and a verifier PASS on the pushed commit does
+   it ask "Merge <MR> into <base>?" with its recommendation. Relay it with the MR link. Any answer ends the run
+   `done`, even while the MR is still open: catherd never merges, the owner does. A `check_broken` (the milestone's
+   check cannot run) is fixed in the environment, then answered.
 3. A role that failed, a gate that is red or a lane that moved to a stronger rung is the daemon's to handle; report it, do not
    step in. The secret scan of a milestone's check uses `gitleaks` when it is installed; it is optional. Stop the run only on the owner's word: `cancel(run)`.
 
@@ -89,8 +91,9 @@ The report may end with a rules review: a judge's proposed changes to the repo's
 one line and run a command only on their yes; a rule for some roles only is written
 `catherd knowledge add "[worker, reviewer] <rule>"`.
 
-**Push and the merge request only on the owner's word.** The run lands milestones on its own branch and pushes
-it only when the owner answers `push`; catherd never opens an MR or merges. A merge request title is the run's outcome, under 72 characters, never the branch name.
+**The merge request is the owner's to merge.** The architect lands the run's branch and catherd opens or updates its
+one MR with `gh` or `glab`; when the forge CLI cannot, the branch stays pushed and the message gives the command.
+catherd never merges. A merge request title is the run's outcome, under 72 characters, never the branch name.
 
 ## Errors
 
