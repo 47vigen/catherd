@@ -138,9 +138,6 @@ const researcher = [
   `A dossier lists: the files and folders involved, one line each on what they hold; the existing patterns the work should copy, by path; the build, test and run commands, with how long the full suite takes when the docs, the CI config or a log say so (never run the suite to find out; write "unknown" instead); the lint and type-check commands, and how to scope each to one package; the symbols the change will call or alter, with their signatures; the project rules (CLAUDE.md, AGENTS.md, conventions) that bind this work; and risks: shared files, generated code, slow or flaky tests. It may run to 200 lines. Write it with catherd run-file write to the path the brief names, and reply with that path. ${runFiles(true)}`,
 ].join("\n");
 
-/** Plan 48 deleted the judge; its name stays in profiles until plan 49's migration, and nothing dispatches it. */
-const judge = "The judge role is retired: no catherd run dispatches it.";
-
 const BODIES: Record<Role, (version: string) => string> = {
   architect: () => ARCHITECT_LOOP,
   verifier: () => verifier,
@@ -150,7 +147,6 @@ const BODIES: Record<Role, (version: string) => string> = {
   artist: () => artist,
   writer: () => writer,
   researcher: () => researcher,
-  judge: () => judge,
 };
 
 const STATUS_LINE = `The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>. ${BLOCKED_LINE}`;
@@ -168,7 +164,6 @@ const CONTRACTS: Record<Role, string> = {
   artist: REPLY,
   writer: REPLY,
   researcher: `For a single question, reply in at most 15 lines. ${STATUS_LINE}`,
-  judge: STATUS_LINE,
 };
 
 export const replyContract = (role: Role): string => CONTRACTS[role];
@@ -195,7 +190,6 @@ export const NEXT_LINE: Record<Role, string> = {
     "After you: your BLOCKER and BUG lines go, as written, to a worker who will not see your screenshots, and catherd counts them.",
   verifier:
     "After you: your record of the check is what lands the milestone; your FAIL lines go, as written, to a worker in a fix round.",
-  judge: "",
 };
 
 const DONE_WHEN: Record<Role, string> = {
@@ -212,7 +206,6 @@ const DONE_WHEN: Record<Role, string> = {
   artist: "Every image the brief names is at its .webp path, with its provenance line.",
   writer: "The files the brief names describe what the code does now.",
   researcher: "Every claim has its file:line; a dossier is written to the path the brief names.",
-  judge: "",
 };
 
 /**
@@ -242,8 +235,8 @@ const ARCHITECT_LOOP = [
   "You work in turns. Each turn your brief holds what happened since your last one (the digest: who, what, outcome, the report path) and the free slots. Act through your tools, keep the ledger current, then end your turn: never poll and never wait for a task to finish, since its end wakes you. Use thread_wait only for a short join inside one turn.",
   "",
   "Your tools, each with a one-line `why` that goes into the run's change log and the merge request's audit:",
-  "- capabilities: the roles, each role's rungs (the first is its default), the quota holds, the budget and the free slots.",
-  "- delegate_task {role, task, rung?, ledgerTask?, why}: start one task. `task` is its whole brief: the goal, the files and contracts that matter, the acceptance lines, and how to prove it. Nothing else of this run reaches the role. It returns at once with the task id.",
+  "- capabilities: the roles, each role's ladder (its rungs, lowest first) with its default, the quota holds, the budget and the free slots.",
+  "- delegate_task {role, task, rung?, ledgerTask?, why}: start one task. `task` is its whole brief: the goal, the files and contracts that matter, the acceptance lines, and how to prove it. Nothing else of this run reaches the role. It returns at once with the task id and its rung. Name any rung on the role's ladder, or none: the default, or for a ledger task its last attempt's rung, one step up after a failure, a timeout, a too_hard or a review BLOCKER. A stop outside the rung (a provider error, no access, a quota limit) never climbs.",
   "- task_status {taskId}: its state, the reply's summary, its report path, the files it changed and why, its cost.",
   "- task_cancel {taskId, why}; thread_send {to, text, mode?, why}: a message to a task (steered into a running one where its backend allows, else queued); a message to a finished task resumes its thread as a new task. thread_read and thread_wait read the team channel and join tasks.",
   "- check {command, scope, base?, fresh?, why}: catherd runs the command on the run's tree under the machine's heavy lock and wakes you with the result. base: true runs it on the run's base commit, so a failure that is already there is marked pre-existing. A pass on an unchanged tree is reused unless fresh: true. Nothing is checked unless you ask.",

@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
-  decisionStep,
   globalStep,
   NEXT_PLUGIN_STEPS,
   PLUGIN_STEPS,
@@ -12,14 +11,11 @@ import {
   syncStep,
   welcomeLines,
 } from "../../src/entry/init-command.ts";
-import type { Prompter } from "../../src/entry/prompt.ts";
 import { VERSION } from "../../src/infra/version.ts";
-import { credentialsPath } from "../../src/services/credentials.ts";
-import { decisionKey, saveDecisionKey } from "../../src/services/decision-service.ts";
 import type { IndexStatus } from "../../src/services/catalog-service.ts";
 import { activate, patchProfile } from "../../src/services/profile-service.ts";
 import { BUILTIN_ROLES } from "../../src/domain/profile.ts";
-import { claudeAgentsDir } from "../../src/infra/paths.ts";
+import { claudeAgentsDir, configDir } from "../../src/infra/paths.ts";
 import { activeName, getProfile } from "../../src/services/profile-store.ts";
 import { bunOnlyBin, noPosixModes, openModes, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
@@ -31,7 +27,7 @@ const INIT_BUN_INSTALL = tempDir("catherd-bun-install-");
 
 function init(args: string[], stdin = "", cwd?: string) {
   const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), "init", ...args], {
-    // no backend CLI, no decision key and no Anthropic key: nothing reaches the network or the user's own CLIs
+    // no backend CLI and no Anthropic key: nothing reaches the network or the user's own CLIs
     env: {
       ...process.env,
       CATHERD_ORCHESTRATION_HOST: args.includes("--host") ? "" : "claude-code",
@@ -222,14 +218,13 @@ describe("catherd init", () => {
     expect(r.out).not.toContain("marketplace add");
   }, 60_000);
 
-  it("reads piped answers: a name picks the profile, y replaces it, empty answers leave the decision model unset", () => {
+  it("reads piped answers: a name picks the profile, y replaces it", () => {
     const home = withHome();
     process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
     patchProfile("team", { budget: { usd: 9 } }, { host: "claude-code" });
-    const r = init([], "team\ny\n\n\n\n");
+    const r = init([], "team\ny\n");
     expect(r.code).toBe(0);
-    expect(r.out).toContain("Decision model url (https://<your-gateway>/v1): \n");
-    expect(r.out).toContain("- decision model: not set; runs refuse until it is");
+    expect(r.out).not.toContain("ecision model");
     expect(r.out).not.toContain("Jev");
     expect(r.out).not.toContain("Artificial Analysis");
     // the suite sets CATHERD_NO_SYNC=1 (test/preload.ts): init says so instead of reaching the network
@@ -253,11 +248,8 @@ describe("catherd init", () => {
   it("moves a 0.x profile aside before asking whether to replace it", () => {
     const home = withHome();
     process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
-    mkdirSync(join(dirname(credentialsPath()), "profiles"), { recursive: true });
-    writeFileSync(
-      join(dirname(credentialsPath()), "profiles", "team.json"),
-      JSON.stringify({ name: "team" }),
-    );
+    mkdirSync(join(configDir(), "profiles"), { recursive: true });
+    writeFileSync(join(configDir(), "profiles", "team.json"), JSON.stringify({ name: "team" }));
     const r = init([], "team\n");
     expect(r.code).toBe(0);
     expect(r.out).not.toContain("Replace profile");
@@ -279,83 +271,8 @@ describe("catherd init", () => {
     );
     expect(r.out).not.toContain("written from the defaults");
     expect(r.out.trimEnd().split("\n").slice(-4)).toEqual(PLUGIN_STEPS);
-    expect(existsSync(join(dirname(credentialsPath()), "profiles", "default.json"))).toBe(false);
+    expect(existsSync(join(configDir(), "profiles", "default.json"))).toBe(false);
   }, 60_000);
-
-  it("init names the decision model and probes it", async () => {
-    withHome();
-    delete process.env.CATHERD_DECISION_KEY;
-    patchProfile("default", {}, { host: "claude-code" });
-    const answers = ["https://decider.example/v1", "test-decider"];
-    const asked: string[] = [];
-    const ask: Prompter = {
-      ask: async (q) => (asked.push(q), answers.shift() ?? ""),
-      secret: async (q) => (asked.push(q), "k-test-0123456789"),
-      close() {},
-    };
-    const probed: { url: string; model: string; key: string | null }[] = [];
-    const lines = await printed(() =>
-      decisionStep(ask, "default", {
-        host: "claude-code",
-        probe: async (cfg, key) => {
-          probed.push({ url: cfg.url, model: cfg.model, key });
-          return { ok: true, latencyMs: 12 };
-        },
-      }),
-    );
-    expect(asked).toEqual([
-      "Decision model url (https://<your-gateway>/v1): ",
-      "Decision model name: ",
-      "Decision model key (optional; Enter skips): ",
-    ]);
-    expect(getProfile("default", "claude-code").decision).toEqual({
-      url: "https://decider.example/v1",
-      model: "test-decider",
-      minConfidence: 0.8,
-    });
-    expect(decisionKey()).toBe("k-test-0123456789");
-    expect(probed).toEqual([
-      { url: "https://decider.example/v1", model: "test-decider", key: "k-test-0123456789" },
-    ]);
-    expect(lines.join("\n")).toContain("✓ decision model: answers in 12 ms");
-  });
-
-  it("a decision model that does not answer is a warning, never a stop, and keeps what was typed", async () => {
-    withHome();
-    delete process.env.CATHERD_DECISION_KEY;
-    patchProfile("default", {}, { host: "claude-code" });
-    const answers = ["https://decider.example/v1", "test-decider"];
-    const ask: Prompter = { ask: async () => answers.shift() ?? "", secret: async () => "", close() {} };
-    const lines = await printed(() =>
-      decisionStep(
-        ask,
-        "default",
-        { host: "claude-code", probe: async () => ({ ok: false, error: "http 401" }) },
-        true,
-      ),
-    );
-    expect(lines).toEqual(["! decision model: http 401 (https://decider.example/v1)"]);
-    expect(getProfile("default", "claude-code").decision.url).toBe("https://decider.example/v1");
-  });
-
-  it("goes on when an unparsable credentials.json refuses the key, saying why and how to fix it", async () => {
-    withHome();
-    delete process.env.CATHERD_DECISION_KEY;
-    patchProfile("default", {}, { host: "claude-code" });
-    mkdirSync(dirname(credentialsPath()), { recursive: true });
-    writeFileSync(credentialsPath(), "{not json");
-    const answers = ["https://decider.example/v1", "test-decider"];
-    const ask: Prompter = { ask: async () => answers.shift() ?? "", secret: async () => "k-key", close() {} };
-    const lines = await printed(() =>
-      decisionStep(ask, "default", { host: "claude-code", probe: async () => ({ ok: true, latencyMs: 1 }) }),
-    );
-    expect(lines[0]).toStartWith(
-      `! decision model: could not save the key: ${credentialsPath()} is not valid JSON`,
-    );
-    expect(lines[1]).toBe(
-      `    fix: delete ${credentialsPath()} and run catherd init, or write it as {"schema": 1, "decisionKey": "<your key>"}`,
-    );
-  });
 
   it("profileLines draws init's own profile rows, ASCII under plain", () => {
     const r = {
@@ -382,35 +299,6 @@ describe("catherd init", () => {
       "    fix: edit it",
       "! no profile was made active: fix the rows above, then run catherd init again",
     ]);
-  });
-
-  it("a profile that names the decision model skips the questions, keeping piped answers in place", async () => {
-    withHome();
-    delete process.env.CATHERD_DECISION_KEY;
-    patchProfile(
-      "default",
-      { decision: { url: "https://decider.example/v1", model: "test-decider" } },
-      { host: "claude-code" },
-    );
-    saveDecisionKey("k-saved-0123456789");
-    let skipped = 0;
-    const never = async () => {
-      throw new Error("asked");
-    };
-    const ask: Prompter = { ask: never, secret: never, skip: () => void skipped++, close() {} };
-    let probes = 0;
-    const lines = await printed(() =>
-      decisionStep(ask, "default", {
-        host: "claude-code",
-        probe: async (_cfg, key) => {
-          probes++;
-          expect(key).toBe("k-saved-0123456789");
-          return { ok: true, latencyMs: 5 };
-        },
-      }),
-    );
-    expect([skipped, probes]).toEqual([3, 1]);
-    expect(lines).toEqual(["✓ decision model: answers in 5 ms"]);
   });
 
   it("greets a terminal with the mascot (spec §9.3)", () => {

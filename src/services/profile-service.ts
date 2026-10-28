@@ -34,7 +34,6 @@ import { configDir } from "../infra/paths.ts";
 import { ensurePrivateDir, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import { apply, plan, pruneProfileAgents, type Synced } from "./agent-links.ts";
 import { loadCatalog } from "./catalog-service.ts";
-import { holdsTypesafeKey } from "./credentials.ts";
 import type { ProfilePort, ProfileSaved, ProfileView } from "./ports.ts";
 import {
   activeName,
@@ -66,12 +65,8 @@ const locked = withProfilesLock;
 
 const writeDoc = (name: string, doc: ProfileDoc) => writeJsonAtomic(profileFile(name), { ...doc, name });
 
-/**
- * Plan 44 D25: the stored 1.5 document in the 2.0 shape; a TypeSafe key (saved or moved) keeps its endpoint. Only
- * saved credentials count: `CATHERD_DECISION_KEY` is a gateway key and must never name the TypeSafe url.
- */
-const hadKey = holdsTypesafeKey;
-const migrated = (doc: ProfileDoc): ProfileDoc => migrateProfileDoc(doc, hadKey()).doc;
+/** The stored document in this build's shape (`migrateProfileDoc`). */
+const migrated = (doc: ProfileDoc): ProfileDoc => migrateProfileDoc(doc).doc;
 
 /**
  * Plan 44 D25: every stored profile in the 2.0 shape, under the profiles lock, writing only a changed one (no
@@ -90,7 +85,7 @@ export function migrateProfiles(): { profile: string; notes: string[] }[] {
         if (e instanceof CatherdError) continue;
         throw e;
       }
-      const m = migrateProfileDoc(doc, hadKey());
+      const m = migrateProfileDoc(doc);
       if (m.notes.length === 0) continue;
       writeDoc(profile, m.doc);
       for (const note of m.notes) log("info", "profile.migrated", { profile, note });
@@ -374,7 +369,6 @@ function viewOf(p: Profile): ProfileView {
     name: p.name,
     roles,
     billing: p.billing,
-    decision: p.decision,
     isolated: Object.fromEntries(Object.entries(p.harness).map(([k, h]) => [k, h.isolated])),
     failover: p.failover,
     maxEffort: p.maxEffort,

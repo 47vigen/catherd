@@ -2,13 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { DEFAULT_BILLING } from "../../src/domain/cost.ts";
 import {
   candidates,
-  decisionCandidates,
   effortAllowed,
   noRungCause,
-  quotaUsage,
   type RoutingProfile,
   rolesWithoutRung,
-  tieBreak,
 } from "../../src/domain/select.ts";
 import { indexOf, shipped } from "./shipped.ts";
 
@@ -73,9 +70,6 @@ describe("candidates", () => {
       XHIGH,
       "opencode:opencode/gpt-6-luna#high",
     ]);
-    expect(decisionCandidates(c, p, "worker").map((x) => x.rung)).toEqual(
-      candidates(c, p, "worker").map((x) => x.rung),
-    );
   });
 
   it("breaks a cost tie on the profile's ladder order (spec 1.5 plan 24)", () => {
@@ -86,42 +80,6 @@ describe("candidates", () => {
     // both unpriced on Go: cost 0 each
     expect(order([glm, kimi, MED])).toEqual([glm, kimi, MED]);
     expect(order([kimi, glm, MED])).toEqual([kimi, glm, MED]);
-  });
-});
-
-describe("tieBreak (plan 44 D20)", () => {
-  // Luna on Go is the same model at the same intelligence and price as Luna on Codex
-  const level = [LUNA, GO_LUNA];
-
-  it("takes the rung on the quota the run used least, and says why", () => {
-    const t = tieBreak(level, { codex: 3, "opencode-go": 0 });
-    expect(t.rung).toBe(GO_LUNA);
-    expect(t.why).toBe(`${GO_LUNA} has the most headroom (dispatches in this run: codex 3, opencode-go 0)`);
-    expect(tieBreak(level, { codex: 1, "opencode-go": 2 }).rung).toBe(LUNA);
-  });
-
-  it("breaks equal headroom on the order it was given", () => {
-    expect(tieBreak([GO_LUNA, LUNA], {}).rung).toBe(GO_LUNA);
-    expect(tieBreak(level, {}).rung).toBe(LUNA);
-  });
-
-  it("has nothing to say about a level of one rung", () => {
-    expect(tieBreak([LUNA], { codex: 9 })).toEqual({ rung: LUNA, why: null });
-  });
-});
-
-describe("quotaUsage", () => {
-  it("counts a run's dispatched rungs per quota, Claude's two paths as one", () => {
-    expect(
-      quotaUsage([
-        "codex:gpt-6-luna#high",
-        "codex:gpt-6-sol#high",
-        "claude:claude-opus-5-5#low",
-        "claude-code:claude-opus-5-5#low",
-        "opencode:opencode-go/gpt-6-luna#high",
-        "not a rung",
-      ]),
-    ).toEqual({ codex: 2, "claude-code": 2, "opencode-go": 1 });
   });
 });
 

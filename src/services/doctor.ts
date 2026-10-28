@@ -1,14 +1,12 @@
 import { queueCapability, type QueueCapability } from "../infra/codex-queue.ts";
 import { log } from "../infra/log.ts";
 import type { HostContext } from "../domain/host.ts";
-import { existsSync, statSync } from "node:fs";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
-import { BUILTIN_ROLES, DECISION_UNSET_FIX, type Profile } from "../domain/profile.ts";
+import { BUILTIN_ROLES, type Profile } from "../domain/profile.ts";
 import { backendOf } from "../domain/ids.ts";
 import { DEFAULT_ACCESS, ROLES } from "../domain/roles.ts";
 import { bunTooOld, MIN_BUN } from "../domain/runtime.ts";
-import type { DecisionTransport } from "../infra/decision-client.ts";
 import type { RoleServerStart } from "../infra/role-mcp.ts";
 import { linkedProfiles } from "./agent-links.ts";
 import { accessChecks } from "./doctor-access.ts";
@@ -29,8 +27,6 @@ import {
   pluginCheck,
   uiBrowserCheck,
 } from "./doctor-checks.ts";
-import { credentialsPath, migrateCredentials, savedCredential } from "./credentials.ts";
-import { decisionKey, probeDecision } from "./decision-service.ts";
 import {
   activeName,
   enforcementOf,
@@ -76,8 +72,6 @@ export interface DoctorDeps {
   /** plan 23: `--docker`: run the Docker host probes (a compose network by service name, the free disk) */
   docker?: boolean;
   env?: Record<string, string | undefined>;
-  /** the decision model's transport; tests inject a fake fetch */
-  decision?: DecisionTransport;
   /** spec 1.5 plan 21: a cold start of the role server, timed; absent, doctor does not probe it */
   roleServerStart?: () => Promise<RoleServerStart>;
 }
@@ -101,40 +95,6 @@ export function accessRepos(
   return [...new Set([...(repo ? [repo] : []), ...bound])];
 }
 
-/**
- * Plan 44 D25–D27: the active profile's decision model, the one fixed request `run_start` sends. A profile with no
- * url or model, or a model that does not answer, is a failure: no run starts on either.
- */
-async function decisionCheck(p: Profile, transport: DecisionTransport = {}): Promise<Check> {
-  const { url, model, minConfidence } = p.decision;
-  const legacy = process.env.TYPESAFE_API_KEY?.trim()
-    ? " · TYPESAFE_API_KEY is set but not read: export CATHERD_DECISION_KEY instead"
-    : "";
-  const base = { id: "decision", label: "decision model" };
-  if (!url || !model)
-    return {
-      ...base,
-      state: "fail",
-      word: "not set",
-      detail: `${!url ? "decision.url" : "decision.model"} is not set${legacy}`,
-      fix: DECISION_UNSET_FIX,
-    };
-  const named = `${model} at ${url} · ${decisionKey() ? "key set" : "no key sent"}`;
-  const r = await probeDecision({ url, model, minConfidence }, transport).catch((e: unknown) => ({
-    ok: false as const,
-    error: errText(e),
-  }));
-  return r.ok
-    ? { ...base, state: "ok", word: "ready", detail: `${named} · answers in ${r.latencyMs} ms${legacy}` }
-    : {
-        ...base,
-        state: "fail",
-        word: "no answer",
-        detail: `${named} · ${r.error}${legacy}`,
-        fix: "check decision.url, decision.model and the key (catherd init, or export CATHERD_DECISION_KEY=<key>)",
-      };
-}
-
 export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   const checks: Check[] = [];
   checks.push(
@@ -156,9 +116,8 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
         },
   );
 
-  // a 1.5 profile and key in the 2.0 shape first (D25, D26); a file that cannot be read has its own row below
+  // a stored profile in this build's shape first (plan 44 D25, plan 49); a file that cannot be read has its own row below
   try {
-    migrateCredentials();
     migrateProfiles();
   } catch (e) {
     // the file has its own row below; the log names it too
@@ -247,8 +206,6 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   const installed = new Set<string>();
   checks.push(...(await backendChecks(used, profiles, installed, d.host.host)));
   checks.push(...roleMcpChecks(active, await d.roleServerStart?.()));
-
-  if (active) checks.push(await decisionCheck(active, d.decision));
 
   const mine = [...(active ? [active] : []), ...diagnostics.filter((p) => p.name !== active?.name)];
   // the Slopalytics index: its age and the last fetch's error
@@ -406,40 +363,6 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
         word: "weak",
         detail: note,
       });
-  }
-
-  const creds = credentialsPath();
-  if (existsSync(creds)) {
-    const mode = statSync(creds).mode & 0o777;
-    // the decision key is optional, so an unreadable file reads as no key: here is where the user learns why
-    const unreadable = savedCredential("decisionKey").problem;
-    checks.push(
-      mode & 0o077
-        ? {
-            id: "credentials",
-            label: "credentials.json",
-            state: "fail",
-            word: "readable by others",
-            detail: `mode ${mode.toString(8)}`,
-            fix: `chmod 600 ${creds}`,
-          }
-        : unreadable
-          ? {
-              id: "credentials",
-              label: "credentials.json",
-              state: "warn",
-              word: "unreadable",
-              detail: unreadable.message,
-              fix: unreadable.fix ?? `fix or delete ${creds}, then catherd init`,
-            }
-          : {
-              id: "credentials",
-              label: "credentials.json",
-              state: "ok",
-              word: "ready",
-              detail: "mode 600",
-            },
-    );
   }
 
   // the plugin's launcher needs bunx only when no global catherd is installed

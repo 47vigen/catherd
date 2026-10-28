@@ -12,7 +12,6 @@ export const ROLE_NAME: Record<Role["role"], string> = {
   artist: "Artist",
   writer: "Writer",
   researcher: "Researcher",
-  judge: "Judge",
 };
 
 export const ROLE_MEANING: Record<Role["role"], string> = {
@@ -24,7 +23,6 @@ export const ROLE_MEANING: Record<Role["role"], string> = {
   artist: "Makes images and other visual assets.",
   writer: "Writes the docs and the words in a change.",
   researcher: "Looks things up and reports what it found.",
-  judge: "Decides a question for the run, such as how to handle a failure.",
 };
 
 export const ACCESS: readonly { id: Access; label: string; consequence: string }[] = [

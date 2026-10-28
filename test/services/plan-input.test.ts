@@ -349,7 +349,7 @@ describe("the unit context", () => {
     writeLane(run, "M2.L1", ["src/b.ts"]);
     expect(roleALines(run, "worker", "M1.L1")).toEqual(["A1 [worker] — x", "A3 — z"]);
     expect(roleALines(run, "verifier", "M1")).toEqual(["A2 [verifier] — y", "A3 — z"]);
-    expect(roleALines(run, "judge", "M1")).toHaveLength(3);
+    expect(roleALines(run, "architect", "M1")).toHaveLength(3);
     expect(roleALines(run, "reviewer", "run")).toHaveLength(3);
     expect(unitContext(run, "verifier", "M1").join("\n")).toContain("A2 [verifier] — y");
     expect(unitContext(run, "verifier", "M1").join("\n")).not.toContain("A1 [worker]");

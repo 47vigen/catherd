@@ -76,9 +76,6 @@ test("the other sections map one to one", () => {
   expect(patchFor("notifications", { notify: ["finish"] })).toEqual({
     notify: ["finish"],
   });
-  expect(patchFor("decision", { url: "https://gw.example/v1", model: "m", minConfidence: 0.9 })).toEqual({
-    decision: { url: "https://gw.example/v1", model: "m", minConfidence: 0.9 },
-  });
   expect(patchFor("billing", { codex: "metered" })).toEqual({
     billing: { codex: "metered" },
   });
@@ -104,13 +101,6 @@ test("an amount is empty, a positive number, or invalid", () => {
 test("a section sends only the keys the user changed", () => {
   expect(
     patchFor(
-      "decision",
-      { url: "https://gw.example/v1", model: "m", minConfidence: 0.9 },
-      { url: "https://gw.example/v1", model: "m", minConfidence: 0.8 },
-    ),
-  ).toEqual({ decision: { minConfidence: 0.9 } });
-  expect(
-    patchFor(
       "limits",
       { heavy: "cpus/2", reserveMb: 4096, perMilestoneMb: null, floorMb: 512 },
       { heavy: "cpus/2", reserveMb: 2048, perMilestoneMb: null, floorMb: 512 },
@@ -126,13 +116,9 @@ test("a section sends only the keys the user changed", () => {
   expect(patchFor("budget", { minutes: null, tokens: null, usd: 8 }, { minutes: null, tokens: null, usd: 5 })).toEqual({
     budget: { usd: 8 },
   });
-  expect(
-    patchFor(
-      "decision",
-      { url: null, model: null, minConfidence: 0.8 },
-      { url: null, model: null, minConfidence: 0.8 },
-    ),
-  ).toEqual({});
+  expect(patchFor("budget", { minutes: null, tokens: null, usd: 5 }, { minutes: null, tokens: null, usd: 5 })).toEqual(
+    {},
+  );
 });
 
 test("section changes compare arrays whole and preserve changed nested values", () => {

@@ -5,6 +5,7 @@ import {
   type ArchTask,
   attemptsOn,
   isStanding,
+  ladderRung,
   STANDING_CAP,
   stalled,
   taskAttempts,
@@ -51,8 +52,8 @@ export interface ToolContext {
 const SUMMARY_CHARS = 2_000;
 /** Spec O6: the only questions the architect may put to the owner. */
 export const STOP_CLASSES = ["production", "secrets", "irreversible", "stuck"] as const;
-/** The roles a task may be: every role but the architect itself and the judge (spec O5). */
-const TASK_ROLES = ROLES.filter((r) => r !== "architect" && r !== "judge") as [Role, ...Role[]];
+/** The roles a task may be: every role but the architect itself. */
+const TASK_ROLES = ROLES.filter((r) => r !== "architect") as [Role, ...Role[]];
 
 const why = z
   .string()
@@ -96,11 +97,15 @@ const workState = (t: ArchTask): "working" | "waiting" | "stopped" | "done" =>
 
 const at = (c: ToolContext): Date => new Date(c.deps.now());
 
+/** A role's ladder default (spec D7): its `defaultRung`, else its first rung. */
+const defaultOf = (rc: { rungs: string[]; defaultRung?: string }): string =>
+  headlessRung(rc.defaultRung ?? (rc.rungs[0] as string));
+
 /** Starts one task: its brief file, then `task.delegated` with the next free id, under the events lock. */
 async function delegate(
   c: ToolContext,
   i: { role: Role; task: string; rung?: string; ledgerTask?: string; thread?: string | null; why: string },
-): Promise<{ taskId: string; thread: string | null; reportPath: string | null }> {
+): Promise<{ taskId: string; rung: string; thread: string | null; reportPath: string | null }> {
   if (!isArchitect(c.caller) && !isStanding(i.role))
     throw new CatherdError(
       "E_ROLE_SCOPE",
@@ -113,15 +118,20 @@ async function delegate(
   if (!rc?.enabled || rc.rungs.length === 0)
     throw invalid(`the ${i.role} role is off or has no rung`, "capabilities lists the roles you can use");
   const ladder = rc.rungs.map(headlessRung);
-  const rung = headlessRung(i.rung ?? rc.defaultRung ?? (rc.rungs[0] as string));
-  if (!ladder.includes(rung))
+  if (i.rung !== undefined && !ladder.includes(headlessRung(i.rung)))
     throw invalid(`${i.rung} is not on the ${i.role} ladder`, `use one of ${ladder.join(", ")}, or none`);
   if (i.ledgerTask !== undefined) {
     if (!ledgerTasks(c.run).some((t) => t.id === i.ledgerTask))
       throw invalid(`the ledger has no task ${i.ledgerTask}`, "add it with ledger first");
   }
+  let rung = "";
   const id = await withEventsLock(c.run, (add) => {
     const s = replayRun(c.run);
+    // spec D7: no rung is the ladder's default, or one step up after a rung failure on this ledger task
+    rung =
+      i.rung === undefined
+        ? ladderRung(s.arch, i.role, i.ledgerTask ?? null, ladder, defaultOf(rc))
+        : headlessRung(i.rung);
     if (i.ledgerTask !== undefined) {
       // spec D10: a ledger task's attempts cap, and no same-rung retry without new information
       const cap = s.caps.attempts;
@@ -156,6 +166,7 @@ async function delegate(
   });
   return {
     taskId: id,
+    rung,
     thread: i.thread ?? null,
     reportPath: i.role === "researcher" ? researchFile(id) : null,
   };
@@ -181,7 +192,7 @@ const spec = <S extends z.ZodRawShape>(
 
 export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
   capabilities: spec(
-    "The roles you can delegate to, each with its rungs (the first is its default), the quota holds, the budget, and the free writer and standing-role slots. Read-only.",
+    "The roles you can delegate to, each with its ladder (its rungs, lowest first) and the ladder's default, the quota holds, the budget, and the free writer and standing-role slots. Read-only.",
     {},
     true,
     (c) => {
@@ -194,15 +205,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
           TASK_ROLES.flatMap((r) => {
             const rc = profile.roles[r];
             return rc?.enabled && rc.rungs.length
-              ? [
-                  [
-                    r,
-                    {
-                      rungs: rc.rungs.map(headlessRung),
-                      default: headlessRung(rc.defaultRung ?? (rc.rungs[0] as string)),
-                    },
-                  ],
-                ]
+              ? [[r, { ladder: rc.rungs.map(headlessRung), default: defaultOf(rc) }]]
               : [];
           }),
         ),
@@ -215,7 +218,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
     },
   ),
   delegate_task: spec(
-    "Start one task with only `task` as its brief (catherd adds the role's contract). No rung: the role's default. It returns at once; the task's end wakes you. A worker or a writer may delegate only to the researcher or the writer.",
+    "Start one task with only `task` as its brief (catherd adds the role's contract). rung: any rung on the role's ladder. No rung: the ladder's default, or for a ledger task the rung its last attempt ran on, one step up when that attempt failed, timed out, was too hard, or a review of it found a BLOCKER. It returns at once with the rung; the task's end wakes you. A worker or a writer may delegate only to the researcher or the writer.",
     {
       role: z.enum(TASK_ROLES),
       task: z.string().min(1),

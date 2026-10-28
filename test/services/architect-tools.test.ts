@@ -37,6 +37,7 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
       await call(run, "delegate_task", { role: "worker", task: "write the wallet", why: "first" }),
     ).toEqual({
       taskId: "T1",
+      rung: "codex:gpt-6-luna#high",
       thread: null,
       reportPath: null,
     });
@@ -252,6 +253,33 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     await end("T2", "complete");
     await expect(work("codex:gpt-6-sol#high")).rejects.toMatchObject({
       message: expect.stringContaining("has had its 2 attempts"),
+    });
+  });
+
+  it("with no rung, climbs a ledger task's ladder after a failed attempt and keeps it after a provider error (plan 49, spec D7)", async () => {
+    const run = await architectRun();
+    await call(run, "ledger", { tasks: { add: [{ id: "L1", goal: "the parser" }] }, why: "w" });
+    const work = () =>
+      call(run, "delegate_task", { role: "worker", task: "parse it", ledgerTask: "L1", why: "w" });
+    const end = async (taskId: string, o: Parameters<typeof endDispatch>[2]) => {
+      const log = makeLog();
+      const id = startDispatch(log, { name: taskId, unit: taskId });
+      endDispatch(log, id, { ...o, name: taskId, unit: taskId });
+      for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    };
+    expect(await work()).toMatchObject({ taskId: "T1", rung: "codex:gpt-6-luna#high" });
+    await end("T1", { name: "T1", unit: "T1", status: "failed", replyStatus: null });
+    expect(await work()).toMatchObject({ taskId: "T2", rung: "codex:gpt-6-sol#medium" });
+    await end("T2", { name: "T2", unit: "T2", replyStatus: "blocked", reason: "provider_error" });
+    await call(run, "ledger", { tasks: { set: [{ id: "L1", goal: "the parser, retried" }] }, why: "w" });
+    expect(await work()).toMatchObject({ taskId: "T3", rung: "codex:gpt-6-sol#medium" });
+    expect(await call(run, "capabilities", {})).toMatchObject({
+      roles: {
+        worker: {
+          ladder: expect.arrayContaining(["codex:gpt-6-sol#xhigh"]),
+          default: "codex:gpt-6-luna#high",
+        },
+      },
     });
   });
 

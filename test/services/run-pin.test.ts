@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { preflight } from "../../src/services/preflight.ts";
 import { admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
@@ -112,4 +113,15 @@ it("preflight reads the pinned profile", async () => {
   });
   writeLane(run, "M1.L1", ["src/a.ts"]);
   expect((await preflight(deps, { run: run.id })).needsConfirmation).toBe(false);
+});
+
+it("reads the pin of a run an earlier build started, whose access names the judge (plan 49)", async () => {
+  const { run } = await pinnedRun();
+  const file = join(run.dir, "pin.json");
+  const pin = JSON.parse(readFileSync(file, "utf8"));
+  pin.access.judge = "read-only";
+  writeFileSync(file, JSON.stringify(pin));
+  const read = readPin(run);
+  expect(read?.access).toMatchObject({ worker: "workspace-write" });
+  expect(read?.access).not.toHaveProperty("judge");
 });

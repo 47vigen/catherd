@@ -16,6 +16,25 @@ judge on the role's exact brief (plan 44). Since 2.0 the daemon runs all of it (
 
 ## 2.0 follow-ups
 
+### From plan 49 (ladders)
+
+Left out of plan 49 on purpose:
+
+- **The ui-reviewer still has its own ladder.** D16's migration drops it and appends an image-capable rung to the
+  reviewer's ladder; that comes with the reviewer fold (plan 51).
+- **`route.ts`, `routes.jsonl` and `outcomes.jsonl` stay.** Their writers are `lane-service.ts` and `protocol.ts`,
+  which plan 50 deletes with landing.
+- **Listings refresh only at `doctor`, `init`, setup and `catalog refresh`.** The daily refresh at dispatch went with
+  the decision model (`freshenDiscovery`); a listing can go stale between them. Fix: refresh at `run_start` if runs
+  show a stale listing refusing a rung.
+- **No `memory` block is written by the migration.** D16 names it; it comes with memory (D14, stage 3).
+- **An earlier run's judge dispatches are not shown.** `judge` left `ROLES`, so their admit files and events no longer
+  parse and are skipped. Fix, if an owner misses them: read an unknown role as a plain string in the read-only views.
+- **A ladder that goes down still climbs to a weaker rung.** The migration keeps the stored order (R1); `profile
+  validate` warns. Fix: refuse a descending ladder at `run_start` if runs show it.
+- **M2:** `migrateProfiles` does not re-sync native agent files, so a native `claude:` architect file keeps its
+  `disallowedTools` until `doctor` relinks it.
+
 ### From plan 48 (the reducer, caps and stall)
 
 Left out of plan 48 on purpose:
@@ -28,8 +47,8 @@ Left out of plan 48 on purpose:
   generated types and older runs stay as they are; shrink it with plan 51's panel pass.
 - **The writer's, reviewer's and verifier's contracts still say lane and milestone.** The worker's is task-shaped;
   the others change with the single verifier (plan 50) and converging reviews (plan 51).
-- **Failover on a quota hold is not wired into the reducer.** A task on a held rung waits for the hold; the ladder
-  climb comes with plan 49 (D7).
+- **Failover on a quota hold is not wired into the reducer.** A task on a held rung waits for the hold; plan 49's
+  ladder never climbs on a quota limit (D7), so this is still open.
 - **The idle cap is still plan 47's two idle turns,** not D10's 15 minutes with nothing running; and the budget's 80%
   is shown by `capabilities`, not a wake.
 - **The stall rule needs no fingerprint hash.** A same-rung retry after a failed attempt with no ledger edit, owner
@@ -39,8 +58,6 @@ Left out of plan 48 on purpose:
 - **Rounds and approvals in the scorecard read 0** for a run this build starts; plan 51's metric views replace them.
 - **"attempt n of N" counts later attempts** when a ledger task's attempts run in parallel; the end line should use the
   task's position in its attempts instead of how many exist when it ends.
-- **`stalled()` picks the last-ended attempt by insertion order,** not by `endedSeq`; with parallel attempts the one
-  that ended last is not always the last one inserted.
 - **A cap stop leaves the architect's own `workspace-write` turn running.** The stop cancels the tasks, not the turn;
   it ends by itself, but it can still write to the tree after the run is called stopped.
 - **The D16 refusal falls back to `<its version>`** (`run-client.ts:46`) when the run has no `daemon.started` to name
@@ -131,9 +148,6 @@ Left out of plan 44 on purpose, or found while building it:
 - **The milestone Check has no failure class.** A dispatch's fix round knows whether a failure is `product` or
   `harness` (D9), but a milestone Check that fails is not classed, so a broken environment still costs a product fix
   round. Fix: class a Check failure the same way, and give a harness failure the one repair outside the round count.
-- **Several decision models voting.** One decision model answers each routing question. A panel of two or three that
-  must agree could cut a bad rung pick, at the price of more calls on every dispatch. The 2.0 spec lists it as a
-  non-goal. Fix: only after the scorecard shows the single model's picks are the weak point.
 - **A harness clamp for opencode.** Claude Code and Codex cap a shell command's output (plan 44 D12); opencode has
   no such setting yet, so a noisy command can still fill its context. Fix: add the clamp when it gains a setting. opencode's scratch `TMPDIR` is the only guard for now.
 - **The scorecard targets are not measured on a live run (B16).** Targets: the worker brief median under 20 KB, no
@@ -147,23 +161,6 @@ Left out of plan 44 on purpose, or found while building it:
   (`src/services/admission.ts:80`) and the stand-in brief points at it; no test reads the file or the path for a
   resumed thread on a stand-in. Evidence: reviewer-M6 NIT of plan 40 (seq 353), still true after plan 44. Fix: one
   assertion in the resumed-dispatch test.
-- **A verdict failure on a stop or a failure class parks as `effect`, not `decision`.** When the decision model gives
-  no answer, the lane parks with reason `decision`. When the failure-class or stop verdict itself fails, the park
-  reason is `effect`, so the panel's reason filter hides it among unrelated effect
-  failures. Fix: park these with reason `decision` and the call's name.
-- **`resume()` keeps a bad `s.picks[name]` after a retry.** A coordinator pick that the next decide refuses is not
-  cleared by a `retry` answer (`src/domain/run-state.ts:1442`). Fix: delete the pick in `resume()`.
-- **The brief hash check misses notes added after `decision.made`, and runs on resumed threads too.** The check at
-  `src/services/run-effects.ts:692` compares the full brief, so a note appended since fails a fresh thread and a
-  resumed thread (which sends `<this-round>` only) is checked against a text it never sends. Fix: hash what the
-  dispatch sends, and only on a fresh thread.
-- **A credentials file with both keys keeps `typesafeApiKey`.** `migrateCredentials` (`src/services/credentials.ts:69`)
-  returns early when `decisionKey` exists, so the old key stays in the file although MIGRATION says it is removed.
-  Fix: drop `typesafeApiKey` in that case too.
-- **One try wraps `migrateCredentials` and `migrateProfiles` in `startRun`.** An unreadable credentials file skips the
-  profile migration (`src/services/run-service.ts:133`). Fix: a try for each.
-- **A trailing slash in `decision.url` gives `//systemone`.** `decisionRequest` joins `${url}${path}`
-  (`src/infra/decision-client.ts:179`). Fix: strip trailing slashes from the url.
 
 ### From plan 40 (run 20261024-133108-plan-40-run-efficiency)
 

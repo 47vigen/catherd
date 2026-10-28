@@ -47,15 +47,9 @@ const OWNER_ROLES: Record<ALineOwner, readonly Role[]> = {
   run: [],
 };
 
-/** Whether `role` reads an A-line of `owner`: its own group's, the `run` ones and untagged ones; the architect and the judge read all. */
+/** Whether `role` reads an A-line of `owner`: its own group's, the `run` ones and untagged ones; the architect reads all. */
 export function readsALine(role: Role, owner: ALineOwner | null): boolean {
-  return (
-    owner === null ||
-    owner === "run" ||
-    role === "architect" ||
-    role === "judge" ||
-    OWNER_ROLES[owner].includes(role)
-  );
+  return owner === null || owner === "run" || role === "architect" || OWNER_ROLES[owner].includes(role);
 }
 
 const SIGNATURE = [

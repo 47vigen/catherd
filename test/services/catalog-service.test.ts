@@ -1,18 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter } from "../../src/adapters/backend.ts";
 import { readDiscovery, writeDiscovery } from "../../src/adapters/discovery.ts";
 import { adapterFor, registerAdapter } from "../../src/adapters/registry.ts";
-import { logFile } from "../../src/infra/log.ts";
 import { indexPath } from "../../src/infra/paths.ts";
 import { readIndexFile } from "../../src/infra/slopalytics.ts";
 import {
   catalogQuery,
-  freshenDiscovery,
   loadCatalog,
   refreshDiscovery,
-  resetFreshen,
   startIndex,
   writeRunIndex,
 } from "../../src/services/catalog-service.ts";
@@ -23,18 +20,12 @@ import { freshRun } from "./helpers.ts";
 afterEach(snapshotEnv());
 
 const codex = adapterFor("codex") as BackendAdapter;
-let listCalls = 0;
 function fakeCodexListing(models: { id: string; efforts: string[] }[]): void {
-  listCalls = 0;
   registerAdapter({
     ...codex,
-    listModels: async () => {
-      listCalls++;
-      return models.map((m) => ({ ...m, context: 272000, imageIn: true }));
-    },
+    listModels: async () => models.map((m) => ({ ...m, context: 272000, imageIn: true })),
   });
 }
-beforeEach(() => resetFreshen());
 afterEach(() => registerAdapter(codex));
 
 const T0 = Date.parse("2026-09-25T10:00:00.000Z");
@@ -166,121 +157,6 @@ describe("discovery refresh", () => {
     expect((await refreshDiscovery({ backends: ["codex"], now: T0 }))[0]?.error).toBe(
       "listed no models; the previous listing is kept",
     );
-  });
-
-  it("lists again on route at most daily, and not again within the hour after a failure", async () => {
-    withHome();
-    // the claude rung reaches claudeCodeAdapter.listModels(), which calls the Models API with a key
-    delete process.env.ANTHROPIC_API_KEY;
-    fakeCodexListing([{ id: "gpt-6-sol", efforts: ["low", "medium"] }]);
-    await freshenDiscovery(["codex:gpt-6-sol#medium", "claude:claude-opus-5-5#high"], T0);
-    expect(listCalls).toBe(1);
-    await freshenDiscovery(["codex:gpt-6-sol#medium"], T0 + 2 * 3_600_000);
-    expect(listCalls).toBe(1);
-    await freshenDiscovery(["codex:gpt-6-sol#medium"], T0 + 25 * 3_600_000);
-    expect(listCalls).toBe(2);
-    fakeCodexListing([]);
-    resetFreshen();
-    const late = T0 + 50 * 3_600_000;
-    await freshenDiscovery(["codex:gpt-6-sol#medium"], late);
-    await freshenDiscovery(["codex:gpt-6-sol#medium"], late + 60_000);
-    expect(listCalls).toBe(1);
-  });
-
-  it("logs a failed listing at debug and keeps routing", async () => {
-    withHome();
-    process.env.CATHERD_LOG = "debug";
-    registerAdapter({
-      ...codex,
-      listModels: async () => {
-        throw new Error("codex listing broke");
-      },
-    });
-    await freshenDiscovery(["codex:gpt-6-sol#medium"], T0);
-    const rows = readFileSync(logFile(), "utf8")
-      .split("\n")
-      .filter((l) => l.includes('"discovery"'))
-      .map((l) => JSON.parse(l));
-    expect(rows).toEqual([
-      expect.objectContaining({ level: "debug", backend: "codex", error: "codex listing broke" }),
-    ]);
-  });
-
-  it("lists the due backends in parallel", async () => {
-    withHome();
-    const opencode = adapterFor("opencode") as BackendAdapter;
-    const started: string[] = [];
-    const release: (() => void)[] = [];
-    const lister = (id: string, model: string) => () =>
-      new Promise<{ id: string; efforts: string[]; context: number; imageIn: boolean }[]>((resolve) => {
-        started.push(id);
-        release.push(() => resolve([{ id: model, efforts: [], context: 1000, imageIn: false }]));
-      });
-    registerAdapter({ ...codex, listModels: lister("codex", "gpt-6-sol") });
-    registerAdapter({ ...opencode, listModels: lister("opencode", "opencode-go/kimi-k3") });
-    try {
-      const done = freshenDiscovery(["codex:gpt-6-sol#medium", "opencode:opencode-go/kimi-k3#default"], T0);
-      // both listings start before either answers
-      await Promise.resolve();
-      expect(started.sort()).toEqual(["codex", "opencode"]);
-      for (const r of release) r();
-      await done;
-      expect(readDiscovery("codex")?.models.map((m) => m.id)).toEqual(["gpt-6-sol"]);
-      expect(readDiscovery("opencode")?.models.map((m) => m.id)).toEqual(["opencode-go/kimi-k3"]);
-    } finally {
-      registerAdapter(opencode);
-    }
-  });
-});
-
-describe("discovery per repository", () => {
-  const opencode = adapterFor("opencode") as BackendAdapter;
-  afterEach(() => registerAdapter(opencode));
-  const model = (id: string) => ({ id, efforts: ["high"], context: 1000, imageIn: false });
-
-  it("lists opencode in the routed repository and keeps each repository's listing apart", async () => {
-    withHome();
-    const asked: (string | undefined)[] = [];
-    registerAdapter({
-      ...opencode,
-      listModels: async (repo?: string) => {
-        asked.push(repo);
-        return [model(repo === "/work/a" ? "opencode/gpt-6-luna" : "opencode/gpt-6-sol")];
-      },
-    });
-    fakeCodexListing([{ id: "gpt-6-sol", efforts: ["medium"] }]);
-    await freshenDiscovery(["opencode:opencode/gpt-6-luna#high", "codex:gpt-6-sol#medium"], T0, "/work/a");
-    expect(asked).toEqual(["/work/a"]);
-    expect(readDiscovery("opencode", "/work/a")?.models.map((m) => m.id)).toEqual(["opencode/gpt-6-luna"]);
-    expect(readDiscovery("opencode")).toBeNull();
-    // codex lists the same models wherever it runs: the global listing
-    expect(readDiscovery("codex")?.models.map((m) => m.id)).toEqual(["gpt-6-sol"]);
-    expect(loadCatalog({ repo: "/work/a" }).listed.opencode?.models.map((m) => m.id)).toEqual([
-      "opencode/gpt-6-luna",
-    ]);
-    expect(loadCatalog({ repo: "/work/b" }).listed.opencode).toBeUndefined();
-    expect(loadCatalog({ repo: "/work/b" }).listed.codex?.models).toHaveLength(1);
-    // another repository is due on its own, the same day
-    await freshenDiscovery(["opencode:opencode/gpt-6-luna#high"], T0 + 60_000, "/work/b");
-    expect(asked).toEqual(["/work/a", "/work/b"]);
-    await freshenDiscovery(["opencode:opencode/gpt-6-luna#high"], T0 + 120_000, "/work/a");
-    expect(asked).toEqual(["/work/a", "/work/b"]);
-  });
-
-  it("backs off an hour per repository after a failed listing", async () => {
-    withHome();
-    const asked: (string | undefined)[] = [];
-    registerAdapter({
-      ...opencode,
-      listModels: async (repo?: string) => {
-        asked.push(repo);
-        throw new Error("wedged");
-      },
-    });
-    await freshenDiscovery(["opencode:opencode/gpt-6-luna#high"], T0, "/work/a");
-    await freshenDiscovery(["opencode:opencode/gpt-6-luna#high"], T0 + 60_000, "/work/a");
-    await freshenDiscovery(["opencode:opencode/gpt-6-luna#high"], T0 + 60_000, "/work/b");
-    expect(asked).toEqual(["/work/a", "/work/b"]);
   });
 });
 

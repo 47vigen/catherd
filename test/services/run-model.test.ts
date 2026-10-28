@@ -30,15 +30,15 @@ describe("the run model service", () => {
       ["task/worker-M1.L1", "done"],
       ["task/reviewer-M1", "done"],
       ["task/verifier-M1", "done"],
-      ["task/judge-rules", "done"],
       ["end", "done"],
     ]);
     const lane = node(m, "task/worker-M1.L1");
     expect(lane.attempts.map((a) => a.tokens?.output)).toEqual([10630, 7845]);
     expect(node(m, "task/reviewer-M1").attempts).toHaveLength(2);
     expect(node(m, "architect").attempts[0]?.costUsd).toBeCloseTo(0.687, 2);
-    expect(m.dispatches.length).toBe(7);
-    expect(m.dispatches[0]?.name).toBe("judge-rules");
+    // plan 49 R14: the judge left ROLES, so the earlier run's judge dispatch is skipped
+    expect(m.dispatches.length).toBe(6);
+    expect(m.dispatches[0]?.name).toBe("verifier-M1");
   });
 
   it("a 1.5 run has no nodes and lists its dispatch records", async () => {

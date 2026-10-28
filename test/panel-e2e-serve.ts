@@ -13,7 +13,6 @@ import { daemonLauncher } from "../src/services/daemon.ts";
 import { runStart } from "../src/services/run-client.ts";
 import { appendEvent, readEvents } from "../src/services/run-events-store.ts";
 import { dispatchDir } from "../src/services/run-files.ts";
-import { patchProfile } from "../src/services/profile-service.ts";
 import { activeName, profileFile } from "../src/services/profile-store.ts";
 import { findRun, runPaths } from "../src/services/run-store.ts";
 import { seedFixtureRun } from "./services/fixture-run.ts";
@@ -36,13 +35,6 @@ daemonLauncher.launch = () => 0;
 
 const deps = defaultDeps({ host: "codex", session: null, conflict: null });
 const RUNG = "codex:gpt-6-sol#high";
-// a run starts only with a decision model that answers the probe: a named one, probed by a stub
-patchProfile(
-  activeName(repo),
-  { decision: { url: "https://decider.example/v1", model: "test-decider" } },
-  { host: "codex" },
-);
-deps.routing.probe = async () => ({ ok: true, latencyMs: 1 });
 
 async function add(run: string, e: RunEventInput): Promise<void> {
   RunEventSchema.parse({ v: EVENTS_SCHEMA, seq: 1, at: new Date().toISOString(), ...e });

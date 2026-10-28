@@ -1,5 +1,5 @@
-// Spec §10.4 and §11.8: the one rule for what is a secret. The log redactor (infra/log.ts), fixture
-// capture (domain/sanitize.ts) and the decision state (domain/decision.ts) all scrub with it; each picks its mark.
+// Spec §10.4 and §11.8: the one rule for what is a secret. The log redactor (infra/log.ts) and fixture
+// capture (domain/sanitize.ts) both scrub with it; each picks its mark.
 
 /** Env names whose values are credentials: the word may sit anywhere (OPENAI_API_KEY_2, GH_TOKEN_FILE). */
 const SECRET_NAME = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i;

@@ -16,9 +16,6 @@ describe("standing rules by role", () => {
     );
     expect(rulesFor(L.join("\n"), "verifier")).toBe([L[0], "only C", L[3], L[4]].join("\n"));
     expect(rulesFor(L.join("\n"), "writer")).toBe([L[0], L[3], L[4]].join("\n"));
-    expect(rulesFor("- 2026-10-21 rules review r1: [judge] J", "judge")).toBe(
-      "- 2026-10-21 rules review r1: J",
-    );
   });
 
   it("leaves a bracket group that names no role as text for every role", () => {

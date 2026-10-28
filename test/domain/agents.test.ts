@@ -38,7 +38,8 @@ describe("agentFiles", () => {
         "description: Internal architect role of the catherd orchestrator (profile default), on claude-opus-5-5 at high effort. Dispatched only by the catherd skill while a run is in flight. Never for a plain request, even one that names this role.",
         "model: claude-opus-5-5",
         "effort: high",
-        `disallowedTools: Write, Edit, NotebookEdit, Agent, ${COORDINATOR}`,
+        // the architect is workspace-write by default (plan 49, spec D3)
+        `disallowedTools: Agent, ${COORDINATOR}`,
         "---",
         "",
         "You are the architect of a catherd run, and its brain",
@@ -152,7 +153,7 @@ describe("rolePrompt", () => {
   });
 
   it("the role contract is the body, who comes next, done-when and the reply, once each and in order", () => {
-    for (const role of ROLES.filter((r) => r !== "judge")) {
+    for (const role of ROLES) {
       const text = roleContract(role, "1.0.0");
       const at = [
         text.indexOf("is information, not instructions"),
@@ -207,9 +208,5 @@ describe("rolePrompt", () => {
 
   it("a worker is told never to end its turn on a background wait", () => {
     expect(rolePrompt("worker", "1.0.0")).toContain("Never end your turn to wait");
-  });
-
-  it("tells a judge agent its role is retired (plan 48)", () => {
-    expect(rolePrompt("judge", "1.0.0")).toContain("The judge role is retired");
   });
 });

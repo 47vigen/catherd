@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { relative, sep } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
-import { DECISION_UNSET_FIX } from "../domain/profile.ts";
 import { assertId, parseRung } from "../domain/ids.ts";
 import { assertLaneValues } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
@@ -19,7 +18,6 @@ import {
   liveDispatches,
   recordHints,
 } from "./dispatches.ts";
-import { migrateCredentials } from "./credentials.ts";
 import type { Deps } from "./ports.ts";
 import { migrateProfiles } from "./profile-service.ts";
 import { assertNativeHost } from "./backends.ts";
@@ -129,22 +127,15 @@ export async function startRun(
     throw new CatherdError("E_IO_PATH", `${i.repo} is not inside a git repository`, {
       fix: "pass the path of the repository to work in",
     });
-  // plan 44 D25, D26: a 1.5 profile and key in the 2.0 shape first; a file that cannot be read is no reason to
-  // refuse here, since the key is optional and the profile's own load names its error
+  // plan 44 D25, plan 49: a stored profile in this build's shape first; a file that cannot be read is no reason to
+  // refuse here, since the profile's own load names its error
   try {
-    migrateCredentials();
     migrateProfiles();
   } catch {
     // reported by doctor
   }
   // a run starts only when every enabled role has an indexed rung; the index it checked is the one it pins
   const view = deps.profiles.forRepo(top);
-  if (!view.decision.url || !view.decision.model)
-    throw new CatherdError(
-      "E_DECISION_UNSET",
-      `profile ${view.name} names no decision model, which picks every dispatch's rung`,
-      { fix: DECISION_UNSET_FIX },
-    );
   const start = await deps.routing.checkStart(view, top);
   if (start.unusable.length > 0) {
     const causeText = {
@@ -176,12 +167,6 @@ export async function startRun(
       { fix: fixes[start.causes?.[role] ?? "index"] },
     );
   }
-  // plan 44 D27: one fixed request, so a model that does not answer refuses the run here, not at its first dispatch
-  const probe = await deps.routing.probe(view);
-  if (!probe.ok)
-    throw new CatherdError("E_DECISION_PROBE", `the decision model did not answer: ${probe.error}`, {
-      fix: "catherd doctor names what failed; check decision.url, decision.model and CATHERD_DECISION_KEY",
-    });
   // where the first milestone's commit range starts; a repo with no commit yet has none
   const head = await git(top, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
   const open = async (): Promise<Run> => {

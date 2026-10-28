@@ -19,11 +19,8 @@ import { runProbes } from "../../src/services/doctor-access.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { accessRepos, type DoctorReport, doctor, type Handshake } from "../../src/services/doctor.ts";
 import { type Check, indexCheck, PLUGIN_INSTALL } from "../../src/services/doctor-checks.ts";
-import { credentialsPath } from "../../src/services/credentials.ts";
-import { decisionQuestions, saveDecisionKey } from "../../src/services/decision-service.ts";
 import { activate, createProfile, patchProfile } from "../../src/services/profile-service.ts";
 import { configFile, profilesDir, projectsFile } from "../../src/services/profile-store.ts";
-import { fakeFetch } from "../fake-fetch.ts";
 import { bunOnlyBin, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { type CodexScenario, withScenario } from "../sim/scenario.ts";
 import { type OpencodeScenario, withClaudeScenario, withOpencodeScenario } from "../sim/sim-scenarios.ts";
@@ -108,19 +105,6 @@ const answers = async (): Promise<Handshake> => ({
   ok: true,
   tools: ["status", "dispatch"],
 });
-/** The reply of a decision model that answers the probe: a score over three levels and every noul. */
-const probeReply = () => ({
-  model: "test-decider",
-  answers: {
-    difficulty: { type: "score", score: 1, probabilities: { "0": 0.1, "1": 0.8, "2": 0.1 }, confidence: 0.9 },
-    ...Object.fromEntries(
-      Object.keys(decisionQuestions().sets.difficulty.nouls).map((id) => [id, { type: "noul", noul: 0.1 }]),
-    ),
-  },
-  usage: { input_tokens: 10, output_tokens: 2 },
-});
-/** The decision model answers from a fake: a test never reaches a real gateway. */
-const offlineDecision = () => ({ fetchImpl: fakeFetch({ status: 200, body: probeReply() }).impl });
 const run = (over: Partial<Parameters<typeof doctor>[0]> = {}) =>
   doctor({
     host: { host: "claude-code", session: null, conflict: null },
@@ -128,20 +112,16 @@ const run = (over: Partial<Parameters<typeof doctor>[0]> = {}) =>
     bunVersion: "1.4.2",
     version: VERSION,
     handshake: answers,
-    decision: offlineDecision(),
     ...over,
   });
 const check = (r: DoctorReport, id: string): Check | undefined => r.checks.find((c) => c.id === id);
 const states = (r: DoctorReport) => Object.fromEntries(r.checks.map((c) => [c.id, `${c.state} ${c.word}`]));
 
-// the decision model has no default; a profile that names none is a doctor failure
-const DECIDER = { decision: { url: "https://decision.test/v1", model: "test-decider" } };
-
 /** A machine where everything the default profile needs works, and the agents are linked. */
 function ready(): string {
   const home = machine();
   installPlugin(VERSION);
-  patchProfile("default", DECIDER, { host: "claude-code" });
+  patchProfile("default", {}, { host: "claude-code" });
   return home;
 }
 
@@ -154,12 +134,10 @@ describe("doctor", () => {
       bun: "ok ready",
       config: "ok ready",
       profile: "ok ready",
-      "role-mcp:default:claude-code": "info configured",
       "role-mcp:default:codex": "info configured",
       "backend:codex": "ok ready",
       "backend:claude-code": "ok ready",
       "backend:opencode": "ok ready",
-      decision: "ok ready",
       catalog: "ok fresh",
       plugin: "ok ready",
       agents: "ok ready",
@@ -204,13 +182,12 @@ describe("doctor", () => {
   it("offers to move a missing Codex's roles to claude-code when that is ready, one command a line", async () => {
     machine({ bins: ["claude"] });
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     const to = (role: string) =>
       `catherd profile set roles.${role}.rungs 'claude-code:claude-opus-5-5#medium' --profile default --host claude-code`;
     expect(check(await run(), "backend:codex")?.fix?.split("\n")).toEqual([
       "npm i -g @openai/codex",
       "or move its roles to claude-code: /catherd-setup in Claude Code, or run (artist needs codex, so it is turned off)",
-      "catherd profile set roles.worker.defaultRung null --profile default --host claude-code",
       to("worker"),
       to("reviewer"),
       to("ui-reviewer"),
@@ -224,7 +201,7 @@ describe("doctor", () => {
   it("prints move commands a shell runs as they are, after which no role needs the missing Codex", async () => {
     machine({ bins: ["claude"] });
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     const fix = check(await run(), "backend:codex")?.fix ?? "";
     const commands = fix.split("\n").filter((l) => l.startsWith("catherd "));
     expect(commands.length).toBeGreaterThan(0);
@@ -264,7 +241,6 @@ describe("doctor", () => {
     const saved = patchProfile(
       "default",
       {
-        ...DECIDER,
         roles: {
           worker: {
             rungs: ["codex:gpt-6-sol#medium", "claude-code:claude-opus-5-5#high"],
@@ -308,7 +284,7 @@ describe("doctor", () => {
   it("offers opencode when it is the backend that is ready", async () => {
     machine({ bins: ["opencode"] });
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     const fix = check(await run(), "backend:codex")?.fix ?? "";
     expect(fix).toContain("or move its roles to opencode: /catherd-setup in Claude Code, or run");
     expect(fix).toContain(
@@ -319,14 +295,14 @@ describe("doctor", () => {
   it("offers only the install when no other backend is ready", async () => {
     machine({ bins: [] });
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     expect(check(await run(), "backend:codex")?.fix).toBe("npm i -g @openai/codex");
   });
 
   it("names the login a backend needs", async () => {
     machine({ codex: { loggedIn: false } });
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     expect(check(await run(), "backend:codex")).toMatchObject({
       state: "fail",
       word: "not logged in",
@@ -338,7 +314,7 @@ describe("doctor", () => {
   it("says how Codex is logged in, and warns when a profile bills that login as something else", async () => {
     machine({ codex: { login: "api-key" } });
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     const r = await run();
     expect(check(r, "backend:codex")).toMatchObject({
       state: "warn",
@@ -386,7 +362,7 @@ describe("doctor", () => {
   // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("fails without the plugin, or with a plugin of another version", async () => {
     machine();
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     expect(check(await run(), "plugin")).toMatchObject({
       state: "fail",
       word: "missing",
@@ -466,7 +442,6 @@ describe("doctor", () => {
     // Runtime probes are distinct from static role MCP policy, shipped access defaults and the catalog row.
     expect(r.checks.filter((c) => c.state === "info").map((c) => c.id)).toEqual([
       "role-mcp:default:codex",
-      "role-mcp:default:claude-code",
       "access:full",
       "access:advisory",
     ]);
@@ -533,7 +508,7 @@ describe("doctor", () => {
     const argsTo = join(binDir(), "sandbox-args.jsonl");
     machine({ codex: { sandboxArgsTo: argsTo } });
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     const r = await run();
     expect(check(r, "sandbox:codex")).toMatchObject({
       state: "ok",
@@ -568,7 +543,7 @@ describe("doctor", () => {
   it("warns with a fix per probe the Codex sandbox blocks", async () => {
     machine({ codex: { sandboxDeny: ["Bun.listen", "fetch("] } });
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     const c = check(await run(), "access:codex");
     expect(c).toMatchObject({ state: "warn", word: "blocked" });
     expect(c?.detail).toStartWith("in codex sandbox, a worker cannot: loopback bind (");
@@ -583,13 +558,13 @@ describe("doctor", () => {
   it("falls back to the old codex sandbox form, and skips when neither form runs", async () => {
     machine({ codex: { sandboxForm: "old" } });
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     const r = await run();
     expect(check(r, "sandbox:codex")?.detail).toEndWith("--full-auto (the old form)");
     expect(check(r, "access:codex")?.state).toBe("ok");
     machine({ codex: { sandbox: undefined } });
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     const none = await run();
     expect(check(none, "sandbox:codex")).toMatchObject({
       state: "skip",
@@ -666,7 +641,7 @@ describe("doctor", () => {
     chmodSync(fake, 0o755);
     process.env.CATHERD_PROBE_DOCKER = fake;
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     const c = check(await run(), "access:opencode");
     expect(c).toMatchObject({ state: "warn", word: "blocked" });
     expect(c?.detail).toContain("docker version (Cannot connect to the Docker daemon)");
@@ -676,7 +651,7 @@ describe("doctor", () => {
   it("still reports when the lock dir cannot be created: the lock probe row fails with the error", async () => {
     machine();
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     mkdirSync(dirname(locksDir()), { recursive: true });
     writeFileSync(locksDir(), "not a dir");
     const r = await run();
@@ -698,7 +673,7 @@ describe("doctor", () => {
     chmodSync(fake, 0o755);
     process.env.CATHERD_PROBE_DOCKER = fake;
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     const r = await run();
     expect(check(r, "access:opencode")).toMatchObject({
       state: "skip",
@@ -711,7 +686,7 @@ describe("doctor", () => {
     machine({ bins: ["claude"] });
     process.env.CATHERD_PROBE_DOCKER = fake;
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     const none = await run();
     expect(check(none, "access:codex")?.word).toBe("not installed");
     expect(check(none, "sandbox:codex")).toBeUndefined();
@@ -729,7 +704,7 @@ describe("doctor", () => {
     process.env.CATHERD_PROBE_DOCKER = fake;
     process.env.CATHERD_PROBE_URL = "http://127.0.0.1:9/";
     installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
+    patchProfile("default", {}, { host: "claude-code" });
     const c = check(await run(), "access:opencode");
     expect(c?.detail).toContain(
       "docker version (Cannot connect to the Docker daemon at unix:///var/run/docker.sock)",
@@ -750,7 +725,7 @@ describe("doctor", () => {
         machine();
         process.env.CATHERD_PROBE_URL = `http://127.0.0.1:${proxy.port}/-/ping`;
         installPlugin(VERSION);
-        patchProfile("default", DECIDER, { host: "claude-code" });
+        patchProfile("default", {}, { host: "claude-code" });
         const c = check(await run(), "access:opencode");
         expect(c).toMatchObject({ state: "warn", word: "blocked" });
         expect(c?.detail).toContain(`outbound HTTPS (HTTP ${status}`);
@@ -774,131 +749,6 @@ describe("doctor", () => {
     const r = await runProbes(shell, false);
     expect(r.find((p) => p.id === "lock")?.why).toBe("timed out after 20 s");
     expect(r.find((p) => p.id === "temp")?.why).toBe("the probe shell did not start");
-  });
-
-  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
-  it("doctor checks the decision model", async () => {
-    machine();
-    installPlugin(VERSION);
-    patchProfile("default", {}, { host: "claude-code" });
-    const unset = check(await run(), "decision");
-    expect(unset).toMatchObject({ state: "fail", word: "not set" });
-    expect(unset?.fix).toContain("catherd profile set decision.url https://<your-gateway>/v1");
-    expect(unset?.fix).toContain("decision.model");
-
-    patchProfile(
-      "default",
-      { decision: { url: "https://decider.example/v1", model: "test-decider" } },
-      { host: "claude-code" },
-    );
-    const answer = probeReply();
-    const keyless = fakeFetch({ status: 200, body: answer });
-    const ok = check(await run({ decision: { fetchImpl: keyless.impl } }), "decision");
-    expect(ok).toMatchObject({ state: "ok", word: "ready" });
-    expect(ok?.detail).toContain("https://decider.example/v1");
-    expect(ok?.detail).toContain("test-decider");
-    expect(ok?.detail).toContain("no key sent");
-    expect(ok?.detail).toMatch(/\d+ ms/);
-    expect(keyless.sent).toHaveLength(1);
-    expect(keyless.sent[0]?.headers.has("authorization")).toBe(false);
-
-    process.env.CATHERD_DECISION_KEY = "k-test-0123456789";
-    const keyed = fakeFetch({ status: 200, body: answer });
-    expect(check(await run({ decision: { fetchImpl: keyed.impl } }), "decision")?.detail).toContain(
-      "key set",
-    );
-    expect(keyed.sent[0]?.headers.get("authorization")).toBe("Bearer k-test-0123456789");
-
-    const bad = fakeFetch({ status: 401, body: { error: "bad key" } });
-    expect(check(await run({ decision: { fetchImpl: bad.impl, retries: 0 } }), "decision")).toMatchObject({
-      state: "fail",
-      word: "no answer",
-      detail: expect.stringContaining("401"),
-    });
-
-    delete process.env.CATHERD_DECISION_KEY;
-    process.env.TYPESAFE_API_KEY = "ts-old-0123456789";
-    const legacy = fakeFetch({ status: 200, body: answer });
-    const note = check(await run({ decision: { fetchImpl: legacy.impl } }), "decision");
-    expect(note?.detail).toContain("TYPESAFE_API_KEY is set but not read");
-    expect(note?.detail).toContain("CATHERD_DECISION_KEY");
-    expect(legacy.sent[0]?.headers.has("authorization")).toBe(false);
-  }, 30_000);
-
-  it("validates linked profiles diagnostically", async () => {
-    ready();
-    createProfile("team", undefined, "claude-code");
-    activate("team", tempRepo(), "claude-code");
-    const file = join(dirname(configFile()), "profiles", "team.json");
-    const doc = JSON.parse(readFileSync(file, "utf8"));
-    writeFileSync(
-      file,
-      JSON.stringify({
-        ...doc,
-        roles: {
-          ...doc.roles,
-          worker: { ...doc.roles.worker, enabled: false },
-        },
-      }),
-    );
-    const r = await run();
-    expect(check(r, "profile")).toMatchObject({
-      state: "ok",
-      label: "profile default",
-    });
-    expect(check(r, "profile:team")).toMatchObject({
-      state: "warn",
-      word: "invalid",
-      label: "profile team",
-      fix: "catherd profile set --profile team --host claude-code roles.worker.enabled true",
-    });
-    // one whole doctor run, probing every simulated CLI: a slow macOS runner outlasts the 5 s default
-  }, 30_000);
-
-  it("warns when ui-reviewer is on but agent-browser is not on PATH, naming each profile that turns it on", async () => {
-    machine({ agentBrowser: false });
-    installPlugin(VERSION);
-    patchProfile("default", DECIDER, { host: "claude-code" });
-    createProfile("team", undefined, "claude-code");
-    patchProfile("team", DECIDER, { host: "claude-code" });
-    activate("team", tempRepo(), "claude-code");
-    const r = await run();
-    expect(r.ready).toBe(true);
-    expect(check(r, "ui-browser")).toEqual({
-      id: "ui-browser",
-      label: "agent-browser",
-      state: "warn",
-      word: "missing",
-      detail: "agent-browser is not on PATH, so ui-reviewer (default, team) cannot take screenshots",
-      fix: [
-        "npm i -g agent-browser",
-        "or turn the role off:",
-        "catherd profile set roles.ui-reviewer.enabled false --profile default --host claude-code",
-        "catherd profile set roles.ui-reviewer.enabled false --profile team --host claude-code",
-      ].join("\n"),
-    });
-  }, 30_000);
-
-  it("says nothing about agent-browser when it is on PATH or no profile turns ui-reviewer on", async () => {
-    ready();
-    expect(check(await run(), "ui-browser")).toBeUndefined();
-    machine({ agentBrowser: false });
-    installPlugin(VERSION);
-    patchProfile("default", { roles: { "ui-reviewer": { enabled: false } } }, { host: "claude-code" });
-    expect(check(await run(), "ui-browser")).toBeUndefined();
-  }, 30_000);
-
-  it("warns about another repo bound to a missing profile", async () => {
-    ready();
-    createProfile("team", undefined, "claude-code");
-    const repo = tempRepo();
-    activate("team", repo, "claude-code");
-    rmSync(join(dirname(configFile()), "profiles", "team.json"));
-    expect(check(await run(), `binding:${repo}`)).toMatchObject({
-      state: "warn",
-      word: "missing",
-      fix: `cd ${repo} && catherd profile use --repo --clear`,
-    });
   });
 
   it("checks selected backends and warns when another linked profile is corrupt", async () => {
@@ -935,30 +785,6 @@ describe("doctor", () => {
     const r = await run();
     expect(check(r, "backend:codex")?.state).toBe("ok");
     expect(check(r, "sandbox:codex")).toBeUndefined();
-  });
-
-  it("fails on a credentials file others can read", async () => {
-    ready();
-    saveDecisionKey("tsk-test-key-0123456789");
-    chmodSync(credentialsPath(), 0o644);
-    expect(check(await run(), "credentials")).toMatchObject({
-      state: "fail",
-      word: "readable by others",
-      fix: `chmod 600 ${credentialsPath()}`,
-    });
-  });
-
-  it("warns on a credentials file it cannot read, which the decision model takes for no key", async () => {
-    ready();
-    saveDecisionKey("tsk-test-key-0123456789");
-    writeFileSync(credentialsPath(), "{ not json");
-    const r = await run();
-    expect(check(r, "credentials")).toMatchObject({
-      state: "warn",
-      word: "unreadable",
-      fix: `delete ${credentialsPath()} and run catherd init, or write it as {"schema": 1, "decisionKey": "<your key>"}`,
-    });
-    expect(check(r, "decision")?.detail).toContain("no key sent");
   });
 
   it("reads a corrupt index as one not fetched, and fails a profile with nothing indexed", async () => {
@@ -1069,7 +895,7 @@ it("codex_ready_other_profile_broken keeps readiness selected and does no Claude
   machine({ bins: ["codex"], codex: { models, queue: "accepted" } });
   const repo = tempRepo();
   expect(createProfile("team", undefined, "codex").saved).toBe(true);
-  patchProfile("team", DECIDER, { host: "codex" });
+  patchProfile("team", {}, { host: "codex" });
   activate("team", repo, "codex");
   mkdirSync(profilesDir(), { recursive: true });
   writeFileSync(join(profilesDir(), "broken.json"), "{bad json");
@@ -1137,8 +963,7 @@ it("native failover-only missing managed links warn while the Claude host still 
     patchProfile(
       "default",
       {
-        ...DECIDER,
-        roles: { architect: { enabled: false }, verifier: { enabled: false }, judge: { enabled: false } },
+        roles: { architect: { enabled: false }, verifier: { enabled: false } },
         failover: { "codex:gpt-6-luna#high": "claude:claude-opus-5-5#high" },
       },
       { host: "claude-code" },

@@ -15,7 +15,6 @@ import { REASON_TEXT } from "../../../../../lib/park-reasons";
 import { invalidateOps } from "../../../../../lib/query";
 import { ChangesTab } from "./ChangesTab";
 import { ChecksTab } from "./ChecksTab";
-import { DecisionTab } from "./DecisionTab";
 import { LogTab } from "./LogTab";
 import { OutputTab } from "./OutputTab";
 import { OverviewTab } from "./OverviewTab";
@@ -215,9 +214,6 @@ export function NodeDrawer({
                         now={now}
                         onAttempt={(id) => onChange({ attempt: id })}
                       />
-                    </Tabs.Panel>
-                    <Tabs.Panel id="decision" className="px-0 pt-4 pb-0">
-                      <DecisionTab decision={node.decision} />
                     </Tabs.Panel>
                     <Tabs.Panel id="prompt" className="px-0 pt-4 pb-0">
                       <PromptTab dispatch={dq} />

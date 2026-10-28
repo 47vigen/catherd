@@ -43,10 +43,9 @@ describe("the panel's Setup view", () => {
     expect(SetupViewSchema.parse(await setupView(deps, repo)).settings.landAutoMerge).toBe(true);
   });
 
-  it("settings carry the decision model, not the bars", async () => {
+  it("settings carry neither the decision model nor the bars", async () => {
     const { settings } = SetupViewSchema.parse(await setupView(deps, repo));
-    expect(settings.decision).toEqual({ url: null, model: null, minConfidence: 0.8 });
-    for (const k of ["objective", "jev", "bars"]) expect(k in settings).toBe(false);
+    for (const k of ["decision", "objective", "jev", "bars"]) expect(k in settings).toBe(false);
   });
 
   it("offers older versions too, each naming the newer one that hides it by default", async () => {
@@ -128,11 +127,11 @@ describe("the panel's Setup view", () => {
 });
 
 describe("the panel's Setup view on a host that is not known", () => {
-  it("lists every role, showing the architect, verifier and judge as set by the session's host", async () => {
+  it("lists every role, showing the architect and verifier as set by the session's host", async () => {
     const bare = defaultDeps({ host: "unknown", session: null, conflict: null });
     const v = SetupViewSchema.parse(await setupView(bare, repo));
     const hostSet = v.roles.filter((r) => r.hostSet).map((r) => r.role);
-    expect(hostSet).toEqual(["architect", "verifier", "judge"]);
+    expect(hostSet).toEqual(["architect", "verifier"]);
     expect(v.roles.find((r) => r.role === "architect")?.rungs).toEqual([]);
     expect(v.roles.find((r) => r.role === "worker")?.rungs.map((r) => r.rung)).toEqual(
       BUILTIN_ROLES.worker.rungs,

@@ -2,8 +2,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { errorMessage } from "../domain/errors.ts";
-import { ACCESS } from "../domain/record.ts";
-import { ROLES } from "../domain/roles.ts";
+import { ACCESS, type Access } from "../domain/record.ts";
+import { ROLES, type Role } from "../domain/roles.ts";
 import { readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import type { Deps, ProfileView } from "./ports.ts";
 import { findRun, type Run } from "./run-store.ts";
@@ -17,7 +17,15 @@ const PinSchema = z.looseObject({
   schema: z.literal(1),
   at: z.string(),
   profile: z.string(),
-  access: z.partialRecord(z.enum(ROLES), z.enum(ACCESS)),
+  // a pin from before plan 49 may name the judge, which is no role now
+  access: z
+    .record(z.string(), z.enum(ACCESS))
+    .transform(
+      (o) =>
+        Object.fromEntries(Object.entries(o).filter(([k]) => ROLES.includes(k as Role))) as Partial<
+          Record<Role, Access>
+        >,
+    ),
   isolated: z.record(z.string(), z.boolean()),
 });
 export type Pin = z.infer<typeof PinSchema>;

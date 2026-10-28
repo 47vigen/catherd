@@ -109,6 +109,9 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     findings,
     replyPath: record.replyPath,
     ...(noVerdict ? { noVerdict: true as const } : {}),
+    ...(record.error?.code === "E_LOST" || record.error?.code === "E_BACKEND_MISSING"
+      ? { lost: true as const }
+      : {}),
   };
 }
 

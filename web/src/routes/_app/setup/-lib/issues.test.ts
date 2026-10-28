@@ -13,7 +13,7 @@ test("an issue belongs to the section that edits its field", () => {
 test("a role's issue goes to its row, and an access warning is collapsed", () => {
   expect(homeOf("roles.worker.rungs")).toBe("role:worker");
   expect(homeOf("roles.worker.access")).toBe("access");
-  expect(homeOf("roles.judge.access")).toBe("access");
+  expect(homeOf("roles.writer.access")).toBe("access");
 });
 
 test("anything else is left for the top of the page", () => {

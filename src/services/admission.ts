@@ -184,12 +184,8 @@ export async function admit(
   const rung = parseRung(i.rung);
   // spec 1.5: the run's pinned profile, access and isolation, whatever the repo runs on now
   const profile = runProfile(deps, run);
-  const configured = profile.roles[i.role];
-  // plan 47, spec D3: the architect may change the repository itself; a `full` profile keeps full (plan 49 migrates it)
-  const rc =
-    configured && i.role === "architect" && configured.access === "read-only"
-      ? { ...configured, access: "workspace-write" as const }
-      : configured;
+  // spec D3: the architect's `workspace-write` is the profile's own (plan 49's migration writes it)
+  const rc = profile.roles[i.role];
   if (!rc?.enabled)
     throw new CatherdError("E_ADMIT_RUNG", `the ${i.role} role is off in profile ${profile.name}`, {
       fix: "skip the role, or turn it on with profile_set",
@@ -352,8 +348,8 @@ export async function admit(
     const compose = composeProjectOf(run, milestoneOfName(i.lane ?? i.name));
     const resumed = i.thread !== null;
     if (i.composed) {
-      // plan 44 D2: the daemon composed this brief, since the decision had to judge the exact text before the rung
-      // was known; a failover stand-in has no thread to resume, so it reads the whole brief by path
+      // plan 44 D2: the daemon composed this brief before the rung was known; a failover stand-in has no
+      // thread to resume, so it reads the whole brief by path
       writeTextAtomic(p.brief, i.brief);
       if (resumed && i.fullBrief !== undefined) writeTextAtomic(fullBriefPath(p.brief), i.fullBrief);
     } else {

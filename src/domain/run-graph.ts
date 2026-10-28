@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { DECISION_SOURCES } from "./decision.ts";
 import { tryParseRung } from "./ids.ts";
 import type { RunRecord } from "./record.ts";
 import { ROLES } from "./roles.ts";
@@ -68,21 +67,6 @@ export const AttemptSchema = z.object({
 });
 export type Attempt = z.infer<typeof AttemptSchema>;
 
-/** The latest `decision.made` of a node's dispatch name (plan 44). */
-export const NodeDecisionSchema = z.object({
-  n: z.number().int(),
-  rung: z.string(),
-  level: z.number().int(),
-  levels: z.number().int(),
-  /** every level's rungs, weakest level first */
-  levelRungs: z.array(z.array(z.string())),
-  p: z.number().nullable(),
-  source: z.enum(DECISION_SOURCES),
-  why: z.string(),
-  probabilities: z.record(z.string(), z.number()),
-});
-export type NodeDecision = z.infer<typeof NodeDecisionSchema>;
-
 export const RunNodeSchema = z.object({
   id: z.string(),
   kind: z.enum(NODE_KINDS),
@@ -96,7 +80,6 @@ export const RunNodeSchema = z.object({
   startedAt: z.string().nullable(),
   endedAt: z.string().nullable(),
   question: z.object({ unit: z.string(), reason: z.enum(PARK_REASONS), question: z.string() }).nullable(),
-  decision: NodeDecisionSchema.nullable(),
   /** newest first */
   attempts: z.array(AttemptSchema),
 });
@@ -374,7 +357,6 @@ export function deriveRunModel(i: {
                 null,
               ) ?? (d.kind === "start" ? (events[0]?.at ?? null) : null)),
       question: q,
-      decision: null,
       attempts,
     };
   });

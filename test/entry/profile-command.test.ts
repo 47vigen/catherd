@@ -19,12 +19,6 @@ function catherd(args: string[], cwd?: string) {
   return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
 }
 
-/** The decision model has no default: a test that wants a clean validation names one first. */
-const named = () => {
-  catherd(["set", "decision.url", "https://decision.test/v1"]);
-  catherd(["set", "decision.model", "test-decider"]);
-};
-
 describe("catherd profile show", () => {
   it("shows each role's access and enforcement, and lists the failover stand-ins", () => {
     withHome();
@@ -35,7 +29,7 @@ describe("catherd profile show", () => {
     expect(lines.find((l) => l.startsWith("  reviewer"))).toBe(
       "  reviewer     read-only, enforced          codex:gpt-6-sol#high",
     );
-    expect(lines.find((l) => l.startsWith("  architect"))).toContain("read-only, advisory");
+    expect(lines.find((l) => l.startsWith("  architect"))).toContain("workspace-write, advisory");
     // both stand-ins are indexed pairs, so neither carries a note
     expect(r.out).toContain("\n  codex:gpt-6-luna#high → opencode:opencode-go/gpt-6-luna#high\n");
     expect(r.out).toContain("\n  codex:gpt-6-sol#medium → opencode:opencode-go/kimi-k3#max\n");
@@ -94,8 +88,6 @@ describe("catherd profile set", () => {
     expect(r.out).toBe(
       [
         "✓ roles.verifier.access: full → read-only",
-        "! decision: the decision model is not set",
-        "  fix: catherd profile set decision.url https://<your-gateway>/v1, then catherd profile set decision.model <model>",
         "! roles.verifier.access: verifier runs read-only; catherd's default for it is full",
         "new Claude Code session needed for: catherd-default-architect-claude-opus-5-5-high, catherd-default-verifier-claude-opus-5-5-low",
         "",
@@ -180,7 +172,6 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
 
   it("creates, copies, lists, diffs and deletes profiles", () => {
     withHome();
-    named();
     catherd(["set", "budget.minutes", "5"]);
     expect(catherd(["copy", "default", "team"]).out).toBe("✓ copied default to team\n");
     expect(catherd(["new", "fast"]).code).toBe(0);
@@ -188,10 +179,7 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
       "✓ team is active\nnew Claude Code session needed for: catherd-default-architect-claude-opus-5-5-high, catherd-default-verifier-claude-opus-5-5-low, catherd-team-architect-claude-opus-5-5-high, catherd-team-verifier-claude-opus-5-5-low\n",
     );
     expect(catherd(["list"]).out).toBe("  default\n  fast\n* team\n");
-    // `new` starts from the default profile, which names no decision model
-    expect(catherd(["diff", "fast"]).out).toBe(
-      "budget.minutes: 5 → none\ndecision.model: test-decider → none\ndecision.url: https://decision.test/v1 → none\n",
-    );
+    expect(catherd(["diff", "fast"]).out).toBe("budget.minutes: 5 → none\n");
     expect(catherd(["diff", "team", "default"]).out).toBe("no differences\n");
     const busy = catherd(["rm", "team"]);
     expect([busy.code, busy.err.split("\n")[0]]).toEqual([
@@ -235,17 +223,13 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
   it("set, validate and diff without a name, inside a bound repo, act on the repo's profile", () => {
     withHome();
     const repo = tempRepo();
-    named();
     catherd(["new", "fast"]);
     catherd(["use", "fast", "--repo"], repo);
     expect(catherd(["set", "budget.minutes", "7"], repo).out).toStartWith("✓ budget.minutes: none → 7\n");
     expect(getProfile("fast", "claude-code").budget.minutes).toBe(7);
     expect(getProfile("default", "claude-code").budget.minutes).toBeUndefined();
-    expect(catherd(["diff", "default"], repo).out).toBe(
-      "budget.minutes: 7 → none\ndecision.model: none → test-decider\ndecision.url: none → https://decision.test/v1\n",
-    );
-    // plan 44: a profile that names no decision model warns, the one that does is valid
-    expect(catherd(["validate"], repo).out).toContain("! decision: the decision model is not set");
+    expect(catherd(["diff", "default"], repo).out).toBe("budget.minutes: 7 → none\n");
+    expect(catherd(["validate"], repo).out).toBe("✓ valid\n");
     expect(catherd(["validate", "default"], repo).out).toBe("✓ valid\n");
   });
 });
@@ -294,7 +278,6 @@ describe("names the user types, and unbinding", () => {
 describe("catherd profile validate", () => {
   it("prints errors and warnings, and exits 1 on an error", () => {
     withHome();
-    named();
     // plan 33: under the shipped bars (20/45/60/65) the default worker reaches every difficulty
     expect(catherd(["validate"])).toEqual({ code: 0, out: "✓ valid\n", err: "" });
     mkdirSync(profilesDir(), { recursive: true });

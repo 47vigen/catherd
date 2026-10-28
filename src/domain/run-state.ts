@@ -2,7 +2,7 @@ import { applyArchitect, type ArchState, checkWall, emptyArch, nextWallMark } fr
 import { type Caps, DEFAULT_CAPS } from "./caps.ts";
 import type { BlockedReason } from "./blocked.ts";
 import type { ReplyStatus, RunStatus } from "./record.ts";
-import type { Role } from "./roles.ts";
+import { ROLES, type Role } from "./roles.ts";
 import type { NotifyMoment } from "./profile.ts";
 import { EVENTS_SCHEMA, type ParkReason, type ReportKind, type RunEvent } from "./run-events.ts";
 
@@ -160,7 +160,7 @@ function applyRun(s: RunState, e: RunEvent): void {
       s.base = e.base;
       s.aLines = e.aLines;
       s.plan = e.plan;
-      s.rolesOff = e.rolesOff ?? [];
+      s.rolesOff = (e.rolesOff ?? []).filter((r): r is Role => ROLES.includes(r as Role));
       s.earlier = e.v < EVENTS_SCHEMA;
       s.caps = e.caps ?? DEFAULT_CAPS;
       s.startedAt = e.at;

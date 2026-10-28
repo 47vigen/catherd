@@ -120,4 +120,21 @@ describe("a writer's implicit docs lane (spec 1.5 plan 21)", () => {
     expect(record.violations).toEqual([]);
     expect(endedEvent(run, record, "M1.L1")).not.toHaveProperty("testEdits");
   });
+
+  it("marks a lost dispatch, which no stronger rung would fix (plan 49)", async () => {
+    const { run } = freshRun();
+    const ended = {
+      code: 0,
+      signal: null,
+      reason: "exited" as const,
+      endedAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    const d = await fakeDispatch(run, { name: "worker-M1.L1", lane: "M1.L1" }, { proc: "dead", exit: ended });
+    const record = await finalizeDispatch(run, d);
+    const lost = { ...record, status: "failed" as const, error: { code: "E_LOST", message: "lost" } };
+    expect(endedEvent(run, lost, "M1.L1")).toMatchObject({ lost: true });
+    expect(endedEvent(run, { ...lost, error: { code: "E_X", message: "x" } }, "M1.L1")).not.toHaveProperty(
+      "lost",
+    );
+  });
 });
