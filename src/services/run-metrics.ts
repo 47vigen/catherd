@@ -7,21 +7,36 @@ import {
   reviewerRows,
   runMetrics,
 } from "../domain/run-metrics.ts";
+import { errorMessage } from "../domain/errors.ts";
+import type { RunEvent } from "../domain/run-events.ts";
+import { replay, type RunState } from "../domain/run-state.ts";
 import { db } from "../infra/db.ts";
+import { log } from "../infra/log.ts";
 import { pauseSpans } from "./pause.ts";
 import { reviewRounds } from "./run-history.ts";
-import { isDaemonRun, readEvents, replayRun } from "./run-events-store.ts";
+import { isDaemonRun, readEvents } from "./run-events-store.ts";
 import { readRecords, type Run } from "./run-store.ts";
 import { runEnd, runMilestones } from "./scorecard-metrics.ts";
+
+/** A run's events and their replay (a 1.5 run has none): read once, so a caller that has them passes them on. */
+export interface Parsed {
+  events: RunEvent[];
+  s: RunState | null;
+}
+
+export function parsedOf(run: Run): Parsed {
+  if (!isDaemonRun(run)) return { events: [], s: null };
+  const events = readEvents(run);
+  return { events, s: replay(events, run.id) };
+}
 
 /**
  * Spec D17 (plan 51): a run's metrics, read from its own rows: the dispatch records, its events and its check rows.
  * An earlier run (2.0 milestones, 1.5) reads the same way; what it never recorded is null or 0.
  */
-export function metricsOf(run: Run, now: number): RunMetrics {
-  const daemon = isDaemonRun(run);
-  const events = daemon ? readEvents(run) : [];
-  const s = daemon ? replayRun(run) : null;
+export function metricsOf(run: Run, now: number, parsed: Parsed = parsedOf(run)): RunMetrics {
+  const { events, s } = parsed;
+  const daemon = s !== null;
   const ended = events.find((e) => e.type === "run.ended");
   const end = ended
     ? Date.parse(ended.at)
@@ -83,6 +98,16 @@ export function metricsOf(run: Run, now: number): RunMetrics {
   });
 }
 
+/** A run's metrics; a read that fails leaves them out rather than the whole view or index. */
+export function safeMetrics(run: Run, now: number, parsed?: Parsed): RunMetrics | null {
+  try {
+    return metricsOf(run, now, parsed);
+  } catch (e) {
+    log("warn", "read", { run: run.id, metrics: errorMessage(e) });
+    return null;
+  }
+}
+
 /** One bug a review missed (spec D8's reviewer eval set): where, what, and what caught it. */
 export interface MissedBug {
   run: string;
@@ -94,17 +119,20 @@ export interface MissedBug {
 }
 
 /** Spec D8 over `runs`: each reviewer rung's reviews, findings, their handling and misses, and the eval set. */
-export function reviewerReport(runs: readonly Run[]): { rungs: ReviewerRow[]; missed: MissedBug[] } {
+export function reviewerReport(
+  runs: readonly Run[],
+  parsed?: ReadonlyMap<string, Parsed>,
+): { rungs: ReviewerRow[]; missed: MissedBug[] } {
   const reviews: Parameters<typeof reviewerRows>[0][number][] = [];
   const missed: MissedBug[] = [];
   for (const run of runs) {
-    if (!isDaemonRun(run)) continue;
-    const s = replayRun(run);
+    const { events, s } = parsed?.get(run.id) ?? parsedOf(run);
+    if (!s) continue;
     // task ids repeat across runs: key each review by run
     for (const t of Object.values(s.arch.tasks))
       if (t.role === "reviewer" && t.state === "ended")
         reviews.push({ ...t, taskId: `${run.id}/${t.taskId}` });
-    for (const e of readEvents(run))
+    for (const e of events)
       if (e.type === "review.missed")
         missed.push({
           run: run.id,

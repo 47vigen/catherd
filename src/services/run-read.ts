@@ -13,7 +13,7 @@ import type { Deps } from "./ports.ts";
 import { pauseSpans } from "./pause.ts";
 import { openQuestions } from "./questions.ts";
 import { isDaemonRun, readEvents, replayRun, tailEvents } from "./run-events-store.ts";
-import { metricsOf } from "./run-metrics.ts";
+import { safeMetrics } from "./run-metrics.ts";
 import { findRun, listRuns, type Run } from "./run-store.ts";
 
 /**
@@ -156,16 +156,6 @@ function view15(deps: Deps, run: Run): RunView {
   };
 }
 
-/** A run's metrics; a read that fails leaves them out rather than the whole view. */
-function safeMetrics(run: Run, now: number) {
-  try {
-    return metricsOf(run, now);
-  } catch (e) {
-    log("warn", "read", { run: run.id, metrics: errorMessage(e) });
-    return null;
-  }
-}
-
 /** The run's time from its start to `end`, less every pause; it goes on counting while `live` and no pause is open. */
 function elapsedOf(
   run: Run,
@@ -211,7 +201,7 @@ export function runView(deps: Deps, runId: string): RunView {
   const beat = readHeartbeat(run);
   const events = readEvents(run);
   const last = events.at(-1);
-  const metrics = safeMetrics(run, deps.now());
+  const metrics = safeMetrics(run, deps.now(), { events, s });
   return {
     id: run.id,
     title: run.meta.title,

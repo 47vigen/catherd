@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { db, insertCheck } from "../../src/infra/db.ts";
+import * as state from "../../src/domain/run-state.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
-import { metricsOf, reviewerReport } from "../../src/services/run-metrics.ts";
+import { metricsOf, parsedOf, reviewerReport } from "../../src/services/run-metrics.ts";
 import { endDispatch, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { freshRun } from "./helpers.ts";
@@ -79,5 +80,19 @@ describe("a run's metrics from its own rows (plan 51, spec D17)", () => {
     expect(report.missed).toMatchObject([
       { run: run.id, ledgerTask: "L1", caughtBy: "verifier", bug: "loses the refund" },
     ]);
+  });
+
+  it("does not replay a run its caller already replayed", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    const parsed = new Map([[run.id, parsedOf(run)]]);
+    const spy = spyOn(state, "replay");
+    try {
+      metricsOf(run, Date.now(), parsed.get(run.id));
+      reviewerReport([run], parsed);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

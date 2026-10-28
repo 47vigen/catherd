@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import * as metricsDomain from "../../src/domain/run-metrics.ts";
 import { newDispatchId } from "../../src/domain/ids.ts";
 import type { RunEventInput } from "../../src/domain/run-events.ts";
 import { logFile } from "../../src/infra/log.ts";
@@ -57,6 +58,20 @@ describe("the run index", () => {
     chmodSync(eventsFile(run), 0o400);
     expect(runIndex(deps())).toHaveLength(1);
     expect(readFileSync(eventsFile(run), "utf8")).toBe(text);
+  });
+
+  it("keeps a run in the index when its metrics cannot be read", async () => {
+    withHome();
+    const run = await make(tempRepo(), "broken metrics", HOUR);
+    const spy = spyOn(metricsDomain, "runMetrics").mockImplementation(() => {
+      throw new Error("metrics broke");
+    });
+    try {
+      expect(runIndex(deps()).map((c) => c.id)).toEqual([run.id]);
+      expect(runIndex(deps())[0]?.totals).toMatchObject({ climbs: 0, rounds: 0 });
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("lists every repo's runs newest first, a 1.5 run read-only", async () => {

@@ -15,7 +15,7 @@ import { cancel } from "../services/dispatch-service.ts";
 import { runDebug } from "../services/run-debug.ts";
 import { cleanScratch } from "../services/scratch.ts";
 import { repin } from "../services/run-pin.ts";
-import { metricsOf, reviewerReport } from "../services/run-metrics.ts";
+import { metricsOf, parsedOf, reviewerReport } from "../services/run-metrics.ts";
 import { supersedeRun } from "../services/run-service.ts";
 import { findRun, listRuns, readRecords, type Run } from "../services/run-store.ts";
 import { groupRuns, type RunSession, type SessionGroup } from "../services/session-view.ts";
@@ -397,8 +397,13 @@ const metricsCmd = defineCommand({
   run({ args }) {
     const runs = args.id ? [findRun(assertId("run", args.id))] : listRuns().runs;
     const now = Date.now();
-    const rows = runs.map((r) => ({ id: r.id, title: r.meta.title, metrics: metricsOf(r, now) }));
-    const reviewers = reviewerReport(runs);
+    const parsed = new Map(runs.map((r) => [r.id, parsedOf(r)]));
+    const rows = runs.map((r) => ({
+      id: r.id,
+      title: r.meta.title,
+      metrics: metricsOf(r, now, parsed.get(r.id)),
+    }));
+    const reviewers = reviewerReport(runs, parsed);
     if (args.json) return printJson({ runs: rows, reviewers });
     for (const { id, title, metrics: m } of rows)
       console.log(
