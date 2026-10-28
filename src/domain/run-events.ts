@@ -68,6 +68,8 @@ export const ACTION_TYPES = [
   "notify",
   "remind",
   "finish",
+  /** plan 47: a check the architect asked for */
+  "runCheck",
 ] as const;
 export type ActionType = (typeof ACTION_TYPES)[number];
 /** plan 44 D23: an old run's `effect.failed` may still name an action the machine no longer has */

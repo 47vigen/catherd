@@ -480,6 +480,8 @@ function briefBody(run: Run, s: RunState, a: DispatchAction): Pick<BriefParts, "
     case "verify":
       return verifyBrief(run, s, a);
     case "judge":
+    case "wake":
+    case "task":
       return { unit: [], round: [] };
   }
 }

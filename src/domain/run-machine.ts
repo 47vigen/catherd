@@ -29,7 +29,18 @@ import {
   VERDICT_ASK,
 } from "./run-state.ts";
 
-export type BriefKind = "dossier" | "architect" | "lane" | "fix" | "review" | "recheck" | "verify" | "judge";
+/** plan 47: `wake` is an architect turn, `task` a task the architect (or a worker, for a standing role) delegated */
+export type BriefKind =
+  | "dossier"
+  | "architect"
+  | "lane"
+  | "fix"
+  | "review"
+  | "recheck"
+  | "verify"
+  | "judge"
+  | "wake"
+  | "task";
 
 export type RemindAction = { type: "remind"; unit: string; n: number };
 
@@ -55,6 +66,8 @@ export type DispatchAction = {
   brief: BriefKind;
   notes: string[];
   decision: Decided | null;
+  /** plan 47: an architect turn's digest covers the events up to this seq */
+  upTo?: number;
 };
 export type JudgeAction = { type: "judge"; input: JudgeInput; rung: string | null; decision: Decided | null };
 /**
@@ -95,7 +108,8 @@ export type Action =
   | { type: "cancel"; dispatchIds: string[] }
   | { type: "report"; kind: ReportKind; unit: string; text: string }
   | { type: "notify"; unit: string; moment: NotifyMoment }
-  | { type: "finish"; outcome: "done" | "cancelled" | "failed"; proposals?: RuleChange[] };
+  | { type: "finish"; outcome: "done" | "cancelled" | "failed"; proposals?: RuleChange[] }
+  | { type: "runCheck"; checkId: string };
 
 // every action type is one `effect.failed` can name, and the other way round
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
@@ -140,6 +154,8 @@ export function actionKey(a: Action): string {
       return `notify:${a.unit}:${a.moment}`;
     case "finish":
       return "finish:run";
+    case "runCheck":
+      return `runCheck:${a.checkId}`;
   }
 }
 
@@ -175,6 +191,8 @@ export function unitOf(a: Action, s?: RunState): string {
     case "cancel":
     case "finish":
       return RUN_UNIT;
+    case "runCheck":
+      return a.checkId;
   }
 }
 
@@ -243,6 +261,8 @@ export function confirms(e: RunEvent): string[] {
       return [`report:${e.kind}:${e.unit}`];
     case "effect.failed":
       return [`${e.action}@${e.unit}`];
+    case "check.done":
+      return [`runCheck:${e.checkId}`];
     default:
       return [];
   }
@@ -783,7 +803,7 @@ function react(s: RunState, e: RunEvent): Action[] {
 }
 
 /** The reports and notices still owed: a park's and a landing's, until their `report.posted`. */
-function owedActions(s: RunState): Action[] {
+export function owedActions(s: RunState): Action[] {
   const reminders: RemindAction[] =
     s.phase === "ended"
       ? []
