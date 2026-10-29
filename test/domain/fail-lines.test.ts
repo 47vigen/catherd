@@ -368,4 +368,8 @@ describe("plan 52: which part of an && chain failed", () => {
     expect(markParts("a && b || c", "m")).toEqual({ script: "a && b || c", parts: 2, tracked: false });
     expect(markParts("a &&", "m")).toMatchObject({ script: "a &&", parts: 1 });
   });
+  it("cannot be trusted with a part that still chains inside, such as a subshell", () => {
+    expect(markParts("(cd web && lint && test)", "m")).toMatchObject({ parts: 1, tracked: false });
+    expect(markParts("echo 'a && b; c'", "m")).toMatchObject({ parts: 1, tracked: true });
+  });
 });

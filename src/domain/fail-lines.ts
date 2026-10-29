@@ -310,7 +310,9 @@ export function markParts(
   } catch {
     items = [command.trim()];
   }
-  const tracked = items.length === 1 || !command.includes("||");
+  const chainsInside = (item: string): boolean =>
+    /&&|\|\|/.test(item.replace(/^cd\s+("[^"]*"|'[^']*'|\S+)\s*&&\s*/, "").replace(/"[^"]*"|'[^']*'/g, ""));
+  const tracked = (items.length === 1 || !command.includes("||")) && !items.some(chainsInside);
   return { script: tracked ? items.join(` && ${mark} && `) : command, parts: items.length, tracked };
 }
 

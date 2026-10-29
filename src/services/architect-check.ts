@@ -191,7 +191,7 @@ async function execute(
       exit = r.code;
       failures = exit === 0 ? [] : checkFailLines(r.text, rootsOf(cwd, repo, run.meta.repo));
       // a chain stopped at its last part only when every earlier part passed
-      comparable = !r.cut && (parts <= 1 || (tracked && marks === parts - 1));
+      comparable = !r.cut && tracked && (parts <= 1 || marks === parts - 1);
     } finally {
       if (c.base) await git(run.meta.repo, ["worktree", "remove", "--force", cwd]);
     }
