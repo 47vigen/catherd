@@ -313,6 +313,20 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
       expect.stringContaining("2 failing line(s), 1 new and 1 inherited from the base"),
       expect.stringContaining("not comparable with the base"),
     ]);
+    // a fast check never counts as passing for the verifier and land final, whatever its event carries
+    log.add("check.requested", {
+      checkId: "C5",
+      command: "bun run lint",
+      scope: "fast",
+      base: false,
+      fresh: false,
+      by: "architect-1",
+      why: "w",
+    });
+    done("C5", "inherited", ["(fail) a", "(fail) b"]);
+    const last = log.state().arch.inbox.at(-1)?.text;
+    expect(last).toContain("C5 (fast)");
+    expect(last).not.toContain("counts as passing");
   });
 
   it("finishing stops the tasks still running, then ends the run with the verdict's outcome", () => {
