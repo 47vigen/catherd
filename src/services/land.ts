@@ -1,8 +1,8 @@
 import { join } from "node:path";
-import { type ArchLand, knownIssues } from "../domain/architect-state.ts";
+import { type ArchLand, knownIssues, oracleOverrides } from "../domain/architect-state.ts";
 import { isGithub, landSubject, mrCommand, runBranch } from "../domain/branch.ts";
 import { errorMessage } from "../domain/errors.ts";
-import { isTestPath, mrBody, SKIP_LINE } from "../domain/mr-body.ts";
+import { mrBody } from "../domain/mr-body.ts";
 import { describeEvent, type RunEvent, type RunEventInput } from "../domain/run-events.ts";
 import { db } from "../infra/db.ts";
 import { currentBranch, fetchBase, gitOrigin, gitRun } from "../infra/git.ts";
@@ -11,6 +11,8 @@ import { ledgerTasks } from "./ledger-store.ts";
 import { appendEvent, readEvents, replayRun } from "./run-events-store.ts";
 import type { Run } from "./run-store.ts";
 import { branchPusher } from "./run-tree.ts";
+import { unreleasedOracles } from "./oracle.ts";
+import { testChanges } from "./test-changes.ts";
 import { runTree } from "./tree-path.ts";
 
 type LandDone = Extract<RunEventInput, { type: "land.done" }>;
@@ -173,6 +175,7 @@ const WHY_EVENTS = new Set([
   "land.requested",
   "findings.handled",
   "review.missed",
+  "oracle.accepted",
 ]);
 
 /**
@@ -251,7 +254,8 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
     const tasks = ledgerTasks(run);
     const proof = greenFull(run, sha);
     // an inherited line the architect logged as a known issue too is listed once
-    const logged = knownIssues(replayRun(run).arch, tasks);
+    const arch = replayRun(run).arch;
+    const logged = knownIssues(arch, tasks);
     const issues = [
       ...logged,
       ...(proof?.failures ?? [])
@@ -272,16 +276,8 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
         )
         .map((e) => describeEvent(e)),
       knownIssues: issues,
-      tests: {
-        deleted: lines(await out(tree, ["diff", "--name-only", "--diff-filter=D", mb, "HEAD"])).filter(
-          isTestPath,
-        ),
-        skipped: (await out(tree, ["diff", "-U0", mb, "HEAD"]))
-          .split("\n")
-          .filter((x) => x.startsWith("+") && !x.startsWith("+++") && SKIP_LINE.test(x))
-          .map((x) => x.slice(1).trim())
-          .slice(0, 20),
-      },
+      tests: await testChanges(tree, mb, "HEAD"),
+      oracle: oracleOverrides(arch),
     });
     ensurePrivateDir(join(run.dir, "land"));
     const bodyFile = join(run.dir, "land", "mr.md");
@@ -305,6 +301,7 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
         ? []
         : [`a green full check on ${sha.slice(0, 12)} (check scope: full on the committed tree)`]),
       ...(verified(events, sha) ? [] : [`a verifier PASS whose HEAD line names ${sha.slice(0, 12)}`]),
+      ...(await unreleasedOracles(tree, arch)),
     ];
     if (missing.length)
       return {

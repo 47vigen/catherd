@@ -17,6 +17,7 @@ export const ARCHITECT_TOOLS = [
   "check",
   "ledger",
   "findings",
+  "oracle_accept",
   "land",
   "ask_owner",
   "finish",

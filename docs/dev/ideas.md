@@ -31,6 +31,25 @@ Left out of plan 53 on purpose:
 - **A red notice goes to every role.** Narrow it to the running writers if it shows up as noise in their replies.
 - **A fast check is not rerun when a sibling ends.** A fast check that went red on a sibling's half-written work stays
   red until the architect asks again.
+### From plan 54 (the oracle rule)
+
+Left out of plan 54 on purpose:
+
+- **On the shared tree an oracle diff is the task's window, not its author.** Any edit to the oracle while the task
+  worked (another writer's, the architect's) is held against it. Per-writer trees (spec D5) make the diff the
+  writer's own; move the check to the merge then.
+- **An oracle set after a task was delegated does not cover that attempt.** Its tree was not snapshotted; the next
+  attempt is covered.
+- **An oracle snapshot has no ref.** After a `git gc --prune=now` land final cannot prove a restore, so the hold stays
+  until the architect accepts it.
+- **"Rewritten" is per file.** An existing test file that lost lines is listed with the count; which test inside it
+  changed is the verifier's to read.
+- **Removed-test detection reads single-line declarations only.** `it.each` tables, test names split over several lines,
+  Rust `#[test] fn` and Go suite methods (`func (s *S) TestX`) are not named as removed; a parser per language would.
+- **A base merge that touches an oracle file reads as a missing restore.** Land final compares HEAD with the held
+  snapshot, so files the base changed are refused with "accepted or restored"; the message should say the base moved them.
+- **Settle replays the whole event log** for each ended worker (`oracleChange` reads the run state to find the earliest
+  held base); a long run pays it once per dispatch, so pass the state in if it shows up in a profile.
 
 ### From plan 52 (stage-1 fixes)
 
@@ -70,7 +89,6 @@ Left out of plan 51 on purpose:
   catalog's lab if that happens.
 - **Standing-role start is to the dispatch's start,** not to its first output, which nothing records yet (spec D12).
 - **`PARK_REASONS` keeps every value.** It is the read vocabulary of earlier runs; only `owner` and `land` are written.
-- **The MR body has no oracle-overrides line.** It comes with the oracle rule (spec D9, stage 2).
 - **The climbs metric counts any change of rung.** A reviewer's family switch and a downward change count too; it
   should count only climbs up the ladder.
 - **`roleMs` in the concurrency metric is not clipped by pauses.** A dispatch that spans a pause counts its paused

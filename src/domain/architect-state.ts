@@ -55,6 +55,10 @@ export interface ArchTask {
   sameFamily: boolean;
   /** plan 53, spec D6: the fast check catherd runs on the run's tree when the task ends complete */
   check: string | null;
+  /** plan 54, spec D9: the oracle paths its dispatch changed, held until the architect accepts them (`accepted`) */
+  oracle: { paths: string[]; diff: string; accepted: string | null } | null;
+  /** plan 54, R4: the oracle paths it was delegated against; null on an event stream from before the field */
+  delegatedOracle: string[] | null;
 }
 
 export interface ArchCheck {
@@ -337,6 +341,18 @@ export function knownIssues(
   return out;
 }
 
+/** Plan 54, spec D9: the tasks whose oracle change waits for the architect; land final checks they were restored. */
+export const heldOracles = (a: ArchState): ArchTask[] =>
+  Object.values(a.tasks).filter((t) => t.oracle !== null && t.oracle.accepted === null);
+
+/** Plan 54, spec D9: the MR's oracle overrides, each accepted change with the architect's reason. */
+export const oracleOverrides = (a: ArchState): string[] =>
+  Object.values(a.tasks).flatMap((t) =>
+    t.oracle?.accepted
+      ? [`${t.taskId} (${t.ledgerTask}) changed ${t.oracle.paths.join(", ")}: ${t.oracle.accepted}`]
+      : [],
+  );
+
 /** The dispatches that worked a ledger task, for `ledger/tasks.json`. */
 export const taskAttempts = (a: ArchState): TaskAttempt[] =>
   Object.values(a.tasks)
@@ -525,6 +541,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         REVIEW_ROLES.includes(t.role) &&
         e.findings.some((f) => f.label === "IMPORTANT" || f.label === "BLOCKER");
       if (t.role === "reviewer") t.findings = e.findings;
+      if (e.oracle) t.oracle = { ...e.oracle, accepted: null };
       const mine = byArchitect(t.by);
       const notes = [
         ...(e.reason ? [e.reason] : []),
@@ -536,13 +553,16 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
           : []),
       ];
       const ended = `ended ${t.outcome}${notes.length ? ` (${notes.join(", ")})` : ""}`;
+      const held = e.oracle
+        ? `; HELD: it changed ${e.oracle.paths.join(", ")}, the oracle of ledger ${t.ledgerTask} (diff ${e.oracle.diff}): accept it with oracle_accept and a reason, or send the task back to restore it; land final waits for one or the other`
+        : "";
       push(
         a,
         e,
         mine
-          ? `${t.taskId} (${t.role}${t.ledgerTask ? `, ledger ${t.ledgerTask}` : ""}) ${ended}: ${e.why || "no reason given"}; reply ${e.replyPath}`
-          : `${t.taskId} (${t.role}, for ${t.by}) ${ended}; reply ${e.replyPath}`,
-        mine,
+          ? `${t.taskId} (${t.role}${t.ledgerTask ? `, ledger ${t.ledgerTask}` : ""}) ${ended}: ${e.why || "no reason given"}; reply ${e.replyPath}${held}`
+          : `${t.taskId} (${t.role}, for ${t.by}) ${ended}; reply ${e.replyPath}${held}`,
+        mine || held !== "",
         t.taskId,
       );
       return true;
@@ -569,6 +589,8 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         snapshot: e.snapshot ?? null,
         sameFamily: e.sameFamily === true,
         check: e.check ?? null,
+        oracle: null,
+        delegatedOracle: e.oracle ?? null,
       };
       if (byArchitect(e.by)) a.idle = 0;
       else push(a, e, `${e.by} delegated ${e.taskId} to the ${e.role}: ${e.why}`, false, e.taskId);
@@ -644,6 +666,11 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
     case "thread.sent":
     case "review.missed":
       return true;
+    case "oracle.accepted": {
+      const t = a.tasks[e.taskId];
+      if (t?.oracle) t.oracle.accepted = e.why;
+      return true;
+    }
     case "findings.handled": {
       const t = a.tasks[e.taskId];
       if (t) for (const h of e.handled) t.handled[h.n] = h.as;
