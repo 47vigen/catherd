@@ -55,6 +55,8 @@ export interface ArchTask {
   sameFamily: boolean;
   /** plan 54, spec D9: the oracle paths its dispatch changed, held until the architect accepts them (`accepted`) */
   oracle: { paths: string[]; diff: string; accepted: string | null } | null;
+  /** plan 54, R4: the oracle paths it was delegated against; null on an event stream from before the field */
+  delegatedOracle: string[] | null;
 }
 
 export interface ArchCheck {
@@ -564,6 +566,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         snapshot: e.snapshot ?? null,
         sameFamily: e.sameFamily === true,
         oracle: null,
+        delegatedOracle: e.oracle ?? null,
       };
       if (byArchitect(e.by)) a.idle = 0;
       else push(a, e, `${e.by} delegated ${e.taskId} to the ${e.role}: ${e.why}`, false, e.taskId);

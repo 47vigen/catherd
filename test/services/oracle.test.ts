@@ -121,7 +121,12 @@ describe("the oracle rule's diff (plan 54, spec D9)", () => {
     expect(replayRun(run).arch.tasks.T1?.oracle?.accepted).toBe("it asserted the old fee");
   });
 
-  async function ended(run: Run, taskId: string, oracle?: { paths: string[]; diff: string }): Promise<void> {
+  async function ended(
+    run: Run,
+    taskId: string,
+    oracle?: { paths: string[]; diff: string },
+    thread: string | null = null,
+  ): Promise<void> {
     const base = { name: taskId, unit: taskId, dispatchId: `d-${taskId}` };
     await appendEvent(run, {
       type: "dispatch.started",
@@ -138,7 +143,7 @@ describe("the oracle rule's diff (plan 54, spec D9)", () => {
       replyStatus: "complete",
       reason: null,
       why: "ok",
-      thread: null,
+      thread,
       head: null,
       environment: null,
       verdict: null,
@@ -176,6 +181,38 @@ describe("the oracle rule's diff (plan 54, spec D9)", () => {
     const change = await oracleChange(run, "T1");
     expect(change).toMatchObject({ paths: ["test/pay.test.ts"], diff: "tasks/T1/oracle.diff" });
     expect(change?.text).toStartWith("git could not diff: ");
+  });
+
+  it("judges a task against the oracle it was delegated with: one added later is not held, one removed still is", async () => {
+    const { run, tree } = await oracleRun();
+    await call(run, "delegate_task", { role: "worker", task: "pay", ledgerTask: "L1", why: "w" });
+    await call(run, "delegate_task", { role: "worker", task: "docs", ledgerTask: "L2", why: "w" });
+    expect(replayRun(run).arch.tasks.T1?.delegatedOracle).toEqual(["test/pay.test.ts"]);
+    expect(replayRun(run).arch.tasks.T2?.delegatedOracle).toEqual([]);
+    // L1 loses its oracle and L2 gains one, both after delegation
+    await call(run, "ledger", {
+      tasks: {
+        set: [
+          { id: "L1", oracle: [] },
+          { id: "L2", oracle: ["test/docs.test.ts"] },
+        ],
+      },
+      why: "move the oracle",
+    });
+    writeFileSync(join(tree, "test", "pay.test.ts"), 'it("keeps the currency", () => { weak(); });\n');
+    writeFileSync(join(tree, "test", "docs.test.ts"), 'it("docs", () => { weak(); });\n');
+    expect((await oracleChange(run, "T1"))?.paths).toEqual(["test/pay.test.ts"]);
+    expect(await oracleChange(run, "T2")).toBeNull();
+  });
+
+  it("a thread_send follow-up inherits the oracle set of the delegation it continues", async () => {
+    const { run } = await oracleRun();
+    await call(run, "delegate_task", { role: "worker", task: "pay", ledgerTask: "L1", why: "w" });
+    await ended(run, "T1", undefined, "th-1");
+    await call(run, "ledger", { tasks: { set: [{ id: "L1", oracle: [] }] }, why: "drop it" });
+    await call(run, "thread_send", { to: "T1", text: "again", why: "w" });
+    expect(replayRun(run).arch.tasks.T2?.delegatedOracle).toEqual(["test/pay.test.ts"]);
+    expect(replayRun(run).arch.tasks.T2?.snapshot).toMatch(/^[0-9a-f]{40}$/);
   });
 
   it("takes HEAD as the weaker base when the tree cannot be snapshotted for a writer of an oracle", async () => {

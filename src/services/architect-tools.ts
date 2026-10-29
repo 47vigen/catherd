@@ -113,7 +113,16 @@ const defaultOf = (rc: { rungs: string[]; defaultRung?: string }): string =>
 /** Starts one task: its brief file, then `task.delegated` with the next free id, under the events lock. */
 async function delegate(
   c: ToolContext,
-  i: { role: Role; task: string; rung?: string; ledgerTask?: string; thread?: string | null; why: string },
+  i: {
+    role: Role;
+    task: string;
+    rung?: string;
+    ledgerTask?: string;
+    thread?: string | null;
+    /** a thread_send follow-up's oracle set, inherited from the task it resumes */
+    oracle?: string[];
+    why: string;
+  },
 ): Promise<{
   taskId: string;
   rung: string;
@@ -142,8 +151,9 @@ async function delegate(
   const review = i.role === "reviewer";
   // plan 51: the tree a review reads, so the next review of the same ledger task reads only what changed since;
   // plan 54: the tree a writer of a ledger task with an oracle starts from, its oracle diff's base
-  const oracled =
-    (i.role === "worker" || i.role === "writer") && oracleOf(c.run, i.ledgerTask ?? null).length > 0;
+  const writes = i.role === "worker" || i.role === "writer";
+  const oracle = writes ? (i.oracle ?? oracleOf(c.run, i.ledgerTask ?? null)) : null;
+  const oracled = oracle !== null && oracle.length > 0;
   const snapshot = review || oracled ? await reviewSnapshot(c.run, oracled) : null;
   // plan 54, spec D9: a test the run removed or rewrote reaches the verifier as catherd's fact, not the author's
   const facts = i.role === "verifier" ? await testFacts(c.run) : [];
@@ -203,6 +213,7 @@ async function delegate(
         why: i.why,
         ...(sameFamily ? { sameFamily: true as const } : {}),
         ...(snapshot ? { snapshot } : {}),
+        ...(oracle ? { oracle } : {}),
       },
       at(c),
     );
@@ -376,6 +387,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
           task: a.text,
           rung: t.rung,
           ...(t.ledgerTask ? { ledgerTask: t.ledgerTask } : {}),
+          ...(t.delegatedOracle ? { oracle: t.delegatedOracle } : {}),
           thread,
           why: a.why,
         });

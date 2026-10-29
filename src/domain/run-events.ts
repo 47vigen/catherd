@@ -200,6 +200,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
      * tree a writer of a ledger task with an oracle started from, the base its oracle diff is taken against
      */
     snapshot: z.string().optional(),
+    /** plan 54, R4: a worker's or writer's oracle paths at delegation, the set its dispatch is judged against */
+    oracle: z.array(z.string()).optional(),
   }),
   /** plan 51, spec D8: how the architect handled a review's findings, numbered as task_status lists them */
   ev("findings.handled", {

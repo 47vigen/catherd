@@ -49,7 +49,8 @@ export async function oracleChange(
   const a = replayRun(run).arch;
   const t = a.tasks[taskId];
   if (!t?.snapshot || (t.role !== "worker" && t.role !== "writer")) return null;
-  const oracle = oracleOf(run, t.ledgerTask);
+  // R4: the set it was delegated against; an older event stream carries none, so the ledger's today
+  const oracle = t.delegatedOracle ?? oracleOf(run, t.ledgerTask);
   if (oracle.length === 0) return null;
   let tree: string;
   try {
