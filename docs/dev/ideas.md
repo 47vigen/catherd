@@ -30,6 +30,11 @@ Left out of plan 52 on purpose:
   is the full check's.
 - **A check that failed on the base and stays parked.** A run that reached `needs_user` after a broken gate waited 9 h
   for the owner; the inherited rule removes the cause seen, not the wait. A cap on a parked run's wait is open.
+- **A retried check id on the base row.** `checks` is `UNIQUE(run_id, check_id)`, so a retried full check writes its
+  `<id>-base` row twice and the second insert fails; the verdict then falls back to `unknown`. Give the base row a
+  per-attempt id.
+- **Two concurrent failing full checks both run the base on one commit.** The base result is cached only after the
+  first run ends, so two checks that fail at once each check the base out and run it. Serialize them per base commit.
 - **The lock leak was not reproduced on the plan's machine.** The suite passes with `CATHERD_LOCK_HELD=1` there; Bun's
   `Bun.spawn` without an `env` inherits the variable even after `delete process.env`, so a test that spawns without
   an explicit env still could. The guard test pins the lock tests only.
