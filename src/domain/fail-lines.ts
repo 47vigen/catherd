@@ -92,11 +92,16 @@ export type CheckVerdict = "pass" | "inherited" | "new" | "unknown";
 /** A failing line that names only a file or a package (jest `FAIL path`, Go `FAIL\tpkg`, a bare `FAIL`). */
 const FILE_LEVEL = /^FAIL(\s+\S+)?(\s+\[[^\]]*\])?$/;
 
+/** A runner's exit summary (bun script, npm/pnpm/yarn, make): it says a command failed, never what failed. */
+const WRAPPER_LINE =
+  /^error: (?:script )?"[^"]*" exited with code \d+|\bELIFECYCLE\b|\bCommand failed with exit code \d+|^make(?:\[\d+\])?: \*\*\* .*\bError \d+/;
+
 /**
  * Plan 52: `inherited` when the base fails every line this check fails, with the same exit, on sides that can be
  * compared (`comparable: false`: output cut, or a part before the last of an `&&` chain failed) and with no line
  * that names only a file or package. `new` when a line is not on the base or the base passed. `unknown` with no
- * base result, on a timeout, with no line to read, or when any of the above says the sets cannot be compared.
+ * base result, on a timeout, with no line to read, or when any of the above says the sets cannot be compared. A runner's exit summary (`error: script ...`) is
+ * not a failing line: a side with only those is `unknown`, and they are ignored beside real lines.
  */
 export function checkVerdict(
   exit: number | null,
@@ -107,10 +112,12 @@ export function checkVerdict(
   if (exit === 0) return "pass";
   if (base === null || exit === null) return "unknown";
   if (base.exit === 0) return "new";
-  if (failures.length === 0) return "unknown";
-  if (!failures.every((f) => base.failures.includes(f))) return "new";
+  // a wrapper line proves nothing: with no test-level line on either side, the diagnostics were never compared
+  const lines = failures.filter((f) => !WRAPPER_LINE.test(f));
+  if (lines.length === 0 || !base.failures.some((f) => !WRAPPER_LINE.test(f))) return "unknown";
+  if (!lines.every((f) => base.failures.includes(f))) return "new";
   const same = base.exit === exit && base.comparable !== false && o.comparable !== false;
-  return same && !failures.some((f) => FILE_LEVEL.test(f)) ? "inherited" : "unknown";
+  return same && !lines.some((f) => FILE_LEVEL.test(f)) ? "inherited" : "unknown";
 }
 
 /** A part that is exactly `cd <dir>`: the shell runs every part after it in that folder. */

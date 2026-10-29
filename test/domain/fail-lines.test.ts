@@ -311,6 +311,24 @@ describe("plan 52: a failing check against the same command on the base", () => 
       "new",
     );
   });
+  it("is unknown when a side's failing lines are only a script-exit wrapper, which names no diagnostic", () => {
+    const wrapper = 'error: script "typecheck" exited with code 2';
+    const tsc = (extra: string) => `src/${extra}.ts(2,1): error TS2304: Cannot find name 'x'.\n${wrapper}\n`;
+    const lines = (out: string) => checkFailLines(out);
+    expect(lines(tsc("new"))).toEqual([wrapper]);
+    expect(checkVerdict(2, lines(tsc("new")), base(2, lines(tsc("old"))))).toBe("unknown");
+    for (const w of [
+      "npm ERR! code ELIFECYCLE",
+      "ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL Command failed with exit code 1",
+      "error Command failed with exit code 1.",
+      "make: *** [test] Error 2",
+    ])
+      expect(checkVerdict(1, [w], base(1, [w]))).toBe("unknown");
+    // a wrapper next to a test-level line is ignored for the comparison
+    expect(checkVerdict(2, [wrapper, "(fail) a"], base(2, ["(fail) a"]))).toBe("inherited");
+    expect(checkVerdict(2, [wrapper, "(fail) a", "(fail) c"], base(2, ["(fail) a"]))).toBe("new");
+    expect(checkVerdict(2, [wrapper, "(fail) a"], base(2, [wrapper]))).toBe("unknown");
+  });
   it("is unknown when a failing line only names a file or a package, which cannot tell a new test", () => {
     for (const line of ["FAIL src/a.test.ts", "FAIL\tgithub.com/x/y", "FAIL", "FAIL ./pkg [build failed]"])
       expect(checkVerdict(1, [line, "(fail) a"], base(1, [line, "(fail) a"]))).toBe("unknown");
