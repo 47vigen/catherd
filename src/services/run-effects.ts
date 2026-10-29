@@ -300,19 +300,22 @@ export function realEffects(deps: Deps, run: Run): Effects {
     await settle(d, a.unit);
   }
 
-  /** An architect turn (spec D1, plan 47 R7): the profile's rung; a fresh thread when it is spent or the rung moved. */
+  /**
+   * An architect turn (spec D1, plan 47 R7): the machine's rung (plan 52: a free one of its ladder), else the profile's;
+   * a fresh thread when it is spent or the rung moved.
+   */
   async function wake(a: DispatchAction, s: RunState): Promise<void> {
     const rc = runProfile(deps, run).roles.architect;
     const want = rc?.defaultRung ?? rc?.rungs[0];
     if (!want) throw new Error("the profile's architect has no rung");
-    const rung = headlessRung(want);
+    const rung = headlessRung(a.rung ?? want);
     const last = readRecords(run)
       .records.filter((r) => r.role === "architect")
       .at(-1);
     const why = [
       ...a.notes,
       ...(a.thread !== null && last?.threadHeavy ? ["your last thread is spent"] : []),
-      ...(a.thread !== null && a.rung !== null && headlessRung(a.rung) !== rung
+      ...(a.thread !== null && last && headlessRung(last.rung) !== rung
         ? ["the architect's rung changed"]
         : []),
     ];

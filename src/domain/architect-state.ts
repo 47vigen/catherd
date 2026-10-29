@@ -298,6 +298,19 @@ export function ladderRung(
 }
 
 /**
+ * Plan 52: `from` when its quota is not held, else the next rung up the ladder, then from the bottom, on a quota that
+ * is not; null when every rung's quota is held.
+ */
+export function unheldRung(ladder: readonly string[], from: string, s: RunState): string | null {
+  const held = (r: string): boolean => {
+    const p = tryParseRung(r);
+    return p !== null && (s.holds[quotaOf(p)] ?? "") > s.at;
+  };
+  const at = Math.max(0, ladder.indexOf(from));
+  return [...ladder.slice(at), ...ladder.slice(0, at)].find((r) => !held(r)) ?? null;
+}
+
+/**
  * Spec D8, D11: the merge request's Known issues. Ledger tasks set impossible or blocked; every review's PRE-EXISTING
  * finding and each one the architect logged as a known issue; an IMPORTANT one it logged no handling for.
  */

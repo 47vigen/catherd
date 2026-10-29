@@ -114,6 +114,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     rolesOff: strings.optional(),
     /** plan 48, spec D10: the profile's caps when the run started; absent means DEFAULT_CAPS */
     caps: z.object({ wallMin: z.number().positive(), attempts: z.number().int().positive() }).optional(),
+    /** plan 52: the architect's ladder, its default first; absent on an earlier run (it waits on its last rung) */
+    architectRungs: strings.optional(),
   }),
   ev("daemon.started", { pid: z.number().int(), version: z.string() }),
   ev("dispatch.started", {

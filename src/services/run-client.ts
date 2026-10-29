@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { DEFAULT_CAPS } from "../domain/caps.ts";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
 import type { ProfilePatch } from "../domain/profile.ts";
+import { headlessRung } from "../domain/ids.ts";
 import { ROLES } from "../domain/roles.ts";
 import { liveDispatches } from "../domain/run-state.ts";
 import { gitToplevel } from "../infra/git.ts";
@@ -77,6 +78,8 @@ export async function runStart(
   const started = await startRun(deps, { repo: i.repo, title: i.title, aLines: i.aLines, base: i.base });
   const run = findRun(started.run);
   copyPlanInputs(run, plan);
+  const architect = runProfile(deps, run).roles.architect;
+  const first = architect?.defaultRung ?? architect?.rungs[0];
   await appendEvent(
     run,
     {
@@ -88,6 +91,7 @@ export async function runStart(
       base: i.base ?? null,
       rolesOff: ROLES.filter((r) => !runProfile(deps, run).roles[r]?.enabled),
       caps: runProfile(deps, run).caps ?? DEFAULT_CAPS,
+      architectRungs: first ? [...new Set([first, ...(architect?.rungs ?? [])].map(headlessRung))] : [],
     },
     new Date(deps.now()),
   );

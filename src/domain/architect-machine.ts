@@ -1,6 +1,11 @@
-import { type ArchState, architectName, isStanding, STANDING_CAP, WRITER_CAP } from "./architect-state.ts";
-import { quotaOf } from "./failover.ts";
-import { tryParseRung } from "./ids.ts";
+import {
+  type ArchState,
+  architectName,
+  isStanding,
+  STANDING_CAP,
+  unheldRung,
+  WRITER_CAP,
+} from "./architect-state.ts";
 import { RUN_UNIT, type RunEvent } from "./run-events.ts";
 import { type Action, type DispatchAction, owedActions } from "./run-machine.ts";
 import { liveDispatches, MAX_TRIES, type RunState } from "./run-state.ts";
@@ -11,19 +16,24 @@ const OUTCOME = { done: "done", impossible: "failed", stopped: "failed" } as con
 const failed = (s: RunState, action: "cancel" | "finish"): boolean =>
   (s.failedEffects[`${action}@${RUN_UNIT}`] ?? 0) >= MAX_TRIES;
 
-/** The architect's next turn: its thread resumed unless `fresh` says why not, the digest up to the last item. */
-function wake(a: ArchState): DispatchAction {
+/**
+ * The architect's next turn on `rung`: its thread resumed unless `fresh` says why not or the rung moved (a thread
+ * does not carry across backends), the digest up to the last item.
+ */
+function wake(a: ArchState, rung: string | null): DispatchAction {
+  const moved = rung !== a.rung && a.rung !== null;
+  const why = a.fresh ?? (moved ? `the quota of ${a.rung} is held: this turn runs on ${rung}` : null);
   return {
     type: "dispatch",
     unit: RUN_UNIT,
     name: architectName(a.turns + 1),
     role: "architect",
     lane: null,
-    rung: a.rung,
-    thread: a.fresh === null ? a.thread : null,
+    rung,
+    thread: why === null ? a.thread : null,
     failoverFrom: null,
     brief: "wake",
-    notes: a.fresh === null ? [] : [a.fresh],
+    notes: why === null ? [] : [why],
 
     upTo: a.inbox.at(-1)?.seq ?? 0,
   };
@@ -93,9 +103,12 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
       notes: [],
     });
   }
-  // a turn that ended on a quota limit waits for the hold: recomputeWake ticks when it lapses
-  const rung = a.rung === null ? null : tryParseRung(a.rung);
-  const held = rung !== null && (s.holds[quotaOf(rung)] ?? "") > s.at;
-  if (a.turn === null && !held && a.inbox.some((i) => i.wakes)) out.push(wake(a));
+  // plan 52: a turn that ended on a quota limit climbs to a rung on a free quota; with every rung held it waits for
+  // the hold (recomputeWake ticks when it lapses). A run an earlier build started waits on its last rung.
+  const ladder = s.architectRungs.length ? s.architectRungs : a.rung === null ? [] : [a.rung];
+  const rung = ladder.length ? unheldRung(ladder, ladder[0] as string, s) : null;
+  const held = ladder.length > 0 && rung === null;
+  if (a.turn === null && !held && a.inbox.some((i) => i.wakes))
+    out.push(wake(a, s.architectRungs.length ? rung : a.rung));
   return out;
 }

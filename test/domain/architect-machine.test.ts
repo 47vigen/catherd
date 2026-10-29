@@ -189,6 +189,33 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     expect(wakeOf(after(log))).toMatchObject({ name: "architect-2" });
   });
 
+  it("climbs to a free rung of the architect's ladder at once on a limit, and waits only when every rung is held", () => {
+    const [ASTRA, OPUS] = ["codex:gpt-6-astra#xhigh", "claude-code:claude-opus-5-5#high"];
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, architectRungs: [ASTRA, OPUS] });
+    expect(wakeOf(after(log))).toMatchObject({ name: "architect-1", rung: ASTRA });
+    const on = (n: number, rung: string) => {
+      const dispatchId = newId();
+      log.add("dispatch.started", {
+        dispatchId,
+        name: `architect-${n}`,
+        role: "architect",
+        unit: "run",
+        lane: null,
+        rung,
+        thread: null,
+        upTo: log.events.at(-1)?.seq ?? 0,
+      });
+      return dispatchId;
+    };
+    endDispatch(log, on(1, ASTRA), { name: "architect-1", unit: "run", status: "limit", thread: "th-a" });
+    expect(wakeOf(after(log))).toMatchObject({ name: "architect-2", rung: OPUS, thread: null });
+    const end = endDispatch(log, on(2, OPUS), { name: "architect-2", unit: "run", status: "limit" });
+    expect(wakeOf(after(log))).toBeUndefined();
+    log.add("tick", {}, new Date(Date.parse(end.at) + HOLD_MS + 1000).toISOString());
+    expect(wakeOf(after(log))).toMatchObject({ name: "architect-3", rung: ASTRA });
+  });
+
   it("a finish that keeps failing ends the run without its report, a cancel that keeps failing gives up", () => {
     const fail = (log: Log, action: "finish" | "cancel") =>
       log.add("effect.failed", { action, unit: "run", message: "boom" });

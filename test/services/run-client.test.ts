@@ -57,6 +57,8 @@ describe("runStart", () => {
     const off = (readEvents(run)[0] as { rolesOff?: string[] }).rolesOff;
     expect(off).toContain("artist");
     expect(off).not.toContain("reviewer");
+    // plan 52: the architect's ladder, headless, its default first
+    expect(readEvents(run)[0]).toMatchObject({ architectRungs: ["claude-code:claude-opus-5-5#high"] });
     expect(launched).toEqual([run.id]);
     expect(r).toMatchObject({
       daemon: "revived",

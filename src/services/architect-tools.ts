@@ -7,6 +7,7 @@ import {
   crossFamilyRung,
   isStanding,
   ladderRung,
+  unheldRung,
   REVIEW_ROUNDS,
   reviewRounds,
   STANDING_CAP,
@@ -148,6 +149,8 @@ async function delegate(
       i.rung === undefined
         ? ladderRung(s.arch, i.role, i.ledgerTask ?? null, ladder, defaultOf(rc))
         : headlessRung(i.rung);
+    // plan 52: a quota limit moves a no-rung pick to the next rung on a free quota, as it moves the architect's turn
+    if (i.rung === undefined) rung = unheldRung(ladder, rung, s) ?? rung;
     if (review) {
       // spec D8: a review runs on another model family than the work it reads, and says so when it cannot
       const author = authorRung(s.arch, i.ledgerTask ?? null);

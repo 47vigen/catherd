@@ -284,6 +284,35 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     });
   });
 
+  it("with no rung, skips a rung whose quota is held for the next free one on the ladder (plan 52)", async () => {
+    const run = await architectRun();
+    const mixed = testView();
+    mixed.roles.researcher = {
+      enabled: true,
+      access: "read-only",
+      rungs: ["codex:gpt-6-luna#high", "claude-code:claude-sonnet-5-5#high"],
+    };
+    const ask = () =>
+      callArchitectTool(
+        { deps: fakeDeps({ view: mixed }), run, caller: ARCHITECT, pollMs: 1 },
+        "delegate_task",
+        {
+          role: "researcher",
+          task: "map it",
+          why: "w",
+        },
+      );
+    expect(await ask()).toMatchObject({ rung: "codex:gpt-6-luna#high" });
+    const log = makeLog();
+    endDispatch(log, startDispatch(log, { name: "T1", unit: "T1", role: "researcher" }), {
+      name: "T1",
+      unit: "T1",
+      status: "limit",
+    });
+    for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    expect(await ask()).toMatchObject({ rung: "claude-code:claude-sonnet-5-5#high" });
+  });
+
   it("checks the attempts cap under the events lock, not before it (plan 48, R20)", async () => {
     const { run } = freshRun();
     await appendEvent(run, { type: "run.started", ...startedFields, caps: { wallMin: 720, attempts: 1 } });
