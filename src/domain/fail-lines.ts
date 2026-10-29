@@ -5,10 +5,17 @@ const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 export const FAIL_DISPLAY_CAP = 60;
 
-/** Replace run-specific details before comparing failures across checks. */
-export function normalizeFailLine(line: string): string {
-  return line
-    .replace(ANSI, "")
+/**
+ * Replace run-specific details before comparing failures across checks. A path under one of `roots` (the trees the
+ * check ran in) keeps its repo-relative part, so two different files never collapse to one `<path>`.
+ */
+export function normalizeFailLine(line: string, roots: readonly string[] = []): string {
+  let out = line.replace(ANSI, "");
+  for (const root of [...roots].sort((a, b) => b.length - a.length)) {
+    const dir = root.replace(/\/+$/, "");
+    if (dir) out = out.split(`${dir}/`).join("");
+  }
+  return out
     .replace(/\s*[[(]\s*\d+(\.\d+)?\s*(ms|s|m)\s*[\])]/g, "")
     .replace(/\b\d+(\.\d+)?(ms|s)\b/g, "")
     .replace(
@@ -29,10 +36,10 @@ export const PASS_LINE = /^(?:(?!FAIL\b)\S+ \S+:\s*)?(?:\(pass\)|[✓✔√]|ok\
  * The lines of a check's output that name a failure, stripped of colour, timings and counters so two runs compare
  * equal: every distinct failure, at most 300 characters per line. A passing line never counts.
  */
-export function checkFailLines(out: string): string[] {
+export function checkFailLines(out: string, roots: readonly string[] = []): string[] {
   const seen = new Set<string>();
   for (const raw of out.split("\n")) {
-    const line = normalizeFailLine(raw);
+    const line = normalizeFailLine(raw, roots);
     const vuln = line.match(/^Vulnerability #\d+: (GO-\d{4}-\d+)/)?.[1];
     if (vuln) seen.add(`vulnerability ${vuln}`);
     else if (PASS_LINE.test(line)) continue;
@@ -78,6 +85,40 @@ export function failFiles(out: string, root: string): Record<string, string[]> {
 /** The lines of `fails` the base does not have; all of them when there is no base record. */
 export const newFails = (fails: string[], base: string[] | null): string[] =>
   fails.filter((f) => !base?.includes(f));
+
+/** Plan 52: a check's result against the same command on the base. */
+export type CheckVerdict = "pass" | "inherited" | "new" | "unknown";
+
+/** A failing line that names only a file or a package (jest `FAIL path`, Go `FAIL\tpkg`, a bare `FAIL`). */
+const FILE_LEVEL = /^FAIL(\s+\S+)?(\s+\[[^\]]*\])?$/;
+
+/** A runner's exit summary (bun script, npm/pnpm/yarn, make): it says a command failed, never what failed. */
+const WRAPPER_LINE =
+  /^error: (?:script )?"[^"]*" exited with code \d+|\bELIFECYCLE\b|\bCommand failed with exit code \d+|^make(?:\[\d+\])?: \*\*\* .*\bError \d+/;
+
+/**
+ * Plan 52: `inherited` when the base fails every line this check fails, with the same exit, on sides that can be
+ * compared (`comparable: false`: output cut, or a part before the last of an `&&` chain failed) and with no line
+ * that names only a file or package. `new` when a line is not on the base or the base passed. `unknown` with no
+ * base result, on a timeout, with no line to read, or when any of the above says the sets cannot be compared. A runner's exit summary (`error: script ...`) is
+ * not a failing line: a side with only those is `unknown`, and they are ignored beside real lines.
+ */
+export function checkVerdict(
+  exit: number | null,
+  failures: readonly string[],
+  base: { exit: number | null; failures: readonly string[]; comparable?: boolean } | null,
+  o: { comparable?: boolean } = {},
+): CheckVerdict {
+  if (exit === 0) return "pass";
+  if (base === null || exit === null) return "unknown";
+  if (base.exit === 0) return "new";
+  // a wrapper line proves nothing: with no test-level line on either side, the diagnostics were never compared
+  const lines = failures.filter((f) => !WRAPPER_LINE.test(f));
+  if (lines.length === 0 || !base.failures.some((f) => !WRAPPER_LINE.test(f))) return "unknown";
+  if (!lines.every((f) => base.failures.includes(f))) return "new";
+  const same = base.exit === exit && base.comparable !== false && o.comparable !== false;
+  return same && !lines.some((f) => FILE_LEVEL.test(f)) ? "inherited" : "unknown";
+}
 
 /** A part that is exactly `cd <dir>`: the shell runs every part after it in that folder. */
 const BARE_CD = /^cd\s+("[^"]*"|'[^']*'|\S+)$/;
@@ -252,4 +293,33 @@ export function coveredDir(item: string): string | null {
 /** The check items after the first one, which may never run when an earlier part fails. */
 export function andTail(command: string): string | null {
   return checkItems(command).slice(1).join(" && ") || null;
+}
+
+/**
+ * Plan 52: `command` with `mark` run after every top-level `&&` part but the last, so the marks that ran say which
+ * part failed (marks = parts - 1: the last part failed). `tracked` is false when the marks cannot be trusted: a `||`
+ * anywhere can run a later part after an earlier one failed.
+ */
+export function markParts(
+  command: string,
+  mark: string,
+): { script: string; parts: number; tracked: boolean } {
+  let items: string[];
+  try {
+    items = checkItems(command).flatMap(splitLeadingCd);
+  } catch {
+    items = [command.trim()];
+  }
+  const chainsInside = (item: string): boolean =>
+    /&&|\|\|/.test(item.replace(/^cd\s+("[^"]*"|'[^']*'|\S+)\s*&&\s*/, "").replace(/"[^"]*"|'[^']*'/g, ""));
+  const tracked = (items.length === 1 || !command.includes("||")) && !items.some(chainsInside);
+  return { script: tracked ? items.join(` && ${mark} && `) : command, parts: items.length, tracked };
+}
+
+/** `cd d && a && b` as `cd d && a`, `b`: the script is one shell, so the cd still applies to what follows. */
+function splitLeadingCd(item: string): string[] {
+  const head = /^cd\s+("[^"]*"|'[^']*'|\S+)\s*&&\s*/.exec(item);
+  if (!head) return [item];
+  const [first, ...rest] = checkItems(item.slice(head[0].length));
+  return first === undefined ? [item] : [`${head[0]}${first}`, ...rest];
 }

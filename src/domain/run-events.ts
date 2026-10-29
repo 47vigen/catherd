@@ -114,6 +114,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     rolesOff: strings.optional(),
     /** plan 48, spec D10: the profile's caps when the run started; absent means DEFAULT_CAPS */
     caps: z.object({ wallMin: z.number().positive(), attempts: z.number().int().positive() }).optional(),
+    /** plan 52: the architect's ladder, its default first; absent on an earlier run (it waits on its last rung) */
+    architectRungs: strings.optional(),
   }),
   ev("daemon.started", { pid: z.number().int(), version: z.string() }),
   ev("dispatch.started", {
@@ -230,6 +232,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     preExisting: strings,
     /** a pass recorded on the same tree, reused instead of run again */
     cached: z.boolean(),
+    /** plan 52: against the same command on the base; absent on a base check and before plan 52 */
+    verdict: z.enum(["pass", "inherited", "new", "unknown"]).optional(),
     minutes: z.number(),
     logPath: z.string(),
   }),
@@ -325,7 +329,7 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
     case "check.requested":
       return `${e.by} asked for check ${e.checkId} (${e.scope}${e.base ? ", base" : ""}): ${one(e.why)}`;
     case "check.done":
-      return `check ${e.checkId} ${e.exit === 0 ? "passed" : `failed (exit ${e.exit ?? "timeout"})`}${e.cached ? " (cached)" : ""}`;
+      return `check ${e.checkId} ${e.exit === 0 ? "passed" : e.verdict === "inherited" ? `passed but for failures the base has too (exit ${e.exit})` : `failed (exit ${e.exit ?? "timeout"})`}${e.cached ? " (cached)" : ""}`;
     case "land.requested":
       return `${e.by} asked to land${e.final ? " (final)" : ""} ${e.landId}: ${one(e.why)}`;
     case "land.started":

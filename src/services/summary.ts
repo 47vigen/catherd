@@ -6,6 +6,7 @@ import { errorMessage, isCatherdError } from "../domain/errors.ts";
 import type { RunRecord, Tokens } from "../domain/record.ts";
 import type { QuotaRow } from "../domain/scorecard.ts";
 import { coveredMs } from "../domain/util.ts";
+import { db } from "../infra/db.ts";
 import { nonBlankLines, readJsonl } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
 import { ensureDaemon } from "./daemon.ts";
@@ -68,6 +69,33 @@ export interface RunSummary {
   budget: BudgetStatus | null;
   milestones: string[];
   warnings: string[];
+}
+
+/** Plan 52: an architect run's last check, from the checks table (its state.md is the 1.5 orchestrator's). */
+function lastCheckLine(run: Run): string {
+  const c = db()
+    .query(
+      "SELECT check_id, scope, base, exit, failures, verdict FROM checks WHERE run_id = ? ORDER BY id DESC LIMIT 1",
+    )
+    .get(run.id) as {
+    check_id: string;
+    scope: string;
+    base: number;
+    exit: number | null;
+    failures: string;
+    verdict: string | null;
+  } | null;
+  if (!c) return "Last check: none yet";
+  const what = `${c.check_id} (${c.scope}${c.base ? ", on the base" : ""})`;
+  if (c.exit === 0) return `Last check: ${what} passed`;
+  const failing = (JSON.parse(c.failures) as string[]).length;
+  const split =
+    c.verdict === "inherited"
+      ? ", every one inherited from the base"
+      : c.verdict === "new"
+        ? ", some new on this run"
+        : "";
+  return `Last check: ${what} ${c.exit === null ? "timed out" : `failed (exit ${c.exit})`}: ${failing} failing line(s)${split}`;
 }
 
 /** One run at a glance. Spec §3.4: reads are pure; nothing here finalizes a dispatch or writes a file. */
@@ -146,9 +174,11 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     createdAt: run.meta.createdAt,
     ...sessionFacts(run),
     ended,
-    stateTail: nonBlankLines(runPaths(run.dir).state)
-      .filter((l) => !ended || !/^(Next|Protocol next): /.test(l))
-      .slice(-3),
+    stateTail: isDaemonRun(run)
+      ? [lastCheckLine(run)]
+      : nonBlankLines(runPaths(run.dir).state)
+          .filter((l) => !ended || !/^(Next|Protocol next): /.test(l))
+          .slice(-3),
     live: live.map((d) => ({
       name: d.admit.name,
       rung: d.admit.rung,

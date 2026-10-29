@@ -5,8 +5,8 @@ export interface MrBodyInput {
   aLines: readonly string[];
   /** the ledger tasks the run finished, by their goals */
   done: readonly string[];
-  /** the passing full check this push carries, or null */
-  proof: { command: string; sha: string; log: string } | null;
+  /** the passing full check this push carries, or null; `inherited` counts the failures the base has too (plan 52) */
+  proof: { command: string; sha: string; log: string; inherited?: number } | null;
   /** every architect tool call with its `why`, oldest first, one line each */
   audit: readonly string[];
   /** ledger tasks set impossible or blocked, and findings the architect left open */
@@ -33,7 +33,7 @@ export function mrBody(i: MrBodyInput): string {
     "",
     ...list(i.done, "see the commits"),
     "",
-    `Proof: ${i.proof ? `\`${i.proof.command}\` passed on ${i.proof.sha.slice(0, 12)} (${i.proof.log})` : "no full check has passed on this commit yet"}`,
+    `Proof: ${i.proof ? `\`${i.proof.command}\` passed${i.proof.inherited ? ` but for ${i.proof.inherited} failure${i.proof.inherited > 1 ? "s" : ""} the base has too,` : ""} on ${i.proof.sha.slice(0, 12)} (${i.proof.log})` : "no full check has passed on this commit yet"}`,
     "",
     "## Audit",
     "",

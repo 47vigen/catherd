@@ -65,7 +65,7 @@ function setupOf(run: Run): string | null {
 }
 
 /** Submodules, then the plan's Setup: command, in a heavy slot with the gate's check env. */
-async function setUp(deps: Deps, run: Run, tree: string): Promise<void> {
+export async function setUp(deps: Deps, run: Run, tree: string): Promise<void> {
   const setup = setupOf(run);
   const submodules = existsSync(join(tree, ".gitmodules"));
   if (!setup && !submodules) return;

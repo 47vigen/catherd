@@ -113,6 +113,89 @@ describe("land (plan 50, spec D11)", () => {
     expect(second.question).toStartWith("Merge https://git.example.com/o/r/-/merge_requests/7 into main?");
   });
 
+  it("lands final on a full check whose every failure the base has too, and lists them under Known issues (plan 52)", async () => {
+    const { run, tree: t, bodies } = await tree();
+    writeFileSync(join(t, "a.ts"), "export const a = 1;\n");
+    await landed(run, land(false));
+    const head = sh(t, "rev-parse", "HEAD");
+    const done = await runArchitectCheck(
+      deps,
+      run,
+      {
+        checkId: "C1",
+        command: "echo '(fail) old flake'; exit 1",
+        scope: "full",
+        base: false,
+        fresh: true,
+        state: "queued",
+      },
+      { timeoutMs: 10_000 },
+    );
+    expect(done.verdict).toBe("inherited");
+    await verifierPass(run, head);
+    const r = await runLand(run, land(true, 2));
+    expect(r.done).toMatchObject({ outcome: "pushed", sha: head });
+    expect(bodies.at(-1)).toContain(
+      "- inherited from the base (`echo '(fail) old flake'; exit 1`): (fail) old flake",
+    );
+    expect(bodies.at(-1)).toContain("passed but for 1 failure the base has too");
+  });
+
+  it("lists an inherited failure once when the architect logged it as a known issue too (plan 52)", async () => {
+    const { run, tree: t, bodies } = await tree();
+    writeFileSync(join(t, "a.ts"), "export const a = 1;\n");
+    await landed(run, land(false));
+    const head = sh(t, "rev-parse", "HEAD");
+    const cmd = "echo '(fail) old flake'; exit 1";
+    await runArchitectCheck(
+      deps,
+      run,
+      { checkId: "C1", command: cmd, scope: "full", base: false, fresh: true, state: "queued" },
+      { timeoutMs: 10_000 },
+    );
+    await appendEvent(run, {
+      type: "task.delegated",
+      taskId: "T1",
+      role: "reviewer",
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+      ledgerTask: null,
+      by: "architect-1",
+      why: "review",
+    });
+    await appendEvent(run, {
+      type: "dispatch.started",
+      dispatchId: "d-r",
+      name: "T1",
+      role: "reviewer",
+      unit: "T1",
+      lane: null,
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+    });
+    await appendEvent(run, {
+      type: "dispatch.ended",
+      dispatchId: "d-r",
+      name: "T1",
+      unit: "T1",
+      status: "ok",
+      replyStatus: "complete",
+      reason: null,
+      why: "ok",
+      thread: null,
+      head: null,
+      environment: null,
+      verdict: null,
+      findings: [{ label: "PRE-EXISTING", text: "(fail) old flake fails on the base", file: null }],
+      replyPath: "roles/T1/d-r/reply.md",
+    });
+    await verifierPass(run, head);
+    await runLand(run, land(true, 2));
+    const body = bodies.at(-1) ?? "";
+    expect(body).toContain("(fail) old flake fails on the base");
+    expect(body).not.toContain("inherited from the base (");
+  });
+
   it("merges a base that moved under the run's files and asks for the check again", async () => {
     const { run, tree: t, origin } = await tree("t", { path: "shared.txt", text: "top\n\n\n\nbottom\n" });
     writeFileSync(join(t, "shared.txt"), "TOP\n\n\n\nbottom\n");

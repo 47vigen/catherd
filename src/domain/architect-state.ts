@@ -298,6 +298,21 @@ export function ladderRung(
 }
 
 /**
+ * Plan 52: `from` when its quota is not held, else the next rung up the ladder, then from the bottom, on a quota that
+ * is not; null when every rung's quota is held.
+ */
+export function unheldRung(ladder: readonly string[], from: string, s: RunState): string | null {
+  const at = Math.max(0, ladder.indexOf(from));
+  return [...ladder.slice(at), ...ladder.slice(0, at)].find((r) => !rungHeld(r, s)) ?? null;
+}
+
+/** Plan 52: whether `rung`'s quota is held at the run's clock; a rung that does not parse is free. */
+export function rungHeld(rung: string, s: RunState): boolean {
+  const p = tryParseRung(rung);
+  return p !== null && (s.holds[quotaOf(p)] ?? "") > s.at;
+}
+
+/**
  * Spec D8, D11: the merge request's Known issues. Ledger tasks set impossible or blocked; every review's PRE-EXISTING
  * finding and each one the architect logged as a known issue; an IMPORTANT one it logged no handling for.
  */
@@ -561,10 +576,19 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       a.newsSeq = e.seq;
       const c = a.checks[e.checkId];
       if (c) c.state = "done";
+      const failed = `failed (exit ${e.exit ?? "timeout"}): ${e.failures.length} failing line(s)`;
+      // plan 52: a full check's failures split against the base, which catherd ran itself
+      const verdict = c?.scope === "fast" ? undefined : e.verdict;
       const result =
         e.exit === 0
           ? "passed"
-          : `failed (exit ${e.exit ?? "timeout"}): ${e.failures.length} failing line(s), ${e.preExisting.length} also on the base`;
+          : verdict === "inherited"
+            ? `${failed}, every one inherited from the base: it counts as passing for the verifier and land final, and they go under Known issues`
+            : verdict === "new"
+              ? `${failed}, ${e.failures.length - e.preExisting.length} new and ${e.preExisting.length} inherited from the base`
+              : verdict === "unknown"
+                ? `${failed}, not comparable with the base (no failing line read, a timeout, or no base result): you judge it`
+                : `${failed}, ${e.preExisting.length} also on the base`;
       push(
         a,
         e,

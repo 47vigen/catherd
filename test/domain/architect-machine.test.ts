@@ -189,6 +189,33 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     expect(wakeOf(after(log))).toMatchObject({ name: "architect-2" });
   });
 
+  it("climbs to a free rung of the architect's ladder at once on a limit, and waits only when every rung is held", () => {
+    const [ASTRA, OPUS] = ["codex:gpt-6-astra#xhigh", "claude-code:claude-opus-5-5#high"];
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, architectRungs: [ASTRA, OPUS] });
+    expect(wakeOf(after(log))).toMatchObject({ name: "architect-1", rung: ASTRA });
+    const on = (n: number, rung: string) => {
+      const dispatchId = newId();
+      log.add("dispatch.started", {
+        dispatchId,
+        name: `architect-${n}`,
+        role: "architect",
+        unit: "run",
+        lane: null,
+        rung,
+        thread: null,
+        upTo: log.events.at(-1)?.seq ?? 0,
+      });
+      return dispatchId;
+    };
+    endDispatch(log, on(1, ASTRA), { name: "architect-1", unit: "run", status: "limit", thread: "th-a" });
+    expect(wakeOf(after(log))).toMatchObject({ name: "architect-2", rung: OPUS, thread: null });
+    const end = endDispatch(log, on(2, OPUS), { name: "architect-2", unit: "run", status: "limit" });
+    expect(wakeOf(after(log))).toBeUndefined();
+    log.add("tick", {}, new Date(Date.parse(end.at) + HOLD_MS + 1000).toISOString());
+    expect(wakeOf(after(log))).toMatchObject({ name: "architect-3", rung: ASTRA });
+  });
+
   it("a finish that keeps failing ends the run without its report, a cancel that keeps failing gives up", () => {
     const fail = (log: Log, action: "finish" | "cancel") =>
       log.add("effect.failed", { action, unit: "run", message: "boom" });
@@ -259,6 +286,75 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     });
     expect(after(log)).not.toContainEqual({ type: "runCheck", checkId: "C1" });
     expect(wakeOf(after(log))).toBeDefined();
+    // plan 52: the digest says what the base comparison means, so the architect does not prove it again
+    const done = (checkId: string, verdict: "inherited" | "new" | "unknown", preExisting: string[]) =>
+      log.add("check.done", {
+        checkId,
+        exit: 1,
+        failures: ["(fail) a", "(fail) b"],
+        preExisting,
+        cached: false,
+        minutes: 1,
+        logPath: `checks/${checkId}.log`,
+        verdict,
+      });
+    done("C2", "inherited", ["(fail) a", "(fail) b"]);
+    done("C3", "new", ["(fail) a"]);
+    done("C4", "unknown", []);
+    expect(
+      log
+        .state()
+        .arch.inbox.slice(-3)
+        .map((i) => i.text),
+    ).toEqual([
+      expect.stringContaining(
+        "every one inherited from the base: it counts as passing for the verifier and land final",
+      ),
+      expect.stringContaining("2 failing line(s), 1 new and 1 inherited from the base"),
+      expect.stringContaining("not comparable with the base"),
+    ]);
+    // a fast check never counts as passing for the verifier and land final, whatever its event carries
+    log.add("check.requested", {
+      checkId: "C5",
+      command: "bun run lint",
+      scope: "fast",
+      base: false,
+      fresh: false,
+      by: "architect-1",
+      why: "w",
+    });
+    done("C5", "inherited", ["(fail) a", "(fail) b"]);
+    const last = log.state().arch.inbox.at(-1)?.text;
+    expect(last).toContain("C5 (fast)");
+    expect(last).not.toContain("counts as passing");
+  });
+
+  it("says a quota is held only while it is, and otherwise that the architect is back on its default rung", () => {
+    const [ASTRA, OPUS] = ["codex:gpt-6-astra#xhigh", "claude-code:claude-opus-5-5#high"];
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, architectRungs: [ASTRA, OPUS] });
+    const run = (n: number, rung: string) =>
+      endDispatch(log, startDispatch(log, { name: `architect-${n}`, role: "architect", unit: "run", rung }), {
+        name: `architect-${n}`,
+        unit: "run",
+      });
+    run(1, ASTRA);
+    // a task on the same quota hits its limit while the architect is idle
+    delegate(log, "T1");
+    const t1 = startDispatch(log, { name: "T1", unit: "T1", rung: ASTRA });
+    const end = endDispatch(log, t1, { name: "T1", unit: "T1", status: "limit" });
+    expect(wakeOf(after(log))).toMatchObject({
+      rung: OPUS,
+      thread: null,
+      notes: [`the quota of ${ASTRA} is held: this turn runs on ${OPUS}`],
+    });
+    run(2, OPUS);
+    delegate(log, "T2");
+    log.add("tick", {}, new Date(Date.parse(end.at) + HOLD_MS + 1000).toISOString());
+    expect(wakeOf(after(log))).toMatchObject({
+      rung: ASTRA,
+      notes: [`back on the default rung ${ASTRA}`],
+    });
   });
 
   it("finishing stops the tasks still running, then ends the run with the verdict's outcome", () => {

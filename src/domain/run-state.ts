@@ -79,6 +79,8 @@ export interface RunState {
   earlier: boolean;
   /** spec D10: the caps the run started with */
   caps: Caps;
+  /** plan 52: the architect's ladder, its default first; empty on a run an earlier build started */
+  architectRungs: string[];
   startedAt: string | null;
   /** the run's time spent in closed pauses, which the wall cap does not count */
   pausedMs: number;
@@ -113,6 +115,7 @@ export function emptyState(run: string): RunState {
     rolesOff: [],
     earlier: false,
     caps: DEFAULT_CAPS,
+    architectRungs: [],
     startedAt: null,
     pausedMs: 0,
     arch: emptyArch(),
@@ -163,6 +166,7 @@ function applyRun(s: RunState, e: RunEvent): void {
       s.rolesOff = (e.rolesOff ?? []).filter((r): r is Role => ROLES.includes(r as Role));
       s.earlier = e.v < EVENTS_SCHEMA;
       s.caps = e.caps ?? DEFAULT_CAPS;
+      s.architectRungs = e.architectRungs ?? [];
       s.startedAt = e.at;
       s.phase = "running";
       s.arch.inbox.push({ seq: e.seq, text: `the run started: ${e.title}`, wakes: true });

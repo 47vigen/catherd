@@ -87,6 +87,33 @@ describe("the run model of an architect run (plan 48, spec D4)", () => {
     expect(node(m, "check/C1").attempts[0]).toMatchObject({ kind: "check", exit: 1, secs: 120 });
   });
 
+  it("draws a check whose every failure the base has too as passed, as land counts it (plan 52)", () => {
+    const log = started();
+    log.add("check.requested", {
+      checkId: "C1",
+      command: "bun test",
+      scope: "full",
+      base: false,
+      fresh: false,
+      by: "architect-1",
+      why,
+    });
+    log.add("check.done", {
+      checkId: "C1",
+      exit: 1,
+      failures: ["(fail) a"],
+      preExisting: ["(fail) a"],
+      cached: false,
+      minutes: 2,
+      logPath: "checks/C1.log",
+      verdict: "inherited",
+    });
+    const c = node(model(log), "check/C1");
+    expect(c.status).toBe("done");
+    expect(c.attempts[0]).toMatchObject({ label: "passed (inherited failures)", exit: 1 });
+    expect(c.attempts[0]?.text).toContain("passed but for failures the base has too");
+  });
+
   it("an ended run closes the architect and skips what never started", () => {
     const log = started();
     delegate(log, "T1");

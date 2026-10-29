@@ -26,6 +26,21 @@ describe("the merge request body (plan 50, spec D11)", () => {
       expect(at(line)).toBeGreaterThan(at("## Audit"));
   });
 
+  it("says how many failures a passing-with-inherited proof leaves to the base (plan 52)", () => {
+    const b = mrBody({
+      title: "t",
+      aLines: [],
+      done: [],
+      proof: { command: "bun test", sha: "0123456789abcdef", log: "checks/C2.log", inherited: 2 },
+      audit: [],
+      knownIssues: [],
+      tests: { deleted: [], skipped: [] },
+    });
+    expect(b).toContain(
+      "Proof: `bun test` passed but for 2 failures the base has too, on 0123456789ab (checks/C2.log)",
+    );
+  });
+
   it("says when no full check has passed, and none for an empty list", () => {
     const empty = mrBody({
       title: "t",

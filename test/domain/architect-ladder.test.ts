@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ladderRung } from "../../src/domain/architect-state.ts";
+import { ladderRung, unheldRung } from "../../src/domain/architect-state.ts";
 import type { Role } from "../../src/domain/roles.ts";
 import { endDispatch, type Log, makeLog, startDispatch, startedFields } from "./run-fixtures.ts";
 
@@ -142,5 +142,25 @@ describe("spec D7: the ladder's default, climbed on observed failure", () => {
     const log = run();
     attempt(log, "T1", MID, { status: "failed", replyStatus: null, lost: true });
     expect(next(log)).toBe(MID);
+  });
+});
+
+describe("plan 52: a held quota moves a no-rung pick along the ladder", () => {
+  it("keeps the pick when its quota is free, else takes the next free rung up, then from the bottom", () => {
+    const [LUNA, SONNET, SOL] = [
+      "codex:gpt-6-luna#high",
+      "claude-code:claude-sonnet-5-5#high",
+      "codex:gpt-6-sol#high",
+    ];
+    const ladder = [LUNA, SONNET, SOL];
+    const s = run().state();
+    expect(unheldRung(ladder, SOL, s)).toBe(SOL);
+    s.holds.codex = new Date(Date.parse(s.at) + 60_000).toISOString();
+    expect(unheldRung(ladder, SOL, s)).toBe(SONNET);
+    expect(unheldRung(ladder, LUNA, s)).toBe(SONNET);
+    s.holds["claude-code"] = s.holds.codex;
+    expect(unheldRung(ladder, LUNA, s)).toBeNull();
+    s.holds.codex = s.at;
+    expect(unheldRung(ladder, SONNET, s)).toBe(SOL);
   });
 });

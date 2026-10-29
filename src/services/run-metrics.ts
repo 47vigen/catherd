@@ -71,6 +71,14 @@ export function metricsOf(run: Run, now: number, parsed: Parsed = parsedOf(run))
     if (seen.has(key) && seen.get(key) !== t.rung) climbs++;
     seen.set(key, t.rung);
   }
+  // plan 52: an architect turn on another rung than the turn before it, which ended on a quota limit
+  const turns = Object.values(s?.dispatches ?? {})
+    .filter((d) => d.role === "architect")
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  turns.forEach((d, i) => {
+    const before = turns[i - 1];
+    if (before?.ended?.status === "limit" && before.rung !== d.rung) climbs++;
+  });
   const at = new Map(events.map((e) => [e.seq, Date.parse(e.at)]));
   const standingStartSec = tasks.flatMap((t) => {
     const started = t.dispatchId ? s?.dispatches[t.dispatchId]?.startedAt : undefined;

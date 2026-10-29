@@ -82,6 +82,23 @@ describe("a run's metrics from its own rows (plan 51, spec D17)", () => {
     ]);
   });
 
+  it("counts an architect turn that moved to another rung after a quota limit as a climb (plan 52)", async () => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    const turn = (n: number, rung: string, status: "ok" | "limit") =>
+      endDispatch(log, startDispatch(log, { name: `architect-${n}`, role: "architect", unit: "run", rung }), {
+        name: `architect-${n}`,
+        unit: "run",
+        status,
+      });
+    turn(1, "codex:gpt-6-astra#xhigh", "limit");
+    turn(2, "claude-code:claude-opus-5-5#high", "ok");
+    turn(3, "claude-code:claude-opus-5-5#high", "ok");
+    for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    expect(metricsOf(run, Date.parse(run.meta.createdAt) + 60_000).climbs).toBe(1);
+  });
+
   it("does not replay a run its caller already replayed", async () => {
     const { run } = freshRun();
     await appendEvent(run, { type: "run.started", ...startedFields });

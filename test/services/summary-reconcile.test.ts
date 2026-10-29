@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { db, insertCheck } from "../../src/infra/db.ts";
 import { daemonLauncher } from "../../src/services/daemon.ts";
 import { reconcileAll } from "../../src/services/reconcile.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
@@ -61,17 +62,35 @@ describe("reviving a daemon", () => {
     expect(launched).toEqual([live.id]);
   });
 
-  it("reports an ended run's outcome and drops the next step state.md still holds", async () => {
+  it("reports an ended run's outcome and its last architect check, never state.md's milestone lines", async () => {
     const { run } = freshRun("done");
     await appendEvent(run, { type: "run.started", ...startedFields });
+    writeFileSync(runPaths(run.dir).state, "# done\n\nLast check: none\n\nNext: plan the milestones\n");
+    expect(summarizeRun(fakeDeps(), run).stateTail).toEqual(["Last check: none yet"]);
+    const row = {
+      scope: "full",
+      ref: "worktree",
+      tree: null,
+      command: "bun test",
+      base: false,
+      minutes: 1,
+      cached: false,
+      at: new Date().toISOString(),
+    };
+    insertCheck(db(), run.id, { ...row, checkId: "C1", exit: 0, failures: [] });
+    insertCheck(db(), run.id, {
+      ...row,
+      checkId: "C2",
+      exit: 1,
+      failures: ["(fail) a", "(fail) b"],
+      verdict: "inherited",
+    });
     const e = await appendEvent(run, { type: "run.ended", outcome: "done", reportPath: null });
-    writeFileSync(
-      runPaths(run.dir).state,
-      "# done\n\nLast check: ok\n\nNext: go on\nProtocol next: finish\n",
-    );
     const s = summarizeRun(fakeDeps(), run);
     expect(s.ended).toEqual({ at: e.at, outcome: "done" });
-    expect(s.stateTail).toEqual(["# done", "Last check: ok"]);
+    expect(s.stateTail).toEqual([
+      "Last check: C2 (full) failed (exit 1): 2 failing line(s), every one inherited from the base",
+    ]);
   });
 
   it("stops an ended run's clock: its wall minutes and minute budget end at run.ended", async () => {

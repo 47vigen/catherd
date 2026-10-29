@@ -7,6 +7,7 @@ import {
   crossFamilyRung,
   isStanding,
   ladderRung,
+  unheldRung,
   REVIEW_ROUNDS,
   reviewRounds,
   STANDING_CAP,
@@ -148,6 +149,8 @@ async function delegate(
       i.rung === undefined
         ? ladderRung(s.arch, i.role, i.ledgerTask ?? null, ladder, defaultOf(rc))
         : headlessRung(i.rung);
+    // plan 52: a quota limit moves a no-rung pick to the next rung on a free quota, as it moves the architect's turn
+    if (i.rung === undefined) rung = unheldRung(ladder, rung, s) ?? rung;
     if (review) {
       // spec D8: a review runs on another model family than the work it reads, and says so when it cannot
       const author = authorRung(s.arch, i.ledgerTask ?? null);
@@ -418,7 +421,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
     },
   ),
   check: spec(
-    "Run a check command on the run's tree as it stands (base: true, on the run's start commit) under the machine's heavy lock. It returns at once with the check id; the result wakes you. A pass on an unchanged tree is reused unless fresh: true; nothing is rerun on its own.",
+    "Run a check command on the run's tree as it stands (base: true, on the run's start commit) under the machine's heavy lock. It returns at once with the check id; the result wakes you. A pass on an unchanged tree is reused unless fresh: true; nothing is rerun on its own. A failing full check is compared with the same command on the base (catherd runs it, once per base commit): failures all inherited count as passing for the verifier and land final.",
     {
       command: z.string().min(1),
       scope: z.enum(["fast", "full"]).optional(),

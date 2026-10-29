@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import * as failLines from "../../src/domain/fail-lines.ts";
-import { andTail, checkFailLines, newFails } from "../../src/domain/fail-lines.ts";
+import { andTail, checkFailLines, checkVerdict, markParts, newFails } from "../../src/domain/fail-lines.ts";
 
 describe("check failing lines", () => {
   it("andTail names what follows the first &&", () => {
@@ -264,6 +264,16 @@ describe("failure normalization", () => {
     expect(checkFailLines(a)).toEqual(checkFailLines(b));
     expect(failLines.normalizeFailLine(a)).toBe("FAIL <role> <run> <tmp> port <port>");
   });
+  it("keeps the repo-relative path, stripping only the tree's own absolute prefix (plan 52)", () => {
+    const roots = ["/runs/a/tree"];
+    expect(failLines.normalizeFailLine("FAIL /runs/a/tree/src/a.test.ts", roots)).toBe("FAIL src/a.test.ts");
+    expect(checkFailLines("(fail) /runs/a/tree/src/a.ts\n(fail) /runs/a/tree/src/b.ts", roots)).toEqual([
+      "(fail) src/a.ts",
+      "(fail) src/b.ts",
+    ]);
+    expect(checkFailLines("(fail) /runs/b/base/src/a.ts", ["/runs/b/base"])).toEqual(["(fail) src/a.ts"]);
+    expect(checkFailLines("(fail) /usr/lib/x.so", roots)).toEqual(["(fail) <path>"]);
+  });
   it("normalizes absolute paths and address ports without hiding distinct failures", () => {
     expect(failLines.normalizeFailLine("error: worker-M1.L1 /workspace/one/a.ts 127.0.0.1:41234")).toBe(
       "error: <role> <path> 127.0.0.1:<port>",
@@ -273,5 +283,93 @@ describe("failure normalization", () => {
       "FAIL two <path>",
     ]);
     expect(failLines.FAIL_DISPLAY_CAP).toBe(60);
+  });
+});
+
+describe("plan 52: a failing check against the same command on the base", () => {
+  const base = (exit: number | null, failures: string[]) => ({ exit, failures });
+  it("is inherited when the base fails every line it fails, new when one line is not on the base", () => {
+    expect(checkVerdict(0, [], null)).toBe("pass");
+    expect(checkVerdict(1, ["(fail) a"], base(1, ["(fail) a", "(fail) b"]))).toBe("inherited");
+    expect(checkVerdict(1, ["(fail) a", "(fail) c"], base(1, ["(fail) a"]))).toBe("new");
+    expect(checkVerdict(1, ["(fail) a"], base(0, []))).toBe("new");
+  });
+  it("is unknown with no base, on a timeout, or with no line to compare and the base failing too", () => {
+    expect(checkVerdict(1, ["(fail) a"], null)).toBe("unknown");
+    expect(checkVerdict(null, ["(fail) a"], base(1, ["(fail) a"]))).toBe("unknown");
+    expect(checkVerdict(2, [], base(2, []))).toBe("unknown");
+    expect(checkVerdict(2, [], base(0, []))).toBe("new");
+  });
+  it("is unknown when the exit codes differ, even when every line is on the base (plan 52)", () => {
+    expect(checkVerdict(1, ["(fail) a"], base(2, ["(fail) a"]))).toBe("unknown");
+    expect(checkVerdict(2, ["(fail) a"], base(2, ["(fail) a"]))).toBe("inherited");
+  });
+  it("is unknown when a side cannot be compared: cut output, or a part other than the last failing", () => {
+    expect(checkVerdict(1, ["(fail) a"], { ...base(1, ["(fail) a"]), comparable: false })).toBe("unknown");
+    expect(checkVerdict(1, ["(fail) a"], base(1, ["(fail) a"]), { comparable: false })).toBe("unknown");
+    expect(checkVerdict(1, ["(fail) a", "(fail) c"], base(1, ["(fail) a"]), { comparable: false })).toBe(
+      "new",
+    );
+  });
+  it("is unknown when a side's failing lines are only a script-exit wrapper, which names no diagnostic", () => {
+    const wrapper = 'error: script "typecheck" exited with code 2';
+    const tsc = (extra: string) => `src/${extra}.ts(2,1): error TS2304: Cannot find name 'x'.\n${wrapper}\n`;
+    const lines = (out: string) => checkFailLines(out);
+    expect(lines(tsc("new"))).toEqual([wrapper]);
+    expect(checkVerdict(2, lines(tsc("new")), base(2, lines(tsc("old"))))).toBe("unknown");
+    for (const w of [
+      "npm ERR! code ELIFECYCLE",
+      "ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL Command failed with exit code 1",
+      "error Command failed with exit code 1.",
+      "make: *** [test] Error 2",
+    ])
+      expect(checkVerdict(1, [w], base(1, [w]))).toBe("unknown");
+    // a wrapper next to a test-level line is ignored for the comparison
+    expect(checkVerdict(2, [wrapper, "(fail) a"], base(2, ["(fail) a"]))).toBe("inherited");
+    expect(checkVerdict(2, [wrapper, "(fail) a", "(fail) c"], base(2, ["(fail) a"]))).toBe("new");
+    expect(checkVerdict(2, [wrapper, "(fail) a"], base(2, [wrapper]))).toBe("unknown");
+  });
+  it("is unknown when a failing line only names a file or a package, which cannot tell a new test", () => {
+    for (const line of ["FAIL src/a.test.ts", "FAIL\tgithub.com/x/y", "FAIL", "FAIL ./pkg [build failed]"])
+      expect(checkVerdict(1, [line, "(fail) a"], base(1, [line, "(fail) a"]))).toBe("unknown");
+    expect(checkVerdict(1, ["FAIL src/a.test.ts > adds"], base(1, ["FAIL src/a.test.ts > adds"]))).toBe(
+      "inherited",
+    );
+    expect(checkVerdict(1, ["--- FAIL: TestX"], base(1, ["--- FAIL: TestX"]))).toBe("inherited");
+  });
+});
+
+describe("plan 52: which part of an && chain failed", () => {
+  it("puts a mark between the top-level parts, and none in a single command", () => {
+    expect(markParts("a && b && c", "m")).toEqual({
+      script: "a && m && b && m && c",
+      parts: 3,
+      tracked: true,
+    });
+    expect(markParts("bun test", "m")).toEqual({ script: "bun test", parts: 1, tracked: true });
+    expect(markParts("echo 'a && b'", "m")).toMatchObject({ parts: 1 });
+  });
+  it("splits the parts behind a leading cd, which still applies to each (the script is one shell)", () => {
+    expect(markParts("cd web && lint && test", "m")).toEqual({
+      script: "cd web && lint && m && test",
+      parts: 2,
+      tracked: true,
+    });
+    expect(markParts("a && cd d && b && c && d", "m")).toEqual({
+      script: "a && m && cd d && b && m && c && m && d",
+      parts: 4,
+      tracked: true,
+    });
+    expect(markParts("cd web", "m")).toMatchObject({ script: "cd web", parts: 1 });
+    expect(markParts("cd web && a && b || c", "m")).toMatchObject({ parts: 2, tracked: false });
+    expect(markParts("(cd web && a && b) && c", "m")).toMatchObject({ parts: 2 });
+  });
+  it("cannot be trusted with a || in a chain, nor with a command that does not split", () => {
+    expect(markParts("a && b || c", "m")).toEqual({ script: "a && b || c", parts: 2, tracked: false });
+    expect(markParts("a &&", "m")).toMatchObject({ script: "a &&", parts: 1 });
+  });
+  it("cannot be trusted with a part that still chains inside, such as a subshell", () => {
+    expect(markParts("(cd web && lint && test)", "m")).toMatchObject({ parts: 1, tracked: false });
+    expect(markParts("echo 'a && b; c'", "m")).toMatchObject({ parts: 1, tracked: true });
   });
 });

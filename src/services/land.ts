@@ -137,14 +137,19 @@ async function ownBranch(tree: string, branch: string, shas: string[]): Promise<
   return false;
 }
 
-/** A green full check of this run on `sha` (spec D11), with its command and log. */
-function greenFull(run: Run, sha: string): { command: string; log: string } | null {
+/**
+ * A green full check of this run on `sha` (spec D11), with its command and log; plan 52: one whose every failure the
+ * base has too counts, with those failures.
+ */
+function greenFull(run: Run, sha: string): { command: string; log: string; failures: string[] } | null {
   const r = db()
     .query(
-      "SELECT check_id, command FROM checks WHERE run_id = ? AND scope = 'full' AND base = 0 AND ref = ? AND exit = 0 ORDER BY id DESC LIMIT 1",
+      "SELECT check_id, command, failures FROM checks WHERE run_id = ? AND scope = 'full' AND base = 0 AND ref = ? AND (exit = 0 OR verdict = 'inherited') ORDER BY id DESC LIMIT 1",
     )
-    .get(run.id, sha) as { check_id: string; command: string } | null;
-  return r ? { command: r.command, log: `checks/${r.check_id}.log` } : null;
+    .get(run.id, sha) as { check_id: string; command: string; failures: string } | null;
+  return r
+    ? { command: r.command, log: `checks/${r.check_id}.log`, failures: JSON.parse(r.failures) as string[] }
+    : null;
 }
 
 /** A verifier PASS whose HEAD line names `sha` (a full sha, or a prefix of at least 7). */
@@ -245,15 +250,23 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
     const events = readEvents(run);
     const tasks = ledgerTasks(run);
     const proof = greenFull(run, sha);
+    // an inherited line the architect logged as a known issue too is listed once
+    const logged = knownIssues(replayRun(run).arch, tasks);
+    const issues = [
+      ...logged,
+      ...(proof?.failures ?? [])
+        .filter((f) => !logged.some((k) => k.includes(f)))
+        .map((f) => `inherited from the base (\`${proof?.command}\`): ${f}`),
+    ];
     const body = mrBody({
       title: run.meta.title,
       aLines: run.meta.aLines,
       done: tasks.filter((t) => t.state === "done").map((t) => `${t.id} ${t.goal}`),
-      proof: proof ? { ...proof, sha } : null,
+      proof: proof ? { command: proof.command, log: proof.log, sha, inherited: proof.failures.length } : null,
       audit: events
         .filter((e) => WHY_EVENTS.has(e.type) || (e.type === "question.parked" && e.why))
         .map((e) => describeEvent(e)),
-      knownIssues: knownIssues(replayRun(run).arch, tasks),
+      knownIssues: issues,
       tests: {
         deleted: lines(await out(tree, ["diff", "--name-only", "--diff-filter=D", mb, "HEAD"])).filter(
           isTestPath,
