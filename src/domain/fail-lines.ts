@@ -79,6 +79,26 @@ export function failFiles(out: string, root: string): Record<string, string[]> {
 export const newFails = (fails: string[], base: string[] | null): string[] =>
   fails.filter((f) => !base?.includes(f));
 
+/** Plan 52: a check's result against the same command on the base. */
+export type CheckVerdict = "pass" | "inherited" | "new" | "unknown";
+
+/**
+ * Plan 52: `inherited` when the base fails every line this check fails (it counts as passing), `new` when a line is
+ * not on the base or the base passed, `unknown` with no base result, on a timeout, or when no failing line could be
+ * read and the base failed too (an exit code alone proves nothing).
+ */
+export function checkVerdict(
+  exit: number | null,
+  failures: readonly string[],
+  base: { exit: number | null; failures: readonly string[] } | null,
+): CheckVerdict {
+  if (exit === 0) return "pass";
+  if (base === null || exit === null) return "unknown";
+  if (base.exit === 0) return "new";
+  if (failures.length === 0) return "unknown";
+  return failures.every((f) => base.failures.includes(f)) ? "inherited" : "new";
+}
+
 /** A part that is exactly `cd <dir>`: the shell runs every part after it in that folder. */
 const BARE_CD = /^cd\s+("[^"]*"|'[^']*'|\S+)$/;
 

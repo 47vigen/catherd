@@ -34,6 +34,8 @@ export const MIGRATIONS: readonly string[] = [
      scope TEXT NOT NULL, ref TEXT NOT NULL, tree TEXT, command TEXT NOT NULL, base INTEGER NOT NULL,
      exit INTEGER, failures TEXT NOT NULL, minutes REAL NOT NULL, cached INTEGER NOT NULL, at TEXT NOT NULL,
      UNIQUE (run_id, check_id));`,
+  // plan 52: a failing check's result against the base: inherited, new or unknown; null on a base check
+  `ALTER TABLE checks ADD COLUMN verdict TEXT;`,
 ];
 
 export const dbFile = (): string => join(dataDir(), "catherd.db");
@@ -148,12 +150,14 @@ export interface CheckRow {
   minutes: number;
   cached: boolean;
   at: string;
+  /** plan 52: pass, inherited, new or unknown; null (or absent) on a base check */
+  verdict?: string | null;
 }
 
 export function insertCheck(d: Database, runId: string, c: CheckRow): void {
   d.query(
-    `INSERT INTO checks (run_id, check_id, scope, ref, tree, command, base, exit, failures, minutes, cached, at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO checks (run_id, check_id, scope, ref, tree, command, base, exit, failures, minutes, cached, at, verdict)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     runId,
     c.checkId,
@@ -167,6 +171,7 @@ export function insertCheck(d: Database, runId: string, c: CheckRow): void {
     c.minutes,
     c.cached ? 1 : 0,
     c.at,
+    c.verdict ?? null,
   );
 }
 

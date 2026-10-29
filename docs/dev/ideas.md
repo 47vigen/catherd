@@ -16,6 +16,24 @@ judge on the role's exact brief (plan 44). Since 2.0 the daemon runs all of it (
 
 ## 2.0 follow-ups
 
+### From plan 52 (stage-1 fixes)
+
+Left out of plan 52 on purpose:
+
+- **A quota limit still counts as a failed architect turn.** Three limits in a row (every rung of a two-rung ladder,
+  then one more after the hold) stop the run. A limit is not the architect's failure; count it apart when a real run
+  stops this way.
+- **Failure identity is the normalized failing line.** A runner whose output has no line `checkFailLines` reads gets
+  `unknown`, and the architect judges it as before. Per-runner parsers (Go test JSON, JUnit XML) would make more
+  results comparable.
+- **A fast check never runs the base.** It compares only with a base result that already exists; the inherited rule
+  is the full check's.
+- **A check that failed on the base and stays parked.** A run that reached `needs_user` after a broken gate waited 9 h
+  for the owner; the inherited rule removes the cause seen, not the wait. A cap on a parked run's wait is open.
+- **The lock leak was not reproduced on the plan's machine.** The suite passes with `CATHERD_LOCK_HELD=1` there; Bun's
+  `Bun.spawn` without an `env` inherits the variable even after `delete process.env`, so a test that spawns without
+  an explicit env still could. The guard test pins the lock tests only.
+
 ### From plan 51 (converging reviews, the ui-reviewer fold, the metrics)
 
 Left out of plan 51 on purpose:

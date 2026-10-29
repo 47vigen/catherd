@@ -35,7 +35,7 @@ describe("a check the architect asks for (plan 47, spec D6)", () => {
     const done = await runArchitectCheck(
       fakeDeps(),
       r,
-      check("C1", "echo '(fail) wallet > balance'; exit 1"),
+      check("C1", "echo '(fail) wallet > balance'; exit 1", { scope: "fast" }),
       opts,
     );
     expect(done).toMatchObject({
@@ -76,6 +76,46 @@ describe("a check the architect asks for (plan 47, spec D6)", () => {
     expect(head.preExisting).toEqual(["(fail) old"]);
     expect((await runArchitectCheck(deps, r, check("C3", cmd, { base: true }), opts)).cached).toBe(true);
   });
+  it("compares a failing full check with the base itself, once per base commit, and splits new from inherited", async () => {
+    const r = await run();
+    const deps = fakeDeps();
+    const cmd = "test -f new.txt && echo '(fail) new' ; echo '(fail) old'; exit 1";
+    const inherited = await runArchitectCheck(deps, r, check("C1", cmd), opts);
+    expect(inherited).toMatchObject({
+      verdict: "inherited",
+      failures: ["(fail) old"],
+      preExisting: ["(fail) old"],
+    });
+    writeFileSync(join(r.meta.repo, "new.txt"), "x");
+    const fresh = await runArchitectCheck(deps, r, check("C2", cmd), opts);
+    expect(fresh).toMatchObject({ verdict: "new", preExisting: ["(fail) old"] });
+    expect(db().query("SELECT check_id, base, cached, verdict FROM checks ORDER BY id").all()).toEqual([
+      { check_id: "C1-base", base: 1, cached: 0, verdict: null },
+      { check_id: "C1", base: 0, cached: 0, verdict: "inherited" },
+      { check_id: "C2-base", base: 1, cached: 1, verdict: null },
+      { check_id: "C2", base: 0, cached: 0, verdict: "new" },
+    ]);
+  });
+
+  it("calls a failure it cannot read unknown when the base fails too, and never runs the base for a fast check", async () => {
+    const r = await run();
+    const deps = fakeDeps();
+    expect((await runArchitectCheck(deps, r, check("C1", "exit 2"), opts)).verdict).toBe("unknown");
+    writeFileSync(join(r.meta.repo, "new.txt"), "x");
+    expect((await runArchitectCheck(deps, r, check("C2", "test ! -f new.txt"), opts)).verdict).toBe("new");
+    const fast = await runArchitectCheck(
+      deps,
+      r,
+      check("C3", "echo '(fail) x'; exit 1", { scope: "fast" }),
+      opts,
+    );
+    expect(fast.verdict).toBe("unknown");
+    expect(db().query("SELECT check_id FROM checks WHERE base = 1 ORDER BY id").all()).toEqual([
+      { check_id: "C1-base" },
+      { check_id: "C2-base" },
+    ]);
+  });
+
   it("gives each base check its own tree, and survives a stale registered one", async () => {
     const r = await run();
     const deps = fakeDeps();

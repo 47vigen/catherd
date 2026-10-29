@@ -574,10 +574,18 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       a.newsSeq = e.seq;
       const c = a.checks[e.checkId];
       if (c) c.state = "done";
+      const failed = `failed (exit ${e.exit ?? "timeout"}): ${e.failures.length} failing line(s)`;
+      // plan 52: a full check's failures split against the base, which catherd ran itself
       const result =
         e.exit === 0
           ? "passed"
-          : `failed (exit ${e.exit ?? "timeout"}): ${e.failures.length} failing line(s), ${e.preExisting.length} also on the base`;
+          : e.verdict === "inherited"
+            ? `${failed}, every one inherited from the base: it counts as passing for the verifier and land final, and they go under Known issues`
+            : e.verdict === "new"
+              ? `${failed}, ${e.failures.length - e.preExisting.length} new and ${e.preExisting.length} inherited from the base`
+              : e.verdict === "unknown"
+                ? `${failed}, not comparable with the base (no failing line read, a timeout, or no base result): you judge it`
+                : `${failed}, ${e.preExisting.length} also on the base`;
       push(
         a,
         e,

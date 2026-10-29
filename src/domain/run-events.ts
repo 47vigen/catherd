@@ -232,6 +232,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     preExisting: strings,
     /** a pass recorded on the same tree, reused instead of run again */
     cached: z.boolean(),
+    /** plan 52: against the same command on the base; absent on a base check and before plan 52 */
+    verdict: z.enum(["pass", "inherited", "new", "unknown"]).optional(),
     minutes: z.number(),
     logPath: z.string(),
   }),

@@ -286,6 +286,33 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     });
     expect(after(log)).not.toContainEqual({ type: "runCheck", checkId: "C1" });
     expect(wakeOf(after(log))).toBeDefined();
+    // plan 52: the digest says what the base comparison means, so the architect does not prove it again
+    const done = (checkId: string, verdict: "inherited" | "new" | "unknown", preExisting: string[]) =>
+      log.add("check.done", {
+        checkId,
+        exit: 1,
+        failures: ["(fail) a", "(fail) b"],
+        preExisting,
+        cached: false,
+        minutes: 1,
+        logPath: `checks/${checkId}.log`,
+        verdict,
+      });
+    done("C2", "inherited", ["(fail) a", "(fail) b"]);
+    done("C3", "new", ["(fail) a"]);
+    done("C4", "unknown", []);
+    expect(
+      log
+        .state()
+        .arch.inbox.slice(-3)
+        .map((i) => i.text),
+    ).toEqual([
+      expect.stringContaining(
+        "every one inherited from the base: it counts as passing for the verifier and land final",
+      ),
+      expect.stringContaining("2 failing line(s), 1 new and 1 inherited from the base"),
+      expect.stringContaining("not comparable with the base"),
+    ]);
   });
 
   it("finishing stops the tasks still running, then ends the run with the verdict's outcome", () => {

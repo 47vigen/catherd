@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import * as failLines from "../../src/domain/fail-lines.ts";
-import { andTail, checkFailLines, newFails } from "../../src/domain/fail-lines.ts";
+import { andTail, checkFailLines, checkVerdict, newFails } from "../../src/domain/fail-lines.ts";
 
 describe("check failing lines", () => {
   it("andTail names what follows the first &&", () => {
@@ -273,5 +273,21 @@ describe("failure normalization", () => {
       "FAIL two <path>",
     ]);
     expect(failLines.FAIL_DISPLAY_CAP).toBe(60);
+  });
+});
+
+describe("plan 52: a failing check against the same command on the base", () => {
+  const base = (exit: number | null, failures: string[]) => ({ exit, failures });
+  it("is inherited when the base fails every line it fails, new when one line is not on the base", () => {
+    expect(checkVerdict(0, [], null)).toBe("pass");
+    expect(checkVerdict(1, ["(fail) a"], base(1, ["(fail) a", "(fail) b"]))).toBe("inherited");
+    expect(checkVerdict(1, ["(fail) a", "(fail) c"], base(1, ["(fail) a"]))).toBe("new");
+    expect(checkVerdict(1, ["(fail) a"], base(0, []))).toBe("new");
+  });
+  it("is unknown with no base, on a timeout, or with no line to compare and the base failing too", () => {
+    expect(checkVerdict(1, ["(fail) a"], null)).toBe("unknown");
+    expect(checkVerdict(null, ["(fail) a"], base(1, ["(fail) a"]))).toBe("unknown");
+    expect(checkVerdict(2, [], base(2, []))).toBe("unknown");
+    expect(checkVerdict(2, [], base(0, []))).toBe("new");
   });
 });

@@ -421,7 +421,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
     },
   ),
   check: spec(
-    "Run a check command on the run's tree as it stands (base: true, on the run's start commit) under the machine's heavy lock. It returns at once with the check id; the result wakes you. A pass on an unchanged tree is reused unless fresh: true; nothing is rerun on its own.",
+    "Run a check command on the run's tree as it stands (base: true, on the run's start commit) under the machine's heavy lock. It returns at once with the check id; the result wakes you. A pass on an unchanged tree is reused unless fresh: true; nothing is rerun on its own. A failing full check is compared with the same command on the base (catherd runs it, once per base commit): failures all inherited count as passing for the verifier and land final.",
     {
       command: z.string().min(1),
       scope: z.enum(["fast", "full"]).optional(),

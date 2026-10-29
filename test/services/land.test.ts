@@ -113,6 +113,34 @@ describe("land (plan 50, spec D11)", () => {
     expect(second.question).toStartWith("Merge https://git.example.com/o/r/-/merge_requests/7 into main?");
   });
 
+  it("lands final on a full check whose every failure the base has too, and lists them under Known issues (plan 52)", async () => {
+    const { run, tree: t, bodies } = await tree();
+    writeFileSync(join(t, "a.ts"), "export const a = 1;\n");
+    await landed(run, land(false));
+    const head = sh(t, "rev-parse", "HEAD");
+    const done = await runArchitectCheck(
+      deps,
+      run,
+      {
+        checkId: "C1",
+        command: "echo '(fail) old flake'; exit 1",
+        scope: "full",
+        base: false,
+        fresh: true,
+        state: "queued",
+      },
+      { timeoutMs: 10_000 },
+    );
+    expect(done.verdict).toBe("inherited");
+    await verifierPass(run, head);
+    const r = await runLand(run, land(true, 2));
+    expect(r.done).toMatchObject({ outcome: "pushed", sha: head });
+    expect(bodies.at(-1)).toContain(
+      "- inherited from the base (`echo '(fail) old flake'; exit 1`): (fail) old flake",
+    );
+    expect(bodies.at(-1)).toContain("passed but for 1 failure the base has too");
+  });
+
   it("merges a base that moved under the run's files and asks for the check again", async () => {
     const { run, tree: t, origin } = await tree("t", { path: "shared.txt", text: "top\n\n\n\nbottom\n" });
     writeFileSync(join(t, "shared.txt"), "TOP\n\n\n\nbottom\n");

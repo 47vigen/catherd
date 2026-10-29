@@ -78,11 +78,19 @@ describe("reviving a daemon", () => {
       at: new Date().toISOString(),
     };
     insertCheck(db(), run.id, { ...row, checkId: "C1", exit: 0, failures: [] });
-    insertCheck(db(), run.id, { ...row, checkId: "C2", exit: 1, failures: ["(fail) a", "(fail) b"] });
+    insertCheck(db(), run.id, {
+      ...row,
+      checkId: "C2",
+      exit: 1,
+      failures: ["(fail) a", "(fail) b"],
+      verdict: "inherited",
+    });
     const e = await appendEvent(run, { type: "run.ended", outcome: "done", reportPath: null });
     const s = summarizeRun(fakeDeps(), run);
     expect(s.ended).toEqual({ at: e.at, outcome: "done" });
-    expect(s.stateTail).toEqual(["Last check: C2 (full) failed (exit 1): 2 failing line(s)"]);
+    expect(s.stateTail).toEqual([
+      "Last check: C2 (full) failed (exit 1): 2 failing line(s), every one inherited from the base",
+    ]);
   });
 
   it("stops an ended run's clock: its wall minutes and minute budget end at run.ended", async () => {

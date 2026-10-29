@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { ArchCheck } from "../domain/architect-state.ts";
 import { CatherdError } from "../domain/errors.ts";
-import { checkFailLines, newFails } from "../domain/fail-lines.ts";
+import { checkFailLines, checkVerdict, newFails } from "../domain/fail-lines.ts";
 import type { RunEventInput } from "../domain/run-events.ts";
 import { db, ensureRunRow, insertCheck } from "../infra/db.ts";
 import { git, worktreeIdentity } from "../infra/git.ts";
@@ -31,14 +31,16 @@ function cachedRow(run: Run, c: ArchCheck, key: string | null): Row | null {
   return db().query(sql).get(run.id, c.command, key) as Row | null;
 }
 
-/** The failing lines of the latest check of the same command on the base, else null. */
-function baseFailures(run: Run, command: string): string[] | null {
+type BaseResult = { exit: number | null; failures: string[] };
+
+/** The latest check of the same command on the base, else null. */
+function baseResult(run: Run, command: string): BaseResult | null {
   const r = db()
     .query(
-      "SELECT failures FROM checks WHERE run_id = ? AND command = ? AND base = 1 ORDER BY id DESC LIMIT 1",
+      "SELECT exit, failures FROM checks WHERE run_id = ? AND command = ? AND base = 1 ORDER BY id DESC LIMIT 1",
     )
-    .get(run.id, command) as { failures: string } | null;
-  return r ? (JSON.parse(r.failures) as string[]) : null;
+    .get(run.id, command) as { exit: number | null; failures: string } | null;
+  return r ? { exit: r.exit, failures: JSON.parse(r.failures) as string[] } : null;
 }
 
 /** The commit a base check runs on: a base run's merge base with origin's base (plan 50), else its start commit. */
@@ -70,7 +72,9 @@ async function treeState(tree: string): Promise<{ id: string | null; head: strin
  * Plan 47, spec D6: a check the architect asked for. It runs on the run's checkout as it stands, or with `base` on a
  * detached tree at the run's start commit, under a heavy slot; a pass on an unchanged tree is reused unless `fresh`.
  * Nothing reruns on its own. The result is a `checks` row and the `check.done` event the caller appends; a failing
- * line the base's check of the same command also had is pre-existing.
+ * line the base's check of the same command also had is pre-existing. Plan 52: a failing full check runs the same
+ * command on the base itself (`<id>-base`, reused per base commit), and its verdict says whether every failure is
+ * inherited.
  */
 export async function runArchitectCheck(
   deps: Deps,
@@ -145,9 +149,18 @@ export async function runArchitectCheck(
       if (c.base) await git(run.meta.repo, ["worktree", "remove", "--force", cwd]);
     }
   }
-  const base = c.base ? null : baseFailures(run, c.command);
+  let base: BaseResult | null = null;
+  if (!c.base && c.scope === "full" && exit !== 0) {
+    const own = { ...c, checkId: `${c.checkId}-base`, base: true, fresh: false };
+    // a base that cannot be checked (no start commit, a failed checkout) leaves the verdict unknown
+    base = await runArchitectCheck(deps, run, own, o).then(
+      (d) => ({ exit: d.exit, failures: d.failures }),
+      () => null,
+    );
+  } else if (!c.base) base = baseResult(run, c.command);
+  const verdict = c.base ? null : checkVerdict(exit, failures, base);
   // a check on a committed tree names its commit, which land reads (spec D11); else "worktree"
-  const fresh = newFails(failures, base);
+  const fresh = newFails(failures, base?.failures ?? null);
   const d = db();
   d.transaction(() => {
     ensureRunRow(d, run);
@@ -163,6 +176,7 @@ export async function runArchitectCheck(
       minutes,
       cached: hit !== null,
       at,
+      verdict,
     });
   }).immediate();
   return {
@@ -172,6 +186,7 @@ export async function runArchitectCheck(
     failures,
     preExisting: base === null ? [] : failures.filter((f) => !fresh.includes(f)),
     cached: hit !== null,
+    ...(verdict === null ? {} : { verdict }),
     minutes,
     logPath,
   };
