@@ -57,7 +57,7 @@ function baseResult(run: Run, command: string): BaseResult | null {
 const PARTS_ENV = "CATHERD_PARTS_FILE";
 
 /** The commit a base check runs on: a base run's merge base with origin's base (plan 50), else its start commit. */
-async function baseSha(run: Run, tree: string): Promise<string | null> {
+export async function baseSha(run: Run, tree: string): Promise<string | null> {
   if (!run.meta.base) return run.meta.startHead ?? null;
   const r = await git(tree, ["merge-base", "HEAD", `origin/${run.meta.base}`]);
   return r.kind === "ok" ? r.out.trim() || null : null;

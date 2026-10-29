@@ -37,10 +37,10 @@ const deps = fakeDeps();
 
 async function tree(
   title = "t",
-  seed?: { path: string; text: string },
+  ...seeds: { path: string; text: string }[]
 ): Promise<{ run: Run; tree: string; origin: string; bodies: string[] }> {
   const { run, origin } = branchRun(title);
-  if (seed) commitInClone(origin, "seed", seed);
+  for (const seed of seeds) commitInClone(origin, "seed", seed);
   const bodies: string[] = [];
   forge.open = async (o) => {
     bodies.push(o.body);
@@ -194,6 +194,30 @@ describe("land (plan 50, spec D11)", () => {
     const body = bodies.at(-1) ?? "";
     expect(body).toContain("(fail) old flake fails on the base");
     expect(body).not.toContain("inherited from the base (");
+  });
+
+  it("lists the test cases the run removed and the existing test files it rewrote (plan 54, spec D9)", async () => {
+    const {
+      run,
+      tree: t,
+      bodies,
+    } = await tree(
+      "t",
+      {
+        path: "test/pay.test.ts",
+        text: 'it("keeps the currency", () => {\n  expect(1).toBe(1);\n});\nit("rounds", () => {});\n',
+      },
+      { path: "test/fee.test.ts", text: 'it("fee", () => {\n  expect(fee(1)).toBe(2);\n});\n' },
+    );
+    writeFileSync(join(t, "test", "pay.test.ts"), 'it("rounds", () => {});\n');
+    writeFileSync(join(t, "test", "fee.test.ts"), 'it("fee", () => {\n  expect(fee(1)).toBe(3);\n});\n');
+    writeFileSync(join(t, "test", "new.test.ts"), 'it("new", () => {});\n');
+    await runLand(run, land(false));
+    const body = bodies.at(-1) ?? "";
+    expect(body).toContain("- removed test/pay.test.ts: keeps the currency");
+    expect(body).toContain("- rewritten test/fee.test.ts (-1 line)");
+    expect(body).not.toContain("rewritten test/pay.test.ts");
+    expect(body).not.toContain("new.test.ts");
   });
 
   it("merges a base that moved under the run's files and asks for the check again", async () => {

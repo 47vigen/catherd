@@ -34,6 +34,7 @@ import { isEarlierRun, replayRun, withEventsLock } from "./run-events-store.ts";
 import { runProfile } from "./run-pin.ts";
 import { readRecords, type Run } from "./run-store.ts";
 import { MESSAGE_KINDS, teamRead, teamSend } from "./team.ts";
+import { testFacts } from "./test-changes.ts";
 import { runTree } from "./tree-path.ts";
 
 /**
@@ -140,6 +141,8 @@ async function delegate(
   const review = i.role === "reviewer";
   // plan 51: the tree a review reads, so the next review of the same ledger task reads only what changed since
   const snapshot = review ? await reviewSnapshot(c.run) : null;
+  // plan 54, spec D9: a test the run removed or rewrote reaches the verifier as catherd's fact, not the author's
+  const facts = i.role === "verifier" ? await testFacts(c.run) : [];
   let rung = "";
   let sameFamily = false;
   const id = await withEventsLock(c.run, (add) => {
@@ -180,7 +183,10 @@ async function delegate(
         );
     }
     const id = `T${Object.keys(s.arch?.tasks ?? {}).length + 1}`;
-    writeTextAtomic(join(c.run.dir, taskBriefFile(id)), `${i.task.trim()}\n`);
+    writeTextAtomic(
+      join(c.run.dir, taskBriefFile(id)),
+      `${i.task.trim()}\n${facts.length ? `\n${VERIFIER_FACTS}\n${facts.map((f) => `- ${f}`).join("\n")}\n` : ""}`,
+    );
     add(
       {
         type: "task.delegated",
@@ -206,6 +212,9 @@ async function delegate(
     reportPath: i.role === "researcher" ? researchFile(id) : null,
   };
 }
+
+const VERIFIER_FACTS =
+  "catherd's record of the tests this run changed against its base (judge each: was the test wrong or obsolete, or does the change hide a bug?):";
 
 /** The tree a review reads, as a commit no ref holds; null before a base run's tree exists or on a git failure. */
 async function reviewSnapshot(run: Run): Promise<string | null> {
