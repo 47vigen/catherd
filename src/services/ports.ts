@@ -47,6 +47,8 @@ export interface ProfileView {
   notify: string[];
   /** plan 35: the memory numbers that cap milestones side by side, defaults filled */
   limits: { memory: { reserveMb: number; perMilestoneMb: number; floorMb: number } };
+  /** plan 53, spec D6: the fast check a worker task without its own gets */
+  fastCheck?: string;
 }
 
 /** What a profile write returns (spec §7.3): whether it saved, why not, what changed, and the agents it touched. */

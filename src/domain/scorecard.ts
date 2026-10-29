@@ -114,6 +114,8 @@ export interface StageRow {
   concurrency: number | null;
   blockedMin: number | null;
   checkShare: number | null;
+  /** plan 53: the share of the wall time a check ran with no role running; null before plan 53 */
+  checkWaitShare: number | null;
   rounds: number | null;
   climbs: number | null;
 }
@@ -162,6 +164,7 @@ export function stageBar(current: ScorecardFile, baseline: ScorecardFile): Stage
       concurrency: med(runs, (m) => m.concurrency),
       blockedMin: med(runs, (m) => Object.values(m.blockedMin).reduce((n, x) => n + x, 0)),
       checkShare: med(runs, (m) => m.checkShare),
+      checkWaitShare: med(runs, (m) => m.checkWaitShare ?? null),
       rounds: med(runs, (m) => m.rounds.max),
       climbs: med(runs, (m) => m.climbs),
     };

@@ -287,7 +287,7 @@ const set = defineCommand({
   meta: {
     name: "set",
     description:
-      "Set one field: e.g. roles.worker.access read-only, budget.usd 20, failover.<rung> <rung>, roles.worker.rungs a,b; null removes",
+      'Set one field: e.g. roles.worker.access read-only, budget.usd 20, failover.<rung> <rung>, roles.worker.rungs a,b, fastCheck "<command>" (quote it: a value that parses as JSON is read as JSON); null removes',
   },
   args: {
     ...HOST_ARG,

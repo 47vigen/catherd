@@ -53,6 +53,8 @@ export interface ArchTask {
   /** a review's snapshot of the tree it read, the next review's base; a review on its author's family */
   snapshot: string | null;
   sameFamily: boolean;
+  /** plan 53, spec D6: the fast check catherd runs on the run's tree when the task ends complete */
+  check: string | null;
   /** plan 54, spec D9: the oracle paths its dispatch changed, held until the architect accepts them (`accepted`) */
   oracle: { paths: string[]; diff: string; accepted: string | null } | null;
   /** plan 54, R4: the oracle paths it was delegated against; null on an event stream from before the field */
@@ -66,6 +68,8 @@ export interface ArchCheck {
   base: boolean;
   fresh: boolean;
   state: "queued" | "done";
+  /** plan 53, spec D6: the task whose end catherd ran this fast check for; absent when the architect asked */
+  task?: string;
 }
 
 /** Plan 50, spec D11: a land the architect asked for. */
@@ -361,6 +365,25 @@ export const taskAttempts = (a: ArchState): TaskAttempt[] =>
       outcome: t.outcome,
     }));
 
+/** The id of the run's next check. */
+export const nextCheckId = (a: ArchState): string => `C${Object.keys(a.checks).length + 1}`;
+
+/**
+ * Plan 53, spec D6: the fast check catherd runs for a task that just ended complete, from the state before its
+ * `dispatch.ended`: its id and command, or null when the task has none, ended short of complete, or the run is
+ * stopping.
+ */
+export function fastCheckFor(
+  s: RunState,
+  end: { name: string; status: string; replyStatus: string | null },
+): { checkId: string; command: string } | null {
+  const t = s.arch.tasks[end.name];
+  if (!t?.check || t.state !== "working" || end.status !== "ok" || end.replyStatus !== "complete")
+    return null;
+  if (s.phase === "ended" || s.cancelling || s.arch.finishing) return null;
+  return { checkId: nextCheckId(s.arch), command: t.check };
+}
+
 /** The architect's own calls, and the owner's through `catherd call`: their results wake the architect. */
 const byArchitect = (by: string): boolean =>
   by === "owner" || by === "architect" || by.startsWith("architect-");
@@ -565,6 +588,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         handled: {},
         snapshot: e.snapshot ?? null,
         sameFamily: e.sameFamily === true,
+        check: e.check ?? null,
         oracle: null,
         delegatedOracle: e.oracle ?? null,
       };
@@ -591,6 +615,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         base: e.base,
         fresh: e.fresh,
         state: "queued",
+        ...(e.task ? { task: e.task } : {}),
       };
       a.idle = 0;
       return true;
@@ -614,7 +639,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       push(
         a,
         e,
-        `${e.checkId} (${c?.scope ?? "check"}${c?.base ? ", on the base" : ""}) ${result}${e.cached ? ", from a pass on the same tree" : ""}; log ${e.logPath}`,
+        `${e.checkId} (${c?.scope ?? "check"}${c?.task ? ` check of ${c.task}` : ""}${c?.base ? ", on the base" : ""}) ${result}${e.cached ? ", from a pass on the same tree" : ""}; log ${e.logPath}`,
       );
       return true;
     }

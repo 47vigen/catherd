@@ -76,6 +76,8 @@ export const ProfileDocSchema = z.looseObject({
   limits: z.unknown().optional(),
   /** plan 47's engine switch: plan 48 makes the architect the only engine and reads this key as nothing */
   engine: z.string().optional(),
+  /** plan 53, spec D6: the fast check a worker task without its own gets */
+  fastCheck: z.string().optional(),
 });
 export type ProfileDoc = z.infer<typeof ProfileDocSchema>;
 
@@ -174,6 +176,8 @@ export interface Profile {
   notify: NotifyMoment[];
   /** plan 35: only the memory numbers the profile sets; the defaults are `MEMORY_LIMITS` */
   limits: { memory: Partial<Record<MemoryKey, number>> };
+  /** plan 53, spec D6: the fast check a worker task without its own gets */
+  fastCheck?: string;
 }
 
 const LUNA_HIGH = "codex:gpt-6-luna#high";
@@ -345,6 +349,7 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
         }),
       ),
     },
+    ...(doc.fastCheck?.trim() ? { fastCheck: doc.fastCheck.trim() } : {}),
   };
 }
 
@@ -392,6 +397,8 @@ export const ProfilePatchSchema = z.strictObject({
   land: z.strictObject({ autoMerge: z.boolean() }).optional(),
   lock: z.strictObject({ heavy: z.union([z.number().int().positive(), z.literal("cpus/2")]) }).optional(),
   notify: z.array(z.enum(NOTIFY)).optional(),
+  /** plan 53: null removes it */
+  fastCheck: z.string().trim().min(1).nullable().optional(),
   limits: z
     .strictObject({
       memory: z

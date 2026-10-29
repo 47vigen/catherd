@@ -226,8 +226,9 @@ export function deriveRunModel(i: {
       });
       edges.push({ from: "architect", to: `task/${e.name}` });
     } else if (e.type === "check.requested" && !drafts.some((d) => d.id === `check/${e.checkId}`)) {
-      add(`check/${e.checkId}`, "check", `${e.checkId} ${e.scope} check`);
-      edges.push({ from: "architect", to: `check/${e.checkId}` });
+      // plan 53: a fast check catherd asked for hangs from the task it checks
+      add(`check/${e.checkId}`, "check", `${e.checkId} ${e.scope} check${e.task ? ` of ${e.task}` : ""}`);
+      edges.push({ from: e.task ? `task/${e.task}` : "architect", to: `check/${e.checkId}` });
     }
   }
   add("end", "end", "End");

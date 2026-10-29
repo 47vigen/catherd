@@ -125,6 +125,11 @@ export function taskBrief(run: Run, s: RunState, a: DispatchAction): Pick<BriefP
     round: [
       `You are task ${a.name}${t ? `, a ${t.role} delegated by ${t.by}` : ""}. You have no lane file: this task is your whole brief.`,
       text || "(the task's brief is missing: reply STATUS: blocked — needs_user: no brief)",
+      ...(t?.check
+        ? [
+            `Your fast check: \`${t.check}\`. catherd runs it on the run's tree when you end complete, and the architect reads its result: make it pass before you reply.`,
+          ]
+        : []),
       ...(t?.role === "reviewer" ? reviewLines(s, t) : []),
       where,
     ],

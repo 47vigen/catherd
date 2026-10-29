@@ -200,6 +200,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
      * tree a writer of a ledger task with an oracle started from, the base its oracle diff is taken against
      */
     snapshot: z.string().optional(),
+    /** plan 53, spec D6: the fast check catherd runs on the run's tree when the task ends complete */
+    check: z.string().optional(),
     /** plan 54, R4: a worker's or writer's oracle paths at delegation, the set its dispatch is judged against */
     oracle: z.array(z.string()).optional(),
   }),
@@ -232,6 +234,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     fresh: z.boolean(),
     by: z.string(),
     why: z.string(),
+    /** plan 53, spec D6: the task whose end catherd ran this fast check for */
+    task: z.string().optional(),
   }),
   ev("check.done", {
     checkId: z.string(),

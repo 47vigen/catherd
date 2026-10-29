@@ -154,7 +154,7 @@ async function takeSlot(
   deadline: number,
   gateDeadline: number,
   started: number,
-  o: { pollMs?: number; onWait?: (w: LockWait) => void },
+  o: { pollMs?: number; onWait?: (w: LockWait) => void; signal?: AbortSignal },
 ): Promise<Slot | null> {
   const queue = join(dir, "queue-heavy.json");
   const me: Ticket = { ...selfIdentity(), token: randomUUID(), at: Date.now() };
@@ -164,11 +164,13 @@ async function takeSlot(
       Date.now() < gateDeadline &&
       (heavyLimits.load() > 2 * heavyLimits.cores() || heavyLimits.freeMb() < heavyLimits.diskReserveMb)
     ) {
+      o.signal?.throwIfAborted();
       const ahead = liveTickets(queue).findIndex((t) => t.token === me.token);
       o.onWait?.(heavyWait(dir, slots, started, Math.max(0, ahead)));
       await Bun.sleep(Math.min(heavyLimits.loadPollMs, Math.max(1, gateDeadline - Date.now())));
     }
     for (;;) {
+      o.signal?.throwIfAborted();
       const turn = await withFileLock(queue, (): { slot: Slot } | { ahead: number } => {
         const ahead = joinQueue(queue, me).findIndex((t) => t.token === me.token);
         if (ahead === 0) {
@@ -204,7 +206,7 @@ async function takeSlot(
 export async function withHeavySlot<T>(
   slots: number,
   fn: (slot: number, tmp: string) => T | Promise<T>,
-  o: { pollMs?: number; onWait?: (w: LockWait) => void; tmpBase?: string } = {},
+  o: { pollMs?: number; onWait?: (w: LockWait) => void; tmpBase?: string; signal?: AbortSignal } = {},
 ): Promise<T> {
   const r = await withHeavySlotWithin(slots, Number.POSITIVE_INFINITY, fn, o);
   if (r.busy) throw new Error("unreachable: an unbounded wait never gives up");
@@ -220,7 +222,7 @@ export async function withHeavySlotWithin<T>(
   slots: number,
   waitMs: number,
   fn: (slot: number, tmp: string) => T | Promise<T>,
-  o: { pollMs?: number; onWait?: (w: LockWait) => void; tmpBase?: string } = {},
+  o: { pollMs?: number; onWait?: (w: LockWait) => void; tmpBase?: string; signal?: AbortSignal } = {},
 ): Promise<{ busy: false; value: T } | { busy: true }> {
   const dir = locksDir();
   ensurePrivateDir(dir);

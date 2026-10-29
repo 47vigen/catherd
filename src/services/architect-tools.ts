@@ -7,6 +7,7 @@ import {
   crossFamilyRung,
   isStanding,
   ladderRung,
+  nextCheckId,
   unheldRung,
   REVIEW_ROUNDS,
   reviewRounds,
@@ -63,6 +64,8 @@ const SUMMARY_CHARS = 2_000;
 export const STOP_CLASSES = ["production", "secrets", "irreversible", "stuck"] as const;
 /** The roles a task may be: every role but the architect itself. */
 const TASK_ROLES = ROLES.filter((r) => r !== "architect") as [Role, ...Role[]];
+/** The roles that read the work and change nothing: a fast check has nothing of theirs to check. */
+const READ_ROLES: readonly Role[] = ["reviewer", "verifier", "researcher"];
 
 const why = z
   .string()
@@ -119,6 +122,7 @@ async function delegate(
     rung?: string;
     ledgerTask?: string;
     thread?: string | null;
+    check?: string;
     /** a thread_send follow-up's oracle set, inherited from the task it resumes */
     oracle?: string[];
     why: string;
@@ -138,7 +142,8 @@ async function delegate(
         fix: "ask the architect for anything else: team_send to architect",
       },
     );
-  const rc = runProfile(c.deps, c.run).roles[i.role];
+  const profile = runProfile(c.deps, c.run);
+  const rc = profile.roles[i.role];
   if (!rc?.enabled || rc.rungs.length === 0)
     throw invalid(`the ${i.role} role is off or has no rung`, "capabilities lists the roles you can use");
   const ladder = rc.rungs.map(headlessRung);
@@ -148,6 +153,15 @@ async function delegate(
     if (!ledgerTasks(c.run).some((t) => t.id === i.ledgerTask))
       throw invalid(`the ledger has no task ${i.ledgerTask}`, "add it with ledger first");
   }
+  if (i.check?.trim() && READ_ROLES.includes(i.role))
+    throw invalid(
+      `a ${i.role} writes nothing for a fast check to check`,
+      "give check to a task that changes code",
+    );
+  // spec D6: the task's own fast check, else the profile's for a worker
+  // a given check, even an empty one (a follow-up of a task that had none), is the task's own
+  const check =
+    i.check !== undefined ? i.check.trim() || null : i.role === "worker" ? (profile.fastCheck ?? null) : null;
   const review = i.role === "reviewer";
   // plan 51: the tree a review reads, so the next review of the same ledger task reads only what changed since;
   // plan 54: the tree a writer of a ledger task with an oracle starts from, its oracle diff's base
@@ -213,6 +227,7 @@ async function delegate(
         why: i.why,
         ...(sameFamily ? { sameFamily: true as const } : {}),
         ...(snapshot ? { snapshot } : {}),
+        ...(check ? { check } : {}),
         ...(oracle ? { oracle } : {}),
       },
       at(c),
@@ -298,6 +313,12 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
       task: z.string().min(1),
       rung: z.string().optional(),
       ledgerTask: z.string().regex(ID_PATTERN).optional(),
+      check: z
+        .string()
+        .optional()
+        .describe(
+          "the task's fast check (type check, lint and the tests it touches; never the full suite): catherd runs it on the run's tree when the task ends complete and wakes you with the result. A worker without one gets the profile's fastCheck.",
+        ),
       why,
     },
     false,
@@ -387,6 +408,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
           task: a.text,
           rung: t.rung,
           ...(t.ledgerTask ? { ledgerTask: t.ledgerTask } : {}),
+          check: t.check ?? "",
           ...(t.delegatedOracle ? { oracle: t.delegatedOracle } : {}),
           thread,
           why: a.why,
@@ -451,7 +473,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
     },
   ),
   check: spec(
-    "Run a check command on the run's tree as it stands (base: true, on the run's start commit) under the machine's heavy lock. It returns at once with the check id; the result wakes you. A pass on an unchanged tree is reused unless fresh: true; nothing is rerun on its own. A failing full check is compared with the same command on the base (catherd runs it, once per base commit): failures all inherited count as passing for the verifier and land final.",
+    "Run a check command on the run's tree as it stands (base: true, on the run's start commit) under the machine's heavy lock. It returns at once with the check id; the result wakes you. A pass on an unchanged tree is reused unless fresh: true; nothing is rerun on its own. A failing full check is compared with the same command on the base (catherd runs it, once per base commit): failures all inherited count as passing for the verifier and land final. A task's fast check streams by itself when the task ends complete (delegate_task's check): call check for the integrated product, scope full once before land final.",
     {
       command: z.string().min(1),
       scope: z.enum(["fast", "full"]).optional(),
@@ -462,7 +484,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
     false,
     async (c, a) => {
       const checkId = await withEventsLock(c.run, (add) => {
-        const id = `C${Object.keys(replayRun(c.run).arch?.checks ?? {}).length + 1}`;
+        const id = nextCheckId(replayRun(c.run).arch);
         add(
           {
             type: "check.requested",
