@@ -10,6 +10,7 @@ import { readRecords } from "../../src/services/run-store.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { snapshotEnv } from "../helpers.ts";
+import { withClaudeScenario } from "../sim/sim-scenarios.ts";
 import { fakeDeps, freshRun, testView } from "./helpers.ts";
 
 afterEach(snapshotEnv());
@@ -101,5 +102,56 @@ describe("an architect run on the real effects (plan 47, spec D1–D3)", () => {
     await runDaemon(fakeDeps({ view }), run.id, { clock });
     const first = readEvents(run).find((e) => e.type === "dispatch.started" && e.name === "architect-1");
     expect(first).toMatchObject({ rung: SOL });
+  });
+
+  it("keeps the free rung the machine picked when the profile's new default is on a held quota", async () => {
+    const { run } = freshRun("wallet");
+    process.env.PATH = simPath();
+    Object.assign(process.env, withScenario({ reply: "Done.\nSTATUS: complete — ok" }).env);
+    Object.assign(process.env, withClaudeScenario({}).env);
+    const view = testView();
+    const OPUS = "claude-code:claude-opus-5-5#high";
+    // the run started on OPUS; the profile's default moved to SOL, whose quota a worker has just hit
+    view.roles.architect = { enabled: true, access: "workspace-write", rungs: [OPUS, SOL], defaultRung: SOL };
+    await appendEvent(run, {
+      type: "run.started",
+      ...startedFields,
+      repo: run.meta.repo,
+      title: "wallet",
+      architectRungs: [OPUS, SOL],
+    });
+    await appendEvent(run, {
+      type: "dispatch.started",
+      dispatchId: "hit",
+      name: "T0",
+      role: "worker",
+      unit: "T0",
+      lane: null,
+      rung: SOL,
+      thread: null,
+    });
+    await appendEvent(run, {
+      type: "dispatch.ended",
+      dispatchId: "hit",
+      name: "T0",
+      unit: "T0",
+      status: "limit",
+      replyStatus: null,
+      reason: null,
+      why: "",
+      thread: null,
+      head: null,
+      environment: null,
+      verdict: null,
+      findings: [],
+      replyPath: "",
+    });
+    const clock = { now: Date.now, sleep: () => new Promise<void>((r) => setImmediate(r)) };
+    await runDaemon(fakeDeps({ view }), run.id, { clock });
+    const events = readEvents(run);
+    expect(events.find((e) => e.type === "dispatch.refused")).toBeUndefined();
+    expect(events.find((e) => e.type === "dispatch.started" && e.name === "architect-1")).toMatchObject({
+      rung: OPUS,
+    });
   });
 });

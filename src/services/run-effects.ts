@@ -10,7 +10,7 @@ import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import { RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
 import { type Action, type DispatchAction, unitOf } from "../domain/run-machine.ts";
-import { taskAttempts } from "../domain/architect-state.ts";
+import { rungHeld, taskAttempts } from "../domain/architect-state.ts";
 import type { RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
 import type { LockWait } from "../infra/heavy-lock.ts";
@@ -308,9 +308,10 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const rc = runProfile(deps, run).roles.architect;
     const want = rc?.defaultRung ?? rc?.rungs[0];
     if (!want) throw new Error("the profile's architect has no rung");
-    // the machine's rung only when it climbed off the run's pinned default: a profile edit mid-run still counts
+    // the machine's rung when it climbed off the run's pinned default, or when the profile's new default is held;
+    // else a profile edit mid-run still counts
     const climbed = a.rung !== null && s.architectRungs.length > 0 && a.rung !== s.architectRungs[0];
-    const rung = headlessRung(climbed ? (a.rung as string) : want);
+    const rung = headlessRung(climbed || (a.rung !== null && rungHeld(want, s)) ? (a.rung as string) : want);
     const last = readRecords(run)
       .records.filter((r) => r.role === "architect")
       .at(-1);
