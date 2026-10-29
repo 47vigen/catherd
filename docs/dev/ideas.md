@@ -29,6 +29,12 @@ Left out of plan 54 on purpose:
   until the architect accepts it.
 - **"Rewritten" is per file.** An existing test file that lost lines is listed with the count; which test inside it
   changed is the verifier's to read.
+- **Removed-test detection reads single-line declarations only.** `it.each` tables, test names split over several lines,
+  Rust `#[test] fn` and Go suite methods (`func (s *S) TestX`) are not named as removed; a parser per language would.
+- **A base merge that touches an oracle file reads as a missing restore.** Land final compares HEAD with the held
+  snapshot, so files the base changed are refused with "accepted or restored"; the message should say the base moved them.
+- **Settle replays the whole event log** for each ended worker (`oracleChange` reads the run state to find the earliest
+  held base); a long run pays it once per dispatch, so pass the state in if it shows up in a profile.
 
 ### From plan 52 (stage-1 fixes)
 
