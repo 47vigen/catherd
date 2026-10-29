@@ -155,7 +155,9 @@ async function delegate(
       "give check to a task that changes code",
     );
   // spec D6: the task's own fast check, else the profile's for a worker
-  const check = i.check?.trim() || (i.role === "worker" ? (profile.fastCheck ?? null) : null);
+  // a given check, even an empty one (a follow-up of a task that had none), is the task's own
+  const check =
+    i.check !== undefined ? i.check.trim() || null : i.role === "worker" ? (profile.fastCheck ?? null) : null;
   const review = i.role === "reviewer";
   // plan 51: the tree a review reads, so the next review of the same ledger task reads only what changed since
   const snapshot = review ? await reviewSnapshot(c.run) : null;
@@ -384,7 +386,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
           task: a.text,
           rung: t.rung,
           ...(t.ledgerTask ? { ledgerTask: t.ledgerTask } : {}),
-          ...(t.check ? { check: t.check } : {}),
+          check: t.check ?? "",
           thread,
           why: a.why,
         });

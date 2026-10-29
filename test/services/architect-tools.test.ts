@@ -202,6 +202,31 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
       taskId: "T5",
     });
     expect(replayRun(run).arch?.tasks.T5?.check).toBe("bun test test/a.test.ts");
+    // a worker delegated with no fast check keeps none on its follow-up, though the profile gained one since
+    const { taskId } = (await call(run, "delegate_task", { role: "worker", task: "y", why: "w" })) as {
+      taskId: string;
+    };
+    expect(replayRun(run).arch?.tasks[taskId]?.check).toBeNull();
+    endDispatch(log, startDispatch(log, { name: taskId, unit: taskId }), {
+      name: taskId,
+      unit: taskId,
+      thread: "th-2",
+    });
+    for (const { v: _v, seq: _s, at: _a, ...e } of log.events.slice(-2)) await appendEvent(run, e as never);
+    view.fastCheck = "bun run lint";
+    let followUp: string;
+    try {
+      ({ taskId: followUp } = (await call(run, "thread_send", {
+        to: taskId,
+        text: "one more",
+        why: "w",
+      })) as {
+        taskId: string;
+      });
+    } finally {
+      delete view.fastCheck;
+    }
+    expect(replayRun(run).arch?.tasks[followUp]?.check).toBeNull();
   });
 
   it("thread_wait returns at a task's end and times out on a running one", async () => {
