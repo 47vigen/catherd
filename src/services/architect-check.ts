@@ -93,7 +93,7 @@ export async function runArchitectCheck(
   deps: Deps,
   run: Run,
   c: ArchCheck,
-  o: { timeoutMs: number; onWait?: (w: LockWait | null) => void },
+  o: { timeoutMs: number; onWait?: (w: LockWait | null) => void; signal?: AbortSignal },
 ): Promise<CheckDone> {
   return (await execute(deps, run, c, o)).done;
 }
@@ -115,7 +115,7 @@ async function execute(
   deps: Deps,
   run: Run,
   c: ArchCheck,
-  o: { timeoutMs: number; onWait?: (w: LockWait | null) => void },
+  o: { timeoutMs: number; onWait?: (w: LockWait | null) => void; signal?: AbortSignal },
 ): Promise<{ done: CheckDone; comparable: boolean }> {
   const logPath = `checks/${c.checkId}.log`;
   const repo = runTree(run);
@@ -167,18 +167,20 @@ async function execute(
           if (!c.base) before = await treeState(repo);
           const partsFile = join(tmp, "catherd-parts");
           writeFileSync(partsFile, "");
-          const done = await runCheck(cwd, script, o.timeoutMs, {
-            ...env,
-            TMPDIR: tmp,
-            GOTMPDIR: tmp,
-            [LOCK_HELD_ENV]: "1",
-            [PARTS_ENV]: partsFile,
-          });
+          const done = await runCheck(
+            cwd,
+            script,
+            o.timeoutMs,
+            { ...env, TMPDIR: tmp, GOTMPDIR: tmp, [LOCK_HELD_ENV]: "1", [PARTS_ENV]: partsFile },
+            o.signal,
+          );
           marks = readFileSync(partsFile).length;
           return done;
         },
-        o.onWait ? { onWait: o.onWait } : {},
+        { ...(o.onWait ? { onWait: o.onWait } : {}), ...(o.signal ? { signal: o.signal } : {}) },
       );
+      // a stopped check leaves no row: the run is over
+      o.signal?.throwIfAborted();
       minutes = (Date.now() - started) / 60_000;
       // a tree that changed while the check waited or ran is not the tree it passed on; the head is the one the
       // identity was taken with, never a later read

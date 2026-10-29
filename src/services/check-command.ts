@@ -42,7 +42,9 @@ export async function runCheck(
   check: string,
   timeoutMs: number,
   env: Record<string, string> = checkEnv(process.env, repo),
+  signal?: AbortSignal,
 ): Promise<{ code: number | null; timedOut: boolean; tail: string[]; text: string; cut: boolean }> {
+  signal?.throwIfAborted();
   const p = Bun.spawn(["sh", "-c", check], {
     cwd: repo,
     env,
@@ -56,6 +58,8 @@ export async function runCheck(
     timedOut = true;
     killGroup(p.pid, "SIGKILL");
   }, timeoutMs);
+  const stop = (): void => killGroup(p.pid, "SIGKILL");
+  signal?.addEventListener("abort", stop, { once: true });
   const out = collect(p.stdout);
   const err = collect(p.stderr);
   try {
@@ -79,6 +83,7 @@ export async function runCheck(
     };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", stop);
     out.stop();
     err.stop();
   }

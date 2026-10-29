@@ -29,7 +29,7 @@ import { claimRunTree } from "./run-tree.ts";
 import { writeArchitectReport } from "./architect-run.ts";
 import { renderLedger } from "./ledger-store.ts";
 import { renderBrief } from "./run-briefs.ts";
-import { appendEvent, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
+import { appendEvent, hasRunEnded, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { runProfile } from "./run-pin.ts";
 import { readRecords, type Run } from "./run-store.ts";
 import { refreshState } from "./state.ts";
@@ -162,6 +162,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
     };
   };
   const watching = new Set<string>();
+  /** plan 53: stops catherd's own fast checks once the run is cancelling or finishing */
+  const stopChecks = new AbortController();
 
   const heldQuotas = (s: RunState): string[] =>
     Object.entries(s.holds)
@@ -356,20 +358,39 @@ export function realEffects(deps: Deps, run: Run): Effects {
       case "runCheck": {
         const c = s.arch.checks[a.checkId];
         if (!c) throw new Error(`no check ${a.checkId} was asked for`);
+        // a fast check catherd asked for stops with the run; the architect's own checks run on
+        const signal = c.task ? stopChecks.signal : undefined;
         const done = await runArchitectCheck(deps, run, c, {
           timeoutMs: effectLimits.checkMs,
           onWait: waitingOnce(a.checkId),
+          ...(signal ? { signal } : {}),
+        }).catch((e: unknown) => {
+          if (signal?.aborted) return null;
+          throw e;
         });
-        await append(done);
-        // plan 53: a task's red fast check is news for every writer on the shared tree
-        if (c.task && done.exit !== 0)
-          await teamSend({
-            run: run.id,
-            from: "catherd",
-            to: "all",
-            mode: "queue",
-            text: `the fast check of ${c.task} (\`${c.command}\`) failed on the run's tree (exit ${done.exit ?? "timeout"}): ${done.failures.slice(0, 3).join("; ") || "no failing line read"}; log ${done.logPath}`,
-          }).catch((e) => log("warn", "daemon", { run: run.id, check: a.checkId, team: errorMessage(e) }));
+        if (!done) return;
+        if (!signal) {
+          await append(done);
+          return;
+        }
+        // under the events lock: a finish aborts first, so nothing of ours lands after its `run.ended`
+        const recorded = await withEventsLock(run, (add) => {
+          if (signal.aborted || hasRunEnded(run)) return false;
+          add(done, at());
+          return true;
+        });
+        if (!recorded || done.exit === 0) return;
+        // plan 53: a task's red fast check is news for every writer on the shared tree, unless the run is already
+        // stopping
+        const now = replayRun(run);
+        if (now.phase === "ended" || now.cancelling || now.arch.finishing) return;
+        await teamSend({
+          run: run.id,
+          from: "catherd",
+          to: "all",
+          mode: "queue",
+          text: `the fast check of ${c.task} (\`${c.command}\`) failed on the run's tree (exit ${done.exit ?? "timeout"}): ${done.failures.slice(0, 3).join("; ") || "no failing line read"}; log ${done.logPath}`,
+        }).catch((e) => log("warn", "daemon", { run: run.id, check: a.checkId, team: errorMessage(e) }));
         return;
       }
       case "land": {
@@ -395,6 +416,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return settle(d, v.unit);
       }
       case "cancel": {
+        // a cancel for a stray task leaves the checks alone; the run's own stop ends them
+        if (s.cancelling || s.arch.finishing) stopChecks.abort();
         for (const id of a.dispatchIds) {
           const d = listDispatches(run).find((x) => x.admit.dispatchId === id);
           if (!d) continue;
@@ -436,6 +459,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return;
       }
       case "finish": {
+        stopChecks.abort();
         const reportPath = a.bare ? null : writeArchitectReport(run, s, readEvents(run));
         await append({ type: "run.ended", outcome: a.outcome, reportPath });
         await refreshState(run, { next: outcomeNext(a.outcome), parked: [] });
