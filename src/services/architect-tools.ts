@@ -23,7 +23,7 @@ import { type ArchitectTool, DELEGATOR_TOOLS } from "../domain/role-tools.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { HANDLINGS, RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
 import type { RunState } from "../domain/run-state.ts";
-import { snapshotTree } from "../infra/git.ts";
+import { git, snapshotTree } from "../infra/git.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import { researchFile, taskBriefFile } from "./architect-run.ts";
 import { budgetOf } from "./budget.ts";
@@ -144,7 +144,7 @@ async function delegate(
   // plan 54: the tree a writer of a ledger task with an oracle starts from, its oracle diff's base
   const oracled =
     (i.role === "worker" || i.role === "writer") && oracleOf(c.run, i.ledgerTask ?? null).length > 0;
-  const snapshot = review || oracled ? await reviewSnapshot(c.run) : null;
+  const snapshot = review || oracled ? await reviewSnapshot(c.run, oracled) : null;
   // plan 54, spec D9: a test the run removed or rewrote reaches the verifier as catherd's fact, not the author's
   const facts = i.role === "verifier" ? await testFacts(c.run) : [];
   let rung = "";
@@ -221,14 +221,18 @@ const VERIFIER_FACTS =
   "catherd's record of the tests this run changed against its base (judge each: was the test wrong or obsolete, or does the change hide a bug?):";
 
 /** The tree a review reads, as a commit no ref holds; null before a base run's tree exists or on a git failure. */
-async function reviewSnapshot(run: Run): Promise<string | null> {
+async function reviewSnapshot(run: Run, weak = false): Promise<string | null> {
   let tree: string;
   try {
     tree = runTree(run);
   } catch {
     return null;
   }
-  return snapshotTree(tree);
+  const snapshot = await snapshotTree(tree);
+  if (snapshot || !weak) return snapshot;
+  // plan 54: a writer of an oracle whose tree cannot be snapshotted still gets a base, HEAD, so its change can be held
+  const head = await git(tree, ["rev-parse", "HEAD"]);
+  return head.kind === "ok" ? head.out.trim() || null : null;
 }
 
 /** Appends one event under the events lock. */
@@ -316,6 +320,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
             .filter((p) => !extras.some((e) => e.path === p))
             .map((p) => ({ path: p, why: "" })),
         ],
+        ...(t.oracle?.accepted === null ? { oracle: `held (diff ${t.oracle.diff})` } : {}),
         stopReason:
           t.state === "ended" ? t.outcome : t.state === "queued" || t.state === "working" ? null : t.state,
         costUsd: record?.costUsd ?? null,

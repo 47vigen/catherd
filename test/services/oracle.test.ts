@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ArchitectTool } from "../../src/domain/role-tools.ts";
 import type { RunRecord } from "../../src/domain/record.ts";
@@ -10,6 +10,7 @@ import { appendEvent, readEvents, replayRun } from "../../src/services/run-event
 import type { Run } from "../../src/services/run-store.ts";
 import { claimRunTree } from "../../src/services/run-tree.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
+import { git } from "../../src/infra/git.ts";
 import { commitInClone, snapshotEnv } from "../helpers.ts";
 import { branchRun, fakeDeps } from "./helpers.ts";
 
@@ -52,10 +53,10 @@ describe("the oracle rule's diff (plan 54, spec D9)", () => {
     );
     writeFileSync(join(tree, "pay.ts"), "export const pay = 1;\n");
     const change = await oracleChange(run, "T1");
-    expect(change).toEqual({ paths: ["test/pay.test.ts"], diff: "tasks/T1/oracle.diff" });
-    expect(readFileSync(join(run.dir, "tasks", "T1", "oracle.diff"), "utf8")).toContain(
-      '+it("keeps the currency", () => { expect(1).toBe(2); });',
-    );
+    expect(change).toMatchObject({ paths: ["test/pay.test.ts"], diff: "tasks/T1/oracle.diff" });
+    expect(change?.text).toContain('+it("keeps the currency", () => { expect(1).toBe(2); });');
+    // the file is written with the event, under the lock, never by the diff itself
+    expect(existsSync(join(run.dir, "tasks", "T1", "oracle.diff"))).toBe(false);
     expect(await oracleChange(run, "T2")).toBeNull();
     const record = {
       dispatchId: "d1",
@@ -68,7 +69,8 @@ describe("the oracle rule's diff (plan 54, spec D9)", () => {
       error: null,
       replyPath: "",
     } as unknown as RunRecord;
-    expect(endedEvent(run, record, "T1", change)).toMatchObject({ oracle: change });
+    const held = { paths: ["test/pay.test.ts"], diff: "tasks/T1/oracle.diff" };
+    expect(endedEvent(run, record, "T1", held)).toMatchObject({ oracle: held });
     expect(endedEvent(run, record, "T1")).not.toHaveProperty("oracle");
   });
 
@@ -105,6 +107,9 @@ describe("the oracle rule's diff (plan 54, spec D9)", () => {
       replyPath: "roles/T1/d1/reply.md",
       oracle: { paths: ["test/pay.test.ts"], diff: "tasks/T1/oracle.diff" },
     });
+    expect(await call(run, "task_status", { taskId: "T1" })).toMatchObject({
+      oracle: "held (diff tasks/T1/oracle.diff)",
+    });
     expect(await call(run, "oracle_accept", { taskId: "T1", why: "it asserted the old fee" })).toEqual({
       accepted: "T1",
     });
@@ -114,5 +119,79 @@ describe("the oracle rule's diff (plan 54, spec D9)", () => {
       by: "architect-1",
     });
     expect(replayRun(run).arch.tasks.T1?.oracle?.accepted).toBe("it asserted the old fee");
+  });
+
+  async function ended(run: Run, taskId: string, oracle?: { paths: string[]; diff: string }): Promise<void> {
+    const base = { name: taskId, unit: taskId, dispatchId: `d-${taskId}` };
+    await appendEvent(run, {
+      type: "dispatch.started",
+      ...base,
+      role: "worker",
+      lane: null,
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+    });
+    await appendEvent(run, {
+      type: "dispatch.ended",
+      ...base,
+      status: "ok",
+      replyStatus: "complete",
+      reason: null,
+      why: "ok",
+      thread: null,
+      head: null,
+      environment: null,
+      verdict: null,
+      findings: [],
+      replyPath: `roles/${taskId}/reply.md`,
+      ...(oracle ? { oracle } : {}),
+    });
+  }
+
+  it("diffs a retry against the earliest still-held task of its ledger task, so a restore is not a new hold", async () => {
+    const { run, tree } = await oracleRun();
+    await call(run, "delegate_task", { role: "worker", task: "pay", ledgerTask: "L1", why: "w" });
+    writeFileSync(join(tree, "test", "pay.test.ts"), 'it("keeps the currency", () => { weak(); });\n');
+    await ended(run, "T1", { paths: ["test/pay.test.ts"], diff: "tasks/T1/oracle.diff" });
+    await call(run, "delegate_task", { role: "worker", task: "restore it", ledgerTask: "L1", why: "w" });
+    writeFileSync(join(tree, "test", "pay.test.ts"), PAY);
+    expect(await oracleChange(run, "T2")).toBeNull();
+    writeFileSync(join(tree, "test", "pay.test.ts"), 'it("keeps the currency", () => { weaker(); });\n');
+    expect((await oracleChange(run, "T2"))?.text).toContain("weaker();");
+  });
+
+  it("holds a change git could not diff, with the oracle's pathspec and the reason in the diff", async () => {
+    const { run } = await oracleRun();
+    await appendEvent(run, {
+      type: "task.delegated",
+      taskId: "T1",
+      role: "worker",
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+      ledgerTask: "L1",
+      by: "architect-1",
+      why: "pay",
+      snapshot: "0".repeat(40),
+    });
+    const change = await oracleChange(run, "T1");
+    expect(change).toMatchObject({ paths: ["test/pay.test.ts"], diff: "tasks/T1/oracle.diff" });
+    expect(change?.text).toStartWith("git could not diff: ");
+  });
+
+  it("takes HEAD as the weaker base when the tree cannot be snapshotted for a writer of an oracle", async () => {
+    const { run, tree } = await oracleRun();
+    const secret = join(tree, "unreadable.txt");
+    writeFileSync(secret, "x\n");
+    chmodSync(secret, 0o000);
+    try {
+      await call(run, "delegate_task", { role: "worker", task: "pay", ledgerTask: "L1", why: "w" });
+      await call(run, "delegate_task", { role: "worker", task: "docs", ledgerTask: "L2", why: "w" });
+    } finally {
+      chmodSync(secret, 0o600);
+      rmSync(secret);
+    }
+    const head = await git(tree, ["rev-parse", "HEAD"]);
+    expect(replayRun(run).arch.tasks.T1?.snapshot).toBe(head.kind === "ok" ? head.out.trim() : "");
+    expect(replayRun(run).arch.tasks.T2?.snapshot).toBeNull();
   });
 });

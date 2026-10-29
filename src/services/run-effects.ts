@@ -28,6 +28,7 @@ import { runLand } from "./land.ts";
 import { claimRunTree } from "./run-tree.ts";
 import { writeArchitectReport } from "./architect-run.ts";
 import { renderLedger } from "./ledger-store.ts";
+import { writeTextAtomic } from "../infra/store.ts";
 import { oracleChange } from "./oracle.ts";
 import { renderBrief } from "./run-briefs.ts";
 import { appendEvent, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
@@ -188,7 +189,9 @@ export function realEffects(deps: Deps, run: Run): Effects {
       // under the lock: a settle of an earlier daemon in this process may still be running, and the second is a no-op
       const ended = await withEventsLock(run, (add) => {
         if (replayRun(run).dispatches[id]?.ended) return false;
-        add(endedEvent(run, record, unit, oracle), at());
+        // the diff file goes with the event, so a duplicate settle never overwrites it
+        if (oracle) writeTextAtomic(join(run.dir, oracle.diff), oracle.text);
+        add(endedEvent(run, record, unit, oracle && { paths: oracle.paths, diff: oracle.diff }), at());
         return true;
       });
       if (!ended) return;

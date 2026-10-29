@@ -1,7 +1,5 @@
-import { join } from "node:path";
-import { type ArchState, heldOracles } from "../domain/architect-state.ts";
-import { git, snapshotTree } from "../infra/git.ts";
-import { writeTextAtomic } from "../infra/store.ts";
+import { type ArchState, type ArchTask, heldOracles } from "../domain/architect-state.ts";
+import { git, type GitResult, snapshotTree } from "../infra/git.ts";
 import { ledgerTasks } from "./ledger-store.ts";
 import { replayRun } from "./run-events-store.ts";
 import type { Run } from "./run-store.ts";
@@ -20,16 +18,36 @@ const lines = (s: string): string[] =>
     .map((l) => l.trim())
     .filter(Boolean);
 
+const why = (r: GitResult): string =>
+  r.kind === "timed-out"
+    ? "git timed out"
+    : r.kind === "failed"
+      ? `git exited ${r.exit ?? "without starting"}`
+      : "";
+
 /**
- * Plan 54, spec D9: what a writer task changed in its ledger task's oracle, against the tree it was delegated on, with
- * the diff written to the run dir. Null for any other task, an untouched oracle, or a git failure. On the shared tree
- * the diff holds every edit made while the task worked, its own and any other's.
+ * The tree a ledger task's held changes are judged against: the snapshot of its earliest task that is still held (or
+ * `t` itself, when that is earlier), so a retry that restores a held edit is not held for undoing it.
+ */
+function baseOf(a: ArchState, t: ArchTask): ArchTask {
+  return [t, ...heldOracles(a).filter((h) => h.ledgerTask === t.ledgerTask && h.snapshot !== null)].reduce(
+    (first, x) => (x.delegatedSeq < first.delegatedSeq ? x : first),
+  );
+}
+
+/**
+ * Plan 54, spec D9: what a writer task changed in its ledger task's oracle, against the tree it was delegated on (or
+ * an earlier still-held task's), with the diff's text for the caller to write. Null for any other task, an untouched
+ * oracle or a missing tree. When git fails with a snapshot and a tree at hand the change is held anyway, on the
+ * oracle's own pathspec, and the text says git could not diff. On the shared tree the diff holds every edit made while
+ * the task worked, its own and any other's.
  */
 export async function oracleChange(
   run: Run,
   taskId: string,
-): Promise<{ paths: string[]; diff: string } | null> {
-  const t = replayRun(run).arch.tasks[taskId];
+): Promise<{ paths: string[]; diff: string; text: string } | null> {
+  const a = replayRun(run).arch;
+  const t = a.tasks[taskId];
   if (!t?.snapshot || (t.role !== "worker" && t.role !== "writer")) return null;
   const oracle = oracleOf(run, t.ledgerTask);
   if (oracle.length === 0) return null;
@@ -39,31 +57,49 @@ export async function oracleChange(
   } catch {
     return null;
   }
+  const held = (paths: string[], text: string) => ({ paths, diff: oracleDiffFile(taskId), text });
+  const unable = (reason: string) => held(oracle, `git could not diff: ${reason}\n`);
+  const base = baseOf(a, t).snapshot ?? t.snapshot;
   const after = await snapshotTree(tree);
-  if (!after) return null;
-  const names = await git(tree, ["diff", "--name-only", t.snapshot, after, "--", ...oracle]);
-  const paths = names.kind === "ok" ? lines(names.out) : [];
+  if (!after) return unable("it could not snapshot the tree");
+  const names = await git(tree, [
+    "-c",
+    "core.quotePath=false",
+    "diff",
+    "--name-only",
+    base,
+    after,
+    "--",
+    ...oracle,
+  ]);
+  if (names.kind !== "ok") return unable(why(names));
+  const paths = lines(names.out);
   if (paths.length === 0) return null;
-  const diff = await git(tree, ["diff", t.snapshot, after, "--", ...paths]);
-  writeTextAtomic(join(run.dir, oracleDiffFile(taskId)), diff.kind === "ok" ? diff.out : "");
-  return { paths, diff: oracleDiffFile(taskId) };
+  const diff = await git(tree, ["diff", base, after, "--", ...paths]);
+  if (diff.kind !== "ok") return held(paths, `git could not diff: ${why(diff)}\n`);
+  return held(paths, diff.out || "git could not diff: it printed nothing\n");
 }
 
 /**
- * Plan 54, spec D9: each held oracle change the tree at HEAD still carries, as what land final needs; a change the
- * writer's next attempt restored is released. A diff git cannot take (its snapshot is gone) still holds.
+ * Plan 54, spec D9: each held oracle change the tree at HEAD still carries, as what land final needs. The held tasks of
+ * a ledger task are judged together: HEAD matching the earliest one's snapshot on all their paths releases them all (a
+ * restore, or a retry that undid the edit). A diff git cannot take (its snapshot is gone) still holds.
  */
 export async function unreleasedOracles(tree: string, a: ArchState): Promise<string[]> {
+  const groups = new Map<string | null, ArchTask[]>();
+  for (const t of heldOracles(a)) groups.set(t.ledgerTask, [...(groups.get(t.ledgerTask) ?? []), t]);
   const out: string[] = [];
-  for (const t of heldOracles(a)) {
-    const paths = t.oracle?.paths ?? [];
+  for (const group of groups.values()) {
+    const first = group.reduce((f, x) => (x.delegatedSeq < f.delegatedSeq ? x : f));
+    const all = [...new Set(group.flatMap((t) => t.oracle?.paths ?? []))];
     const same =
-      t.snapshot !== null &&
-      (await git(tree, ["diff", "--quiet", t.snapshot, "HEAD", "--", ...paths])).kind === "ok";
+      first.snapshot !== null &&
+      (await git(tree, ["diff", "--quiet", first.snapshot, "HEAD", "--", ...all])).kind === "ok";
     if (!same)
-      out.push(
-        `${t.taskId}'s change to ${paths.join(", ")}, the oracle of ${t.ledgerTask}, accepted with oracle_accept or restored`,
-      );
+      for (const t of group)
+        out.push(
+          `${t.taskId}'s change to ${(t.oracle?.paths ?? []).join(", ")}, the oracle of ${t.ledgerTask} (diff ${t.oracle?.diff}), accepted with oracle_accept or restored`,
+        );
   }
   return out;
 }
