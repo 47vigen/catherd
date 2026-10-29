@@ -371,6 +371,36 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     expect(fastCheckFor(log.state(), { name: "T3", ...ok })).toBeNull();
   });
 
+  it("holds a full check until catherd's fast checks are in (plan 53)", () => {
+    const log = architectRun();
+    const ask = (checkId: string, scope: "fast" | "full", extra: Record<string, string> = {}) =>
+      log.add("check.requested", {
+        checkId,
+        command: "bun test",
+        scope,
+        base: false,
+        fresh: false,
+        by: scope === "fast" ? "catherd" : "architect-1",
+        why: "w",
+        ...extra,
+      });
+    ask("C1", "fast", { task: "T1" });
+    ask("C2", "full");
+    const next = after(log);
+    expect(next).toContainEqual({ type: "runCheck", checkId: "C1" });
+    expect(next).not.toContainEqual({ type: "runCheck", checkId: "C2" });
+    log.add("check.done", {
+      checkId: "C1",
+      exit: 0,
+      failures: [],
+      preExisting: [],
+      cached: false,
+      minutes: 1,
+      logPath: "checks/C1.log",
+    });
+    expect(after(log)).toContainEqual({ type: "runCheck", checkId: "C2" });
+  });
+
   it("names the task a fast check ran for in its digest line (plan 53)", () => {
     const log = architectRun();
     log.add("check.requested", {

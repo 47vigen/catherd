@@ -86,8 +86,11 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
   }
   const strays = live.filter((d) => a.tasks[d.name]?.state === "cancelled");
   if (strays.length) out.push({ type: "cancel", dispatchIds: strays.map((d) => d.dispatchId) });
+  // plan 53: a full check is proof of the tree as it stands, so it waits for catherd's own fast checks to come in
+  const fastOut = Object.values(a.checks).some((c) => c.task && c.state === "queued");
   for (const c of Object.values(a.checks))
-    if (c.state === "queued") out.push({ type: "runCheck", checkId: c.checkId });
+    if (c.state === "queued" && !(fastOut && c.scope === "full"))
+      out.push({ type: "runCheck", checkId: c.checkId });
   for (const l of Object.values(a.lands))
     if (l.state === "queued") out.push({ type: "land", landId: l.landId });
   if (s.paused !== null || s.held !== null) return out;
