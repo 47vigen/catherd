@@ -16,6 +16,20 @@ judge on the role's exact brief (plan 44). Since 2.0 the daemon runs all of it (
 
 ## 2.0 follow-ups
 
+### From plan 54 (the oracle rule)
+
+Left out of plan 54 on purpose:
+
+- **On the shared tree an oracle diff is the task's window, not its author.** Any edit to the oracle while the task
+  worked (another writer's, the architect's) is held against it. Per-writer trees (spec D5) make the diff the
+  writer's own; move the check to the merge then.
+- **An oracle set after a task was delegated does not cover that attempt.** Its tree was not snapshotted; the next
+  attempt is covered.
+- **An oracle snapshot has no ref.** After a `git gc --prune=now` land final cannot prove a restore, so the hold stays
+  until the architect accepts it.
+- **"Rewritten" is per file.** An existing test file that lost lines is listed with the count; which test inside it
+  changed is the verifier's to read.
+
 ### From plan 52 (stage-1 fixes)
 
 Left out of plan 52 on purpose:
@@ -54,7 +68,6 @@ Left out of plan 51 on purpose:
   catalog's lab if that happens.
 - **Standing-role start is to the dispatch's start,** not to its first output, which nothing records yet (spec D12).
 - **`PARK_REASONS` keeps every value.** It is the read vocabulary of earlier runs; only `owner` and `land` are written.
-- **The MR body has no oracle-overrides line.** It comes with the oracle rule (spec D9, stage 2).
 - **The climbs metric counts any change of rung.** A reviewer's family switch and a downward change count too; it
   should count only climbs up the ladder.
 - **`roleMs` in the concurrency metric is not clipped by pauses.** A dispatch that spans a pause counts its paused

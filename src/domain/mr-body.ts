@@ -13,6 +13,8 @@ export interface MrBodyInput {
   knownIssues: readonly string[];
   /** test files the run's diff deleted, test cases it removed, existing test files it took lines out of, added skips */
   tests: TestChanges;
+  /** plan 54, spec D9: each oracle change the architect accepted, with its reason */
+  oracle: readonly string[];
 }
 
 /** Plan 54, spec D9: what a run did to its tests, each list already formatted. */
@@ -58,6 +60,10 @@ export function mrBody(i: MrBodyInput): string {
     "### Known issues",
     "",
     ...list(i.knownIssues, "none"),
+    "",
+    "### Oracle overrides",
+    "",
+    ...list(i.oracle, "none"),
     "",
     "### Tests deleted, removed, rewritten or skipped",
     "",

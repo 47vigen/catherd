@@ -25,6 +25,7 @@ its Rulings. The 1.6 drafts in `docs/plans/drafts-1.6/` are inputs only (plan 30
 | 45 outcome gates | `docs/plans/2026-10-27-45-outcome-gates.md` | written (owner decisions 2026-10-27; review dedupe and the parallel verifier dropped for the redesign) |
 | 46 run-state database | `docs/plans/2026-10-28-46-run-state-database.md` | written (stage 1 slice 1 of the architect-led runs spec; plans 47–51 listed in its Next plans) |
 | 47 architect loop | `docs/plans/2026-10-28-47-architect-loop.md` | written (stage 1 slice 2: the architect loop behind `engine: architect`, standing roles through `delegate_task`; deletes nothing; scratch reference `.superpowers/plan47-scratch`) |
+| 54 oracle rule | `docs/plans/2026-10-30-54-oracle-rule.md` | written (stage 2, spec D9 on the shared tree: oracle holds, `oracle_accept`, land final gate, removed and rewritten tests to the MR and the verifier; scratch reference `.superpowers/plan54-scratch`) |
 
 Plan 46 ledger:
 

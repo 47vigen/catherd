@@ -1,6 +1,8 @@
+import { oracleOverrides } from "../domain/architect-state.ts";
 import { isTestPath, removedTests, SKIP_LINE, type TestChanges, testChangeLines } from "../domain/mr-body.ts";
 import { git } from "../infra/git.ts";
 import { baseSha } from "./architect-check.ts";
+import { replayRun } from "./run-events-store.ts";
 import type { Run } from "./run-store.ts";
 import { runTree } from "./tree-path.ts";
 
@@ -45,13 +47,17 @@ export async function testChanges(tree: string, from: string, to?: string): Prom
   };
 }
 
-/** The verifier's record of the run's test changes against its base, one line each; empty when git cannot say. */
+/**
+ * The verifier's record of the run's test changes against its base and of the oracle changes the architect accepted,
+ * one line each; the test lines are left out when git cannot say.
+ */
 export async function testFacts(run: Run): Promise<string[]> {
+  const accepted = oracleOverrides(replayRun(run).arch).map((o) => `oracle change accepted: ${o}`);
   try {
     const tree = runTree(run);
     const from = await baseSha(run, tree);
-    return from ? testChangeLines(await testChanges(tree, from)) : [];
+    return [...(from ? testChangeLines(await testChanges(tree, from)) : []), ...accepted];
   } catch {
-    return [];
+    return accepted;
   }
 }

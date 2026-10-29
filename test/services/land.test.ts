@@ -8,6 +8,7 @@ import { forge, runLand } from "../../src/services/land.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
 import { claimRunTree } from "../../src/services/run-tree.ts";
+import { snapshotTree } from "../../src/infra/git.ts";
 import { commitInClone, snapshotEnv } from "../helpers.ts";
 import { branchRun, fakeDeps } from "./helpers.ts";
 
@@ -218,6 +219,77 @@ describe("land (plan 50, spec D11)", () => {
     expect(body).toContain("- rewritten test/fee.test.ts (-1 line)");
     expect(body).not.toContain("rewritten test/pay.test.ts");
     expect(body).not.toContain("new.test.ts");
+  });
+
+  it("holds land final on an oracle change until it is restored or accepted, and lists the override (plan 54, spec D9)", async () => {
+    const pay = 'it("keeps the currency", () => {});\n';
+    const { run, tree: t, bodies } = await tree("t", { path: "test/pay.test.ts", text: pay });
+    const snapshot = (await snapshotTree(t)) as string;
+    await appendEvent(run, {
+      type: "task.delegated",
+      taskId: "T1",
+      role: "worker",
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+      ledgerTask: "L1",
+      by: "architect-1",
+      why: "pay",
+      snapshot,
+    });
+    await appendEvent(run, {
+      type: "dispatch.started",
+      dispatchId: "d-w",
+      name: "T1",
+      role: "worker",
+      unit: "T1",
+      lane: null,
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+    });
+    await appendEvent(run, {
+      type: "dispatch.ended",
+      dispatchId: "d-w",
+      name: "T1",
+      unit: "T1",
+      status: "ok",
+      replyStatus: "complete",
+      reason: null,
+      why: "ok",
+      thread: null,
+      head: null,
+      environment: null,
+      verdict: null,
+      findings: [],
+      replyPath: "roles/T1/d-w/reply.md",
+      oracle: { paths: ["test/pay.test.ts"], diff: "tasks/T1/oracle.diff" },
+    });
+    const HELD = "T1's change to test/pay.test.ts, the oracle of L1, accepted with oracle_accept or restored";
+    writeFileSync(
+      join(t, "test", "pay.test.ts"),
+      'it("keeps the currency", () => { expect(1).toBe(2); });\n',
+    );
+    await landed(run, land(false));
+    let head = sh(t, "rev-parse", "HEAD");
+    await fullCheck(run);
+    await verifierPass(run, head);
+    expect((await landed(run, land(true, 2))).done.message).toContain(`land final needs ${HELD}`);
+    writeFileSync(join(t, "test", "pay.test.ts"), pay);
+    expect((await landed(run, land(true, 3))).done.message).not.toContain("oracle");
+    writeFileSync(
+      join(t, "test", "pay.test.ts"),
+      'it("keeps the currency", () => { expect(1).toBe(3); });\n',
+    );
+    await appendEvent(run, { type: "oracle.accepted", taskId: "T1", by: "architect-2", why: "the old fee" });
+    await landed(run, land(false, 4));
+    head = sh(t, "rev-parse", "HEAD");
+    await fullCheck(run, "C2");
+    await verifierPass(run, head);
+    const r = await landed(run, land(true, 5));
+    expect(r.done.outcome).toBe("pushed");
+    expect(bodies.at(-1)).toContain(
+      "### Oracle overrides\n\n- T1 (L1) changed test/pay.test.ts: the old fee",
+    );
+    expect(bodies.at(-1)).toContain("architect-2 accepted T1's oracle change: the old fee");
   });
 
   it("merges a base that moved under the run's files and asks for the check again", async () => {

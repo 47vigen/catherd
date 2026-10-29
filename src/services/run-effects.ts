@@ -28,6 +28,7 @@ import { runLand } from "./land.ts";
 import { claimRunTree } from "./run-tree.ts";
 import { writeArchitectReport } from "./architect-run.ts";
 import { renderLedger } from "./ledger-store.ts";
+import { oracleChange } from "./oracle.ts";
 import { renderBrief } from "./run-briefs.ts";
 import { appendEvent, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { runProfile } from "./run-pin.ts";
@@ -62,7 +63,12 @@ const PASS_LINE = /^VERDICT: PASS\b/;
  * BLOCKER, BUG and NIT lines, a failing verifier's lines) and the verifier's verdict, the reason a blocked reply
  * names, and the HEAD a verifier checked.
  */
-export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventInput {
+export function endedEvent(
+  run: Run,
+  record: RunRecord,
+  unit: string,
+  oracle: { paths: string[]; diff: string } | null = null,
+): RunEventInput {
   const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
   let verdict: "pass" | "fail" | "blocked" | null = null;
   let probe: string | null = null;
@@ -114,6 +120,7 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     ...(record.error?.code === "E_LOST" || record.error?.code === "E_BACKEND_MISSING"
       ? { lost: true as const }
       : {}),
+    ...(oracle ? { oracle } : {}),
   };
 }
 
@@ -176,10 +183,12 @@ export function realEffects(deps: Deps, run: Run): Effects {
     try {
       await waitForFinish(d, { pollMs: deps.pollMs, now: deps.now });
       const record = await finalizeDispatch(run, d);
+      // an oracle diff that cannot be taken never keeps the dispatch from ending
+      const oracle = await oracleChange(run, d.admit.name).catch(() => null);
       // under the lock: a settle of an earlier daemon in this process may still be running, and the second is a no-op
       const ended = await withEventsLock(run, (add) => {
         if (replayRun(run).dispatches[id]?.ended) return false;
-        add(endedEvent(run, record, unit), at());
+        add(endedEvent(run, record, unit, oracle), at());
         return true;
       });
       if (!ended) return;

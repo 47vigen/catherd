@@ -15,6 +15,7 @@ describe("the merge request body (plan 50, spec D11)", () => {
       rewritten: ["src/fee.test.ts (-3 lines)"],
       skipped: ['it.skip("flaky")'],
     },
+    oracle: ["T1 (L1) changed test/pay.test.ts: the test asserted the old fee"],
   });
 
   it("leads with the problem in the owner's words, then the change and one proof line, the audit last", () => {
@@ -24,6 +25,8 @@ describe("the merge request body (plan 50, spec D11)", () => {
     expect(at("Proof:")).toBeLessThan(at("## Audit"));
     for (const line of [
       "- L3 impossible: the provider has no sandbox",
+      "### Oracle overrides",
+      "- T1 (L1) changed test/pay.test.ts: the test asserted the old fee",
       "### Tests deleted, removed, rewritten or skipped",
       "- deleted src/old.test.ts",
       "- removed src/pay.test.ts: refunds keep their currency",
@@ -43,6 +46,7 @@ describe("the merge request body (plan 50, spec D11)", () => {
       audit: [],
       knownIssues: [],
       tests: { deleted: [], removed: [], rewritten: [], skipped: [] },
+      oracle: [],
     });
     expect(b).toContain(
       "Proof: `bun test` passed but for 2 failures the base has too, on 0123456789ab (checks/C2.log)",
@@ -58,6 +62,7 @@ describe("the merge request body (plan 50, spec D11)", () => {
       audit: [],
       knownIssues: [],
       tests: { deleted: [], removed: [], rewritten: [], skipped: [] },
+      oracle: [],
     });
     expect(empty).toContain("Proof: no full check has passed on this commit yet");
     expect(empty).toContain("### Known issues\n\n- none");

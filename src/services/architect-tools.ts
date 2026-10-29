@@ -34,6 +34,7 @@ import { isEarlierRun, replayRun, withEventsLock } from "./run-events-store.ts";
 import { runProfile } from "./run-pin.ts";
 import { readRecords, type Run } from "./run-store.ts";
 import { MESSAGE_KINDS, teamRead, teamSend } from "./team.ts";
+import { oracleOf } from "./oracle.ts";
 import { testFacts } from "./test-changes.ts";
 import { runTree } from "./tree-path.ts";
 
@@ -139,8 +140,11 @@ async function delegate(
       throw invalid(`the ledger has no task ${i.ledgerTask}`, "add it with ledger first");
   }
   const review = i.role === "reviewer";
-  // plan 51: the tree a review reads, so the next review of the same ledger task reads only what changed since
-  const snapshot = review ? await reviewSnapshot(c.run) : null;
+  // plan 51: the tree a review reads, so the next review of the same ledger task reads only what changed since;
+  // plan 54: the tree a writer of a ledger task with an oracle starts from, its oracle diff's base
+  const oracled =
+    (i.role === "worker" || i.role === "writer") && oracleOf(c.run, i.ledgerTask ?? null).length > 0;
+  const snapshot = review || oracled ? await reviewSnapshot(c.run) : null;
   // plan 54, spec D9: a test the run removed or rewrote reaches the verifier as catherd's fact, not the author's
   const facts = i.role === "verifier" ? await testFacts(c.run) : [];
   let rung = "";
@@ -543,6 +547,18 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
         });
       }
       return { logged: true };
+    },
+  ),
+  oracle_accept: spec(
+    "Accept a task's change to its ledger task's oracle, with the reason (the merge request lists it under Oracle overrides). The other way out of a hold is to send the task back to restore the oracle: land final needs one or the other.",
+    { taskId, why },
+    false,
+    async (c, a) => {
+      const t = taskOf(c, replayRun(c.run), a.taskId);
+      if (!t.oracle || t.oracle.accepted !== null)
+        throw invalid(`${t.taskId} holds no oracle change`, "the digest names a held task with HELD");
+      await append(c, { type: "oracle.accepted", taskId: t.taskId, by: c.caller.name, why: a.why });
+      return { accepted: t.taskId };
     },
   ),
   land: spec(
