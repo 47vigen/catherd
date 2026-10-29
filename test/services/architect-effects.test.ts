@@ -82,4 +82,24 @@ describe("an architect run on the real effects (plan 47, spec D1–D3)", () => {
     expect(report).toContain("the wallet first");
     expect(readFileSync(join(run.dir, "ledger", "progress.md"), "utf8")).toStartWith("# Progress");
   });
+
+  it("the architect's rung follows a profile change when nothing is held", async () => {
+    const { run } = freshRun("wallet");
+    process.env.PATH = simPath();
+    Object.assign(process.env, withScenario({ reply: "Done.\nSTATUS: complete — ok" }).env);
+    const view = testView();
+    // the run was started with LUNA as the default; the profile moved to SOL since
+    view.roles.architect = { enabled: true, access: "workspace-write", rungs: [SOL] };
+    await appendEvent(run, {
+      type: "run.started",
+      ...startedFields,
+      repo: run.meta.repo,
+      title: "wallet",
+      architectRungs: ["codex:gpt-6-luna#high", SOL],
+    });
+    const clock = { now: Date.now, sleep: () => new Promise<void>((r) => setImmediate(r)) };
+    await runDaemon(fakeDeps({ view }), run.id, { clock });
+    const first = readEvents(run).find((e) => e.type === "dispatch.started" && e.name === "architect-1");
+    expect(first).toMatchObject({ rung: SOL });
+  });
 });

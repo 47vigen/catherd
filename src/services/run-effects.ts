@@ -301,14 +301,16 @@ export function realEffects(deps: Deps, run: Run): Effects {
   }
 
   /**
-   * An architect turn (spec D1, plan 47 R7): the machine's rung (plan 52: a free one of its ladder), else the profile's;
+   * An architect turn (spec D1, plan 47 R7): the machine's rung when it climbed to a free one of the ladder (plan 52), else the profile's;
    * a fresh thread when it is spent or the rung moved.
    */
   async function wake(a: DispatchAction, s: RunState): Promise<void> {
     const rc = runProfile(deps, run).roles.architect;
     const want = rc?.defaultRung ?? rc?.rungs[0];
     if (!want) throw new Error("the profile's architect has no rung");
-    const rung = headlessRung(a.rung ?? want);
+    // the machine's rung only when it climbed off the run's pinned default: a profile edit mid-run still counts
+    const climbed = a.rung !== null && s.architectRungs.length > 0 && a.rung !== s.architectRungs[0];
+    const rung = headlessRung(climbed ? (a.rung as string) : want);
     const last = readRecords(run)
       .records.filter((r) => r.role === "architect")
       .at(-1);
