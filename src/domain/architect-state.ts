@@ -302,12 +302,14 @@ export function ladderRung(
  * is not; null when every rung's quota is held.
  */
 export function unheldRung(ladder: readonly string[], from: string, s: RunState): string | null {
-  const held = (r: string): boolean => {
-    const p = tryParseRung(r);
-    return p !== null && (s.holds[quotaOf(p)] ?? "") > s.at;
-  };
   const at = Math.max(0, ladder.indexOf(from));
-  return [...ladder.slice(at), ...ladder.slice(0, at)].find((r) => !held(r)) ?? null;
+  return [...ladder.slice(at), ...ladder.slice(0, at)].find((r) => !rungHeld(r, s)) ?? null;
+}
+
+/** Plan 52: whether `rung`'s quota is held at the run's clock; a rung that does not parse is free. */
+export function rungHeld(rung: string, s: RunState): boolean {
+  const p = tryParseRung(rung);
+  return p !== null && (s.holds[quotaOf(p)] ?? "") > s.at;
 }
 
 /**

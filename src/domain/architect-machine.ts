@@ -2,6 +2,7 @@ import {
   type ArchState,
   architectName,
   isStanding,
+  rungHeld,
   STANDING_CAP,
   unheldRung,
   WRITER_CAP,
@@ -20,9 +21,18 @@ const failed = (s: RunState, action: "cancel" | "finish"): boolean =>
  * The architect's next turn on `rung`: its thread resumed unless `fresh` says why not or the rung moved (a thread
  * does not carry across backends), the digest up to the last item.
  */
-function wake(a: ArchState, rung: string | null): DispatchAction {
+function wake(a: ArchState, s: RunState, rung: string | null): DispatchAction {
   const moved = rung !== a.rung && a.rung !== null;
-  const why = a.fresh ?? (moved ? `the quota of ${a.rung} is held: this turn runs on ${rung}` : null);
+  // only a rung whose quota is held now is "held": a lapsed hold sends the architect back to its default
+  const why =
+    a.fresh ??
+    (moved && a.rung !== null
+      ? rungHeld(a.rung, s)
+        ? `the quota of ${a.rung} is held: this turn runs on ${rung}`
+        : rung === s.architectRungs[0]
+          ? `back on the default rung ${rung}`
+          : `the architect's rung moved to ${rung}`
+      : null);
   return {
     type: "dispatch",
     unit: RUN_UNIT,
@@ -109,6 +119,6 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
   const rung = ladder.length ? unheldRung(ladder, ladder[0] as string, s) : null;
   const held = ladder.length > 0 && rung === null;
   if (a.turn === null && !held && a.inbox.some((i) => i.wakes))
-    out.push(wake(a, s.architectRungs.length ? rung : a.rung));
+    out.push(wake(a, s, s.architectRungs.length ? rung : a.rung));
   return out;
 }

@@ -329,6 +329,34 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     expect(last).not.toContain("counts as passing");
   });
 
+  it("says a quota is held only while it is, and otherwise that the architect is back on its default rung", () => {
+    const [ASTRA, OPUS] = ["codex:gpt-6-astra#xhigh", "claude-code:claude-opus-5-5#high"];
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, architectRungs: [ASTRA, OPUS] });
+    const run = (n: number, rung: string) =>
+      endDispatch(log, startDispatch(log, { name: `architect-${n}`, role: "architect", unit: "run", rung }), {
+        name: `architect-${n}`,
+        unit: "run",
+      });
+    run(1, ASTRA);
+    // a task on the same quota hits its limit while the architect is idle
+    delegate(log, "T1");
+    const t1 = startDispatch(log, { name: "T1", unit: "T1", rung: ASTRA });
+    const end = endDispatch(log, t1, { name: "T1", unit: "T1", status: "limit" });
+    expect(wakeOf(after(log))).toMatchObject({
+      rung: OPUS,
+      thread: null,
+      notes: [`the quota of ${ASTRA} is held: this turn runs on ${OPUS}`],
+    });
+    run(2, OPUS);
+    delegate(log, "T2");
+    log.add("tick", {}, new Date(Date.parse(end.at) + HOLD_MS + 1000).toISOString());
+    expect(wakeOf(after(log))).toMatchObject({
+      rung: ASTRA,
+      notes: [`back on the default rung ${ASTRA}`],
+    });
+  });
+
   it("finishing stops the tasks still running, then ends the run with the verdict's outcome", () => {
     const log = architectRun();
     const a1 = turn(log, 1);
