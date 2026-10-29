@@ -166,6 +166,44 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     ).toHaveLength(1);
   });
 
+  it("delegate_task records a task's fast check, the profile's for a worker without one, and none for a reader (plan 53)", async () => {
+    const run = await architectRun();
+    const checkOf = async (args: object) => {
+      await call(run, "delegate_task", { task: "x", why: "w", ...args });
+      return (last(run) as { check?: string }).check;
+    };
+    view.fastCheck = "bun run lint";
+    try {
+      expect(await checkOf({ role: "worker", check: " bun test test/a.test.ts " })).toBe(
+        "bun test test/a.test.ts",
+      );
+      expect(await checkOf({ role: "worker" })).toBe("bun run lint");
+      expect(await checkOf({ role: "writer" })).toBeUndefined();
+      expect(await checkOf({ role: "writer", check: "bun run format:check" })).toBe("bun run format:check");
+      await expect(checkOf({ role: "researcher", check: "bun test" })).rejects.toMatchObject({
+        code: "E_INPUT_INVALID",
+      });
+    } finally {
+      delete view.fastCheck;
+    }
+    expect(replayRun(run).arch?.tasks.T1?.check).toBe("bun test test/a.test.ts");
+    expect(replayRun(run).arch?.tasks.T3?.check).toBeNull();
+    const log = makeLog();
+    endDispatch(log, startDispatch(log, { name: "T1", unit: "T1" }), {
+      name: "T1",
+      unit: "T1",
+      thread: "th-1",
+    });
+    for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    // a follow-up on a finished task's thread checks the same work
+    expect(
+      await call(run, "thread_send", { to: "T1", text: "and the refund path?", why: "w" }),
+    ).toMatchObject({
+      taskId: "T5",
+    });
+    expect(replayRun(run).arch?.tasks.T5?.check).toBe("bun test test/a.test.ts");
+  });
+
   it("thread_wait returns at a task's end and times out on a running one", async () => {
     const run = await architectRun();
     await call(run, "delegate_task", { role: "worker", task: "x", why: "w" });

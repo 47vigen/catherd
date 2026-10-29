@@ -451,6 +451,7 @@ export type ProfilePatch = {
         heavy: number | 'cpus/2';
     };
     notify?: Array<'milestone' | 'finish' | 'blocked'>;
+    fastCheck?: string | null;
     limits?: {
         memory?: {
             reserveMb?: number | null;

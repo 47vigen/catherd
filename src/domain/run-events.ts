@@ -195,6 +195,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     sameFamily: z.literal(true).optional(),
     /** plan 51: a review's snapshot of the tree it reviews (a commit no ref holds), the next review's base */
     snapshot: z.string().optional(),
+    /** plan 53, spec D6: the fast check catherd runs on the run's tree when the task ends complete */
+    check: z.string().optional(),
   }),
   /** plan 51, spec D8: how the architect handled a review's findings, numbered as task_status lists them */
   ev("findings.handled", {

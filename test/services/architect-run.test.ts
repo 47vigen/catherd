@@ -125,6 +125,32 @@ describe("the architect's briefs (plan 47, spec D1 and D12)", () => {
   });
 });
 
+describe("a task's fast check in its brief (plan 53)", () => {
+  it("names the check catherd runs when the task ends complete, and nothing without one", () => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", { ...startedFields });
+    const task = {
+      role: "worker",
+      rung: "codex:m#high",
+      thread: null,
+      ledgerTask: null,
+      by: "architect-1",
+      why: "w",
+    };
+    log.add("task.delegated", { ...task, taskId: "T1", check: "bun test test/a.test.ts" } as never);
+    log.add("task.delegated", { ...task, taskId: "T2" } as never);
+    const t = (name: string) =>
+      taskBrief(run, log.state(), { ...wake(), name, unit: name, role: "worker", brief: "task" }).round.join(
+        "\n",
+      );
+    expect(t("T1")).toContain(
+      "Your fast check: `bun test test/a.test.ts`. catherd runs it on the run's tree when you end complete",
+    );
+    expect(t("T2")).not.toContain("fast check");
+  });
+});
+
 describe("the architect run's report (plan 48)", () => {
   it("lists each ledger task's attempts and the why of every ask_owner", async () => {
     const { run } = freshRun();

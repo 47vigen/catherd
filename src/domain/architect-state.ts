@@ -53,6 +53,8 @@ export interface ArchTask {
   /** a review's snapshot of the tree it read, the next review's base; a review on its author's family */
   snapshot: string | null;
   sameFamily: boolean;
+  /** plan 53, spec D6: the fast check catherd runs on the run's tree when the task ends complete */
+  check: string | null;
 }
 
 export interface ArchCheck {
@@ -545,6 +547,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         handled: {},
         snapshot: e.snapshot ?? null,
         sameFamily: e.sameFamily === true,
+        check: e.check ?? null,
       };
       if (byArchitect(e.by)) a.idle = 0;
       else push(a, e, `${e.by} delegated ${e.taskId} to the ${e.role}: ${e.why}`, false, e.taskId);

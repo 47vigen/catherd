@@ -61,6 +61,8 @@ const SUMMARY_CHARS = 2_000;
 export const STOP_CLASSES = ["production", "secrets", "irreversible", "stuck"] as const;
 /** The roles a task may be: every role but the architect itself. */
 const TASK_ROLES = ROLES.filter((r) => r !== "architect") as [Role, ...Role[]];
+/** The roles that read the work and change nothing: a fast check has nothing of theirs to check. */
+const READ_ROLES: readonly Role[] = ["reviewer", "verifier", "researcher"];
 
 const why = z
   .string()
@@ -111,7 +113,15 @@ const defaultOf = (rc: { rungs: string[]; defaultRung?: string }): string =>
 /** Starts one task: its brief file, then `task.delegated` with the next free id, under the events lock. */
 async function delegate(
   c: ToolContext,
-  i: { role: Role; task: string; rung?: string; ledgerTask?: string; thread?: string | null; why: string },
+  i: {
+    role: Role;
+    task: string;
+    rung?: string;
+    ledgerTask?: string;
+    thread?: string | null;
+    check?: string;
+    why: string;
+  },
 ): Promise<{
   taskId: string;
   rung: string;
@@ -127,7 +137,8 @@ async function delegate(
         fix: "ask the architect for anything else: team_send to architect",
       },
     );
-  const rc = runProfile(c.deps, c.run).roles[i.role];
+  const profile = runProfile(c.deps, c.run);
+  const rc = profile.roles[i.role];
   if (!rc?.enabled || rc.rungs.length === 0)
     throw invalid(`the ${i.role} role is off or has no rung`, "capabilities lists the roles you can use");
   const ladder = rc.rungs.map(headlessRung);
@@ -137,6 +148,13 @@ async function delegate(
     if (!ledgerTasks(c.run).some((t) => t.id === i.ledgerTask))
       throw invalid(`the ledger has no task ${i.ledgerTask}`, "add it with ledger first");
   }
+  if (i.check?.trim() && READ_ROLES.includes(i.role))
+    throw invalid(
+      `a ${i.role} writes nothing for a fast check to check`,
+      "give check to a task that changes code",
+    );
+  // spec D6: the task's own fast check, else the profile's for a worker
+  const check = i.check?.trim() || (i.role === "worker" ? (profile.fastCheck ?? null) : null);
   const review = i.role === "reviewer";
   // plan 51: the tree a review reads, so the next review of the same ledger task reads only what changed since
   const snapshot = review ? await reviewSnapshot(c.run) : null;
@@ -193,6 +211,7 @@ async function delegate(
         why: i.why,
         ...(sameFamily ? { sameFamily: true as const } : {}),
         ...(snapshot ? { snapshot } : {}),
+        ...(check ? { check } : {}),
       },
       at(c),
     );
@@ -270,6 +289,12 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
       task: z.string().min(1),
       rung: z.string().optional(),
       ledgerTask: z.string().regex(ID_PATTERN).optional(),
+      check: z
+        .string()
+        .optional()
+        .describe(
+          "the task's fast check (type check, lint and the tests it touches; never the full suite): catherd runs it on the run's tree when the task ends complete and wakes you with the result. A worker without one gets the profile's fastCheck.",
+        ),
       why,
     },
     false,
@@ -358,6 +383,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
           task: a.text,
           rung: t.rung,
           ...(t.ledgerTask ? { ledgerTask: t.ledgerTask } : {}),
+          ...(t.check ? { check: t.check } : {}),
           thread,
           why: a.why,
         });

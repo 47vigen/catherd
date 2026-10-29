@@ -105,6 +105,17 @@ describe("resolveProfile", () => {
     });
   });
 
+  it("reads the profile's fast check trimmed, and a blank one as none (plan 53)", () => {
+    expect(resolveProfile({ schema: 1, fastCheck: " bun run lint " }, "f", "claude-code").fastCheck).toBe(
+      "bun run lint",
+    );
+    expect(resolveProfile({ schema: 1, fastCheck: " " }, "f", "claude-code").fastCheck).toBeUndefined();
+    expect(resolveProfile({ schema: 1 }, "f", "claude-code").fastCheck).toBeUndefined();
+    expect(patchAt("fastCheck", "bun run lint && bun test")).toEqual({
+      fastCheck: "bun run lint && bun test",
+    });
+  });
+
   it("takes a partial role's missing fields from the built-in one, but not its default rung", () => {
     const p = resolveProfile(
       {
