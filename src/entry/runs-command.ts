@@ -407,7 +407,7 @@ const metricsCmd = defineCommand({
     if (args.json) return printJson({ runs: rows, reviewers });
     for (const { id, title, metrics: m } of rows)
       console.log(
-        `${id}  wall ${Math.round(m.wallMin)} min  idle ${pct(m.idlePct)}  concurrency ${m.concurrency.toFixed(2)}  blocked ${counts(m.blockedMin)}  checks ${pct(m.checkShare === null ? null : m.checkShare * 100)}  rounds ${m.rounds.total} (max ${m.rounds.max})  climbs ${m.climbs}  ${title}`,
+        `${id}  wall ${Math.round(m.wallMin)} min  idle ${pct(m.idlePct)}  concurrency ${m.concurrency.toFixed(2)}  blocked ${counts(m.blockedMin)}  checks ${pct(m.checkShare === null ? null : m.checkShare * 100)} (fast ${pct(m.fastCheckShare == null ? null : m.fastCheckShare * 100)}, waited ${pct(m.checkWaitShare == null ? null : m.checkWaitShare * 100)})  rounds ${m.rounds.total} (max ${m.rounds.max})  climbs ${m.climbs}  ${title}`,
       );
     console.log("reviewer rungs:");
     if (reviewers.rungs.length === 0) console.log("  no review yet");

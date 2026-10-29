@@ -51,6 +51,8 @@ export type RunView = {
             [key: string]: number;
         };
         checkShare: number | null;
+        fastCheckShare?: number | null;
+        checkWaitShare?: number | null;
         rounds: {
             perTask: {
                 [key: string]: number;

@@ -87,17 +87,24 @@ export function metricsOf(run: Run, now: number, parsed: Parsed = parsedOf(run))
       ? [Math.max(0, (Date.parse(started) - asked) / 1000)]
       : [];
   });
-  const checks = db().query("SELECT minutes, cached FROM checks WHERE run_id = ?").all(run.id) as {
+  const checks = db().query("SELECT scope, minutes, cached, at FROM checks WHERE run_id = ?").all(run.id) as {
+    scope: string;
     minutes: number;
     cached: number;
+    at: string;
   }[];
+  const ran = checks.filter((c) => !c.cached);
   return runMetrics({
     start: Date.parse(run.meta.createdAt),
     end: Number.isNaN(end) ? now : end,
     pauses: pauseSpans(run),
     dispatches,
-    checkMinutes:
-      checks.length || arch ? checks.filter((c) => !c.cached).reduce((n, c) => n + c.minutes, 0) : null,
+    checkMinutes: checks.length || arch ? ran.reduce((n, c) => n + c.minutes, 0) : null,
+    checkSpans: ran.map((c) => ({
+      fast: c.scope === "fast",
+      from: Date.parse(c.at),
+      to: Date.parse(c.at) + c.minutes * 60_000,
+    })),
     rounds,
     climbs,
     standingStartSec,

@@ -90,6 +90,7 @@ export function formatStage(current: ScorecardFile, baseline: ScorecardFile, v: 
         `concurrency ${opt(r.concurrency)}`,
         `blocked ${opt(r.blockedMin, " min")}`,
         `checks ${r.checkShare === null ? "?" : `${num(r.checkShare * 100)}%`}`,
+        `waited on checks ${r.checkWaitShare === null ? "?" : `${num(r.checkWaitShare * 100)}%`}`,
         `rounds ${opt(r.rounds)}`,
         `climbs ${opt(r.climbs)}`,
       ].join("  "),
