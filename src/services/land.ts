@@ -264,7 +264,12 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
       done: tasks.filter((t) => t.state === "done").map((t) => `${t.id} ${t.goal}`),
       proof: proof ? { command: proof.command, log: proof.log, sha, inherited: proof.failures.length } : null,
       audit: events
-        .filter((e) => WHY_EVENTS.has(e.type) || (e.type === "question.parked" && e.why))
+        // plan 53: a fast check catherd asked for is the daemon's, not a decision of the run's
+        .filter(
+          (e) =>
+            (WHY_EVENTS.has(e.type) && !(e.type === "check.requested" && e.by === "catherd")) ||
+            (e.type === "question.parked" && e.why),
+        )
         .map((e) => describeEvent(e)),
       knownIssues: issues,
       tests: {

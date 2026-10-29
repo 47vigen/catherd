@@ -80,6 +80,28 @@ async function verifierPass(run: Run, head: string): Promise<void> {
 }
 
 describe("land (plan 50, spec D11)", () => {
+  it("leaves the checks catherd asked for out of the MR audit, and keeps the architect's (plan 53)", async () => {
+    const { run, tree: t, bodies } = await tree();
+    writeFileSync(join(t, "a.ts"), "export const a = 1;\n");
+    const ask = (checkId: string, by: string, why: string, task?: string) =>
+      appendEvent(run, {
+        type: "check.requested",
+        checkId,
+        command: "true",
+        scope: task ? "fast" : "full",
+        base: false,
+        fresh: false,
+        by,
+        why,
+        ...(task ? { task } : {}),
+      });
+    await ask("C1", "catherd", "T1 ended complete: its fast check", "T1");
+    await ask("C2", "architect-1", "the integrated product");
+    await runLand(run, land(false));
+    expect(bodies[0]).toContain("the integrated product");
+    expect(bodies[0]).not.toContain("its fast check");
+  });
+
   it("commits the tree, pushes the run's branch and opens its MR, problem first", async () => {
     const { run, tree: t, origin, bodies } = await tree();
     writeFileSync(join(t, "a.ts"), "export const a = 1;\n");
