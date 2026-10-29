@@ -36,7 +36,14 @@ export interface LedgerView extends LedgerTask {
 }
 
 const id = z.string().regex(ID_PATTERN, "an id like L1 or auth-1");
-const paths = z.array(z.string().min(1));
+/** A path or pathspec inside the tree: not absolute (either OS), no `..` segment. */
+const oraclePath = z
+  .string()
+  .min(1)
+  .refine((p) => !/^([/\\]|[A-Za-z]:)/.test(p) && !p.split(/[/\\]/).includes(".."), {
+    message: "a path inside the tree: not absolute, no ..",
+  });
+const paths = z.array(oraclePath);
 
 export const LedgerPatchSchema = z.strictObject({
   add: z
