@@ -89,6 +89,7 @@ export function endDispatch(
     reason?: BlockedReason | null;
     head?: string | null;
     lost?: true;
+    oracle?: { paths: string[]; diff: string };
     at?: string;
   },
 ) {
@@ -96,6 +97,7 @@ export function endDispatch(
     "dispatch.ended",
     {
       ...(o.lost ? { lost: true as const } : {}),
+      ...(o.oracle ? { oracle: o.oracle } : {}),
       dispatchId,
       name: o.name,
       unit: o.unit,

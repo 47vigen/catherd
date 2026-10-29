@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ArchLand } from "../../src/domain/architect-state.ts";
 import { runArchitectCheck } from "../../src/services/architect-check.ts";
@@ -8,6 +8,7 @@ import { forge, runLand } from "../../src/services/land.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
 import { claimRunTree } from "../../src/services/run-tree.ts";
+import { snapshotTree } from "../../src/infra/git.ts";
 import { commitInClone, snapshotEnv } from "../helpers.ts";
 import { branchRun, fakeDeps } from "./helpers.ts";
 
@@ -32,15 +33,20 @@ async function landed(run: Run, l: ArchLand): ReturnType<typeof runLand> {
 
 const noCachedHead = (run: Run) => sh(run.meta.repo, "remote", "set-head", "origin", "-d");
 
-const land = (final: boolean, n = 1): ArchLand => ({ landId: `L${n}`, final, why: "w", state: "queued" });
+const land = (final: boolean, n = 1): ArchLand => ({
+  landId: `L${n}`,
+  final,
+  why: "w",
+  state: "queued",
+});
 const deps = fakeDeps();
 
 async function tree(
   title = "t",
-  seed?: { path: string; text: string },
+  ...seeds: { path: string; text: string }[]
 ): Promise<{ run: Run; tree: string; origin: string; bodies: string[] }> {
   const { run, origin } = branchRun(title);
-  if (seed) commitInClone(origin, "seed", seed);
+  for (const seed of seeds) commitInClone(origin, "seed", seed);
   const bodies: string[] = [];
   forge.open = async (o) => {
     bodies.push(o.body);
@@ -54,7 +60,14 @@ async function fullCheck(run: Run, checkId = "C1"): Promise<void> {
   const done = await runArchitectCheck(
     deps,
     run,
-    { checkId, command: "true", scope: "full", base: false, fresh: true, state: "queued" },
+    {
+      checkId,
+      command: "true",
+      scope: "full",
+      base: false,
+      fresh: true,
+      state: "queued",
+    },
     { timeoutMs: 10_000 },
   );
   expect(done.exit).toBe(0);
@@ -150,7 +163,14 @@ describe("land (plan 50, spec D11)", () => {
     await runArchitectCheck(
       deps,
       run,
-      { checkId: "C1", command: cmd, scope: "full", base: false, fresh: true, state: "queued" },
+      {
+        checkId: "C1",
+        command: cmd,
+        scope: "full",
+        base: false,
+        fresh: true,
+        state: "queued",
+      },
       { timeoutMs: 10_000 },
     );
     await appendEvent(run, {
@@ -186,7 +206,13 @@ describe("land (plan 50, spec D11)", () => {
       head: null,
       environment: null,
       verdict: null,
-      findings: [{ label: "PRE-EXISTING", text: "(fail) old flake fails on the base", file: null }],
+      findings: [
+        {
+          label: "PRE-EXISTING",
+          text: "(fail) old flake fails on the base",
+          file: null,
+        },
+      ],
       replyPath: "roles/T1/d-r/reply.md",
     });
     await verifierPass(run, head);
@@ -194,6 +220,204 @@ describe("land (plan 50, spec D11)", () => {
     const body = bodies.at(-1) ?? "";
     expect(body).toContain("(fail) old flake fails on the base");
     expect(body).not.toContain("inherited from the base (");
+  });
+
+  it("lists the test cases the run removed and the existing test files it rewrote (plan 54, spec D9)", async () => {
+    const {
+      run,
+      tree: t,
+      bodies,
+    } = await tree(
+      "t",
+      {
+        path: "test/pay.test.ts",
+        text: 'it("keeps the currency", () => {\n  expect(1).toBe(1);\n});\nit("rounds", () => {});\n',
+      },
+      {
+        path: "test/fee.test.ts",
+        text: 'it("fee", () => {\n  expect(fee(1)).toBe(2);\n});\n',
+      },
+    );
+    writeFileSync(join(t, "test", "pay.test.ts"), 'it("rounds", () => {});\n');
+    writeFileSync(join(t, "test", "fee.test.ts"), 'it("fee", () => {\n  expect(fee(1)).toBe(3);\n});\n');
+    writeFileSync(join(t, "test", "new.test.ts"), 'it("new", () => {});\n');
+    await runLand(run, land(false));
+    const body = bodies.at(-1) ?? "";
+    expect(body).toContain("- removed or renamed test/pay.test.ts: keeps the currency");
+    expect(body).toContain("- rewritten test/fee.test.ts (-1 line)");
+    expect(body).not.toContain("rewritten test/pay.test.ts");
+    expect(body).not.toContain("new.test.ts");
+  });
+
+  it("reports a removed test under a non-ASCII path, nothing of a deleted file's cases, and no snapshot as rewritten (plan 54)", async () => {
+    const {
+      run,
+      tree: t,
+      bodies,
+    } = await tree(
+      "t",
+      {
+        path: "test/é.test.ts",
+        text: 'it("keeps é", () => {});\nit("stays", () => {});\n',
+      },
+      {
+        path: "test/gone.test.ts",
+        text: 'it("lost with its file", () => {});\n',
+      },
+      { path: "test/__snapshots__/x.snap", text: "a\nb\n" },
+      { path: "src/z.ts", text: "export const z = 1;\n" },
+    );
+    writeFileSync(join(t, "test", "é.test.ts"), 'it("stays", () => {});\n');
+    rmSync(join(t, "test", "gone.test.ts"));
+    writeFileSync(join(t, "test", "__snapshots__", "x.snap"), "a\n");
+    await runLand(run, land(false));
+    const body = bodies.at(-1) ?? "";
+    expect(body).toContain("- removed or renamed test/é.test.ts: keeps é");
+    expect(body).toContain("- deleted test/gone.test.ts");
+    expect(body).not.toContain("lost with its file");
+    expect(body).not.toContain("x.snap");
+  });
+
+  it("holds land final on an oracle change until it is restored or accepted, and lists the override (plan 54, spec D9)", async () => {
+    const pay = 'it("keeps the currency", () => {});\n';
+    const { run, tree: t, bodies } = await tree("t", { path: "test/pay.test.ts", text: pay });
+    const snapshot = (await snapshotTree(t)) as string;
+    await appendEvent(run, {
+      type: "task.delegated",
+      taskId: "T1",
+      role: "worker",
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+      ledgerTask: "L1",
+      by: "architect-1",
+      why: "pay",
+      snapshot,
+    });
+    await appendEvent(run, {
+      type: "dispatch.started",
+      dispatchId: "d-w",
+      name: "T1",
+      role: "worker",
+      unit: "T1",
+      lane: null,
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+    });
+    await appendEvent(run, {
+      type: "dispatch.ended",
+      dispatchId: "d-w",
+      name: "T1",
+      unit: "T1",
+      status: "ok",
+      replyStatus: "complete",
+      reason: null,
+      why: "ok",
+      thread: null,
+      head: null,
+      environment: null,
+      verdict: null,
+      findings: [],
+      replyPath: "roles/T1/d-w/reply.md",
+      oracle: { paths: ["test/pay.test.ts"], diff: "tasks/T1/oracle.diff" },
+    });
+    const HELD =
+      "T1's change to test/pay.test.ts, the oracle of L1 (diff tasks/T1/oracle.diff), accepted with oracle_accept or restored";
+    writeFileSync(
+      join(t, "test", "pay.test.ts"),
+      'it("keeps the currency", () => { expect(1).toBe(2); });\n',
+    );
+    await landed(run, land(false));
+    let head = sh(t, "rev-parse", "HEAD");
+    await fullCheck(run);
+    await verifierPass(run, head);
+    expect((await landed(run, land(true, 2))).done.message).toContain(`land final needs ${HELD}`);
+    writeFileSync(join(t, "test", "pay.test.ts"), pay);
+    expect((await landed(run, land(true, 3))).done.message).not.toContain("oracle");
+    writeFileSync(
+      join(t, "test", "pay.test.ts"),
+      'it("keeps the currency", () => { expect(1).toBe(3); });\n',
+    );
+    await appendEvent(run, {
+      type: "oracle.accepted",
+      taskId: "T1",
+      by: "architect-2",
+      why: "the old fee",
+    });
+    await landed(run, land(false, 4));
+    head = sh(t, "rev-parse", "HEAD");
+    await fullCheck(run, "C2");
+    await verifierPass(run, head);
+    const r = await landed(run, land(true, 5));
+    expect(r.done.outcome).toBe("pushed");
+    expect(bodies.at(-1)).toContain(
+      "### Oracle overrides\n\n- T1 (L1) changed test/pay.test.ts: the old fee",
+    );
+    expect(bodies.at(-1)).toContain("architect-2 accepted T1's oracle change: the old fee");
+  });
+
+  it("releases every held task of a ledger task when HEAD matches the earliest snapshot on their paths (plan 54)", async () => {
+    const pay = 'it("keeps the currency", () => {});\n';
+    const { run, tree: t } = await tree("t", { path: "test/pay.test.ts", text: pay });
+    const snap1 = (await snapshotTree(t)) as string;
+    // T1 changed the oracle; its retry T2 was delegated on that edit, restored the file and was held too
+    writeFileSync(join(t, "test", "pay.test.ts"), 'it("keeps the currency", () => { weak(); });\n');
+    const snap2 = (await snapshotTree(t)) as string;
+    for (const [taskId, snapshot] of [
+      ["T1", snap1],
+      ["T2", snap2],
+    ] as const) {
+      await appendEvent(run, {
+        type: "task.delegated",
+        taskId,
+        role: "worker",
+        rung: "codex:gpt-6-sol#high",
+        thread: null,
+        ledgerTask: "L1",
+        by: "architect-1",
+        why: "pay",
+        snapshot,
+      });
+      await appendEvent(run, {
+        type: "dispatch.started",
+        dispatchId: `d-${taskId}`,
+        name: taskId,
+        role: "worker",
+        unit: taskId,
+        lane: null,
+        rung: "codex:gpt-6-sol#high",
+        thread: null,
+      });
+      await appendEvent(run, {
+        type: "dispatch.ended",
+        dispatchId: `d-${taskId}`,
+        name: taskId,
+        unit: taskId,
+        status: "ok",
+        replyStatus: "complete",
+        reason: null,
+        why: "ok",
+        thread: null,
+        head: null,
+        environment: null,
+        verdict: null,
+        findings: [],
+        replyPath: `roles/${taskId}/reply.md`,
+        oracle: { paths: ["test/pay.test.ts"], diff: `tasks/${taskId}/oracle.diff` },
+      });
+    }
+    await landed(run, land(false));
+    let head = sh(t, "rev-parse", "HEAD");
+    await fullCheck(run);
+    await verifierPass(run, head);
+    const refused = (await landed(run, land(true, 2))).done.message;
+    expect(refused).toContain("T1's change to test/pay.test.ts");
+    expect(refused).toContain("T2's change to test/pay.test.ts");
+    writeFileSync(join(t, "test", "pay.test.ts"), pay);
+    await landed(run, land(false, 3));
+    head = sh(t, "rev-parse", "HEAD");
+    await fullCheck(run, "C2");
+    await verifierPass(run, head);
+    expect((await landed(run, land(true, 4))).done.message).not.toContain("oracle");
   });
 
   it("merges a base that moved under the run's files and asks for the check again", async () => {
@@ -294,7 +518,12 @@ describe("land (plan 50, spec D11)", () => {
 
   it("still refuses an unrelated branch of the run's name, also when an intent was recorded", async () => {
     const { run, tree: t, origin } = await tree();
-    await appendEvent(run, { type: "land.started", landId: "L0", branch: "t", sha: "0".repeat(40) });
+    await appendEvent(run, {
+      type: "land.started",
+      landId: "L0",
+      branch: "t",
+      sha: "0".repeat(40),
+    });
     sh(origin, "branch", "t", "main");
     const r = await runLand(run, land(false));
     expect(r.done.outcome).toBe("refused");
