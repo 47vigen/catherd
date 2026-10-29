@@ -153,6 +153,22 @@ describe("a check the architect asks for (plan 47, spec D6)", () => {
     );
   });
 
+  it("does not take an early failure behind a leading cd for the whole chain (plan 52)", async () => {
+    const r = await run();
+    const deps = fakeDeps();
+    const fail = "{ echo '(fail) lint'; exit 1; }";
+    // lint fails on both sides and the test part never ran
+    expect(
+      (await runArchitectCheck(deps, r, check("C1", `mkdir -p web && cd web && ${fail} && true`), opts))
+        .verdict,
+    ).toBe("unknown");
+    // the last part failing on both sides is comparable
+    expect(
+      (await runArchitectCheck(deps, r, check("C2", `mkdir -p web && cd web && true && ${fail}`), opts))
+        .verdict,
+    ).toBe("inherited");
+  });
+
   it("does not run the base after a timeout, and never reuses a base result that timed out (plan 52)", async () => {
     const r = await run();
     const deps = fakeDeps();

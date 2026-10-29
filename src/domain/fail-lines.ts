@@ -300,17 +300,24 @@ export function andTail(command: string): string | null {
  * part failed (marks = parts - 1: the last part failed). `tracked` is false when the marks cannot be trusted: a `||`
  * anywhere can run a later part after an earlier one failed.
  */
-// shortcut: a `cd d && a && b` tail is one part (checkItems joins it), upgrade when a gate hides steps behind a cd
 export function markParts(
   command: string,
   mark: string,
 ): { script: string; parts: number; tracked: boolean } {
   let items: string[];
   try {
-    items = checkItems(command);
+    items = checkItems(command).flatMap(splitLeadingCd);
   } catch {
     items = [command.trim()];
   }
   const tracked = items.length === 1 || !command.includes("||");
   return { script: tracked ? items.join(` && ${mark} && `) : command, parts: items.length, tracked };
+}
+
+/** `cd d && a && b` as `cd d && a`, `b`: the script is one shell, so the cd still applies to what follows. */
+function splitLeadingCd(item: string): string[] {
+  const head = /^cd\s+("[^"]*"|'[^']*'|\S+)\s*&&\s*/.exec(item);
+  if (!head) return [item];
+  const [first, ...rest] = checkItems(item.slice(head[0].length));
+  return first === undefined ? [item] : [`${head[0]}${first}`, ...rest];
 }

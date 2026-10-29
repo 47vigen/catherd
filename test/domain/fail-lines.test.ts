@@ -349,6 +349,21 @@ describe("plan 52: which part of an && chain failed", () => {
     expect(markParts("bun test", "m")).toEqual({ script: "bun test", parts: 1, tracked: true });
     expect(markParts("echo 'a && b'", "m")).toMatchObject({ parts: 1 });
   });
+  it("splits the parts behind a leading cd, which still applies to each (the script is one shell)", () => {
+    expect(markParts("cd web && lint && test", "m")).toEqual({
+      script: "cd web && lint && m && test",
+      parts: 2,
+      tracked: true,
+    });
+    expect(markParts("a && cd d && b && c && d", "m")).toEqual({
+      script: "a && m && cd d && b && m && c && m && d",
+      parts: 4,
+      tracked: true,
+    });
+    expect(markParts("cd web", "m")).toMatchObject({ script: "cd web", parts: 1 });
+    expect(markParts("cd web && a && b || c", "m")).toMatchObject({ parts: 2, tracked: false });
+    expect(markParts("(cd web && a && b) && c", "m")).toMatchObject({ parts: 2 });
+  });
   it("cannot be trusted with a || in a chain, nor with a command that does not split", () => {
     expect(markParts("a && b || c", "m")).toEqual({ script: "a && b || c", parts: 2, tracked: false });
     expect(markParts("a &&", "m")).toMatchObject({ script: "a &&", parts: 1 });
