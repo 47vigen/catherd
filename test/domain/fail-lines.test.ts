@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import * as failLines from "../../src/domain/fail-lines.ts";
-import { andTail, checkFailLines, checkVerdict, newFails } from "../../src/domain/fail-lines.ts";
+import { andTail, checkFailLines, checkVerdict, markParts, newFails } from "../../src/domain/fail-lines.ts";
 
 describe("check failing lines", () => {
   it("andTail names what follows the first &&", () => {
@@ -318,5 +318,21 @@ describe("plan 52: a failing check against the same command on the base", () => 
       "inherited",
     );
     expect(checkVerdict(1, ["--- FAIL: TestX"], base(1, ["--- FAIL: TestX"]))).toBe("inherited");
+  });
+});
+
+describe("plan 52: which part of an && chain failed", () => {
+  it("puts a mark between the top-level parts, and none in a single command", () => {
+    expect(markParts("a && b && c", "m")).toEqual({
+      script: "a && m && b && m && c",
+      parts: 3,
+      tracked: true,
+    });
+    expect(markParts("bun test", "m")).toEqual({ script: "bun test", parts: 1, tracked: true });
+    expect(markParts("echo 'a && b'", "m")).toMatchObject({ parts: 1 });
+  });
+  it("cannot be trusted with a || in a chain, nor with a command that does not split", () => {
+    expect(markParts("a && b || c", "m")).toEqual({ script: "a && b || c", parts: 2, tracked: false });
+    expect(markParts("a &&", "m")).toMatchObject({ script: "a &&", parts: 1 });
   });
 });

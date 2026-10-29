@@ -5,7 +5,7 @@ import type { ArchCheck } from "../../src/domain/architect-state.ts";
 import { db } from "../../src/infra/db.ts";
 import { git } from "../../src/infra/git.ts";
 import { runArchitectCheck } from "../../src/services/architect-check.ts";
-import { createRun } from "../../src/services/run-store.ts";
+import { createRun, runPaths } from "../../src/services/run-store.ts";
 import { tempRepo, withHome } from "../helpers.ts";
 import { fakeDeps } from "./helpers.ts";
 
@@ -79,7 +79,7 @@ describe("a check the architect asks for (plan 47, spec D6)", () => {
   it("compares a failing full check with the base itself, once per base commit, and splits new from inherited", async () => {
     const r = await run();
     const deps = fakeDeps();
-    const cmd = "test -f new.txt && echo '(fail) new' ; echo '(fail) old'; exit 1";
+    const cmd = "if test -f new.txt; then echo '(fail) new'; fi; echo '(fail) old'; exit 1";
     const inherited = await runArchitectCheck(deps, r, check("C1", cmd), opts);
     expect(inherited).toMatchObject({
       verdict: "inherited",
@@ -109,11 +109,91 @@ describe("a check the architect asks for (plan 47, spec D6)", () => {
       check("C3", "echo '(fail) x'; exit 1", { scope: "fast" }),
       opts,
     );
-    expect(fast.verdict).toBe("unknown");
+    expect(fast.verdict).toBeUndefined();
     expect(db().query("SELECT check_id FROM checks WHERE base = 1 ORDER BY id").all()).toEqual([
       { check_id: "C1-base" },
       { check_id: "C2-base" },
     ]);
+  });
+
+  it("reads the failing lines from the whole output, not its tail (plan 52)", async () => {
+    const r = await run();
+    const deps = fakeDeps();
+    writeFileSync(join(r.meta.repo, "new.txt"), "x");
+    const cmd = "test -f new.txt && echo '(fail) new'; seq 1 1500; echo '(fail) old'; exit 1";
+    expect(await runArchitectCheck(deps, r, check("C1", cmd), opts)).toMatchObject({
+      verdict: "new",
+      failures: ["(fail) new", "(fail) old"],
+    });
+  });
+
+  it("calls a failure unknown when a leftover held the pipes open and the output was cut (plan 52)", async () => {
+    const r = await run();
+    const done = await runArchitectCheck(
+      fakeDeps(),
+      r,
+      check("C1", "(sleep 30 &); echo '(fail) old'; exit 1"),
+      opts,
+    );
+    expect(done).toMatchObject({ verdict: "unknown", failures: ["(fail) old"] });
+  });
+
+  it("is inherited only when the failing part of an && chain is the last, on both sides (plan 52)", async () => {
+    const r = await run();
+    const deps = fakeDeps();
+    const fail = "{ echo '(fail) old'; exit 1; }";
+    expect((await runArchitectCheck(deps, r, check("C1", `true && ${fail}`), opts)).verdict).toBe(
+      "inherited",
+    );
+    // an early part fails: the later ones never ran on either side
+    expect((await runArchitectCheck(deps, r, check("C2", `${fail} && true`), opts)).verdict).toBe("unknown");
+    // a || can run a later part after a failed one, so the marks say nothing
+    expect((await runArchitectCheck(deps, r, check("C3", `true && ${fail} || exit 1`), opts)).verdict).toBe(
+      "unknown",
+    );
+  });
+
+  it("does not run the base after a timeout, and never reuses a base result that timed out (plan 52)", async () => {
+    const r = await run();
+    const deps = fakeDeps();
+    const timed = await runArchitectCheck(deps, r, check("C1", "sleep 1"), { timeoutMs: 300 });
+    expect(timed).toMatchObject({ exit: null, verdict: "unknown" });
+    expect(db().query("SELECT check_id FROM checks WHERE base = 1").all()).toEqual([]);
+    const cut = await runArchitectCheck(deps, r, check("C2", "sleep 1", { base: true }), { timeoutMs: 300 });
+    expect(cut.exit).toBeNull();
+    const again = await runArchitectCheck(deps, r, check("C3", "sleep 1", { base: true }), opts);
+    expect(again).toMatchObject({ exit: 0, cached: false });
+  });
+
+  it("sets the base tree up like the run's tree, with the plan's Setup: (plan 52)", async () => {
+    const r = await run();
+    writeFileSync(runPaths(r.dir).plan, "# P\nSetup: echo ready > ready.txt\n");
+    writeFileSync(join(r.meta.repo, "ready.txt"), "x");
+    const done = await runArchitectCheck(
+      fakeDeps(),
+      r,
+      check("C1", "test -f ready.txt && echo '(fail) old'; exit 1"),
+      opts,
+    );
+    expect(done).toMatchObject({ verdict: "inherited", preExisting: ["(fail) old"] });
+  });
+
+  it("leaves the verdict unknown when the base's Setup: fails, and the outer check still lands (plan 52)", async () => {
+    const r = await run();
+    writeFileSync(runPaths(r.dir).plan, "# P\nSetup: exit 3\n");
+    const done = await runArchitectCheck(fakeDeps(), r, check("C1", "echo '(fail) old'; exit 1"), opts);
+    expect(done).toMatchObject({ verdict: "unknown", exit: 1 });
+  });
+
+  it("keeps different files apart in the failing lines (plan 52)", async () => {
+    const r = await run();
+    const done = await runArchitectCheck(
+      fakeDeps(),
+      r,
+      check("C1", `echo "(fail) $PWD/src/a.ts"; echo "(fail) $PWD/src/b.ts"; exit 1`, { scope: "fast" }),
+      opts,
+    );
+    expect(done.failures).toEqual(["(fail) src/a.ts", "(fail) src/b.ts"]);
   });
 
   it("gives each base check its own tree, and survives a stale registered one", async () => {

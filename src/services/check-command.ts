@@ -7,9 +7,6 @@ import { TAIL_LINES } from "./run-debug.ts";
 // Plan 50: how catherd runs a check command (the architect's checks, a run tree's Setup:, the scorecard), kept
 // from the 2.0 preflight, which is deleted.
 
-/** How many output lines a check keeps in full for its failure lines; past it, only the tail. */
-const ALLOW_LINES = 1_000;
-
 /** How long the pipes may stay open after the check's own process exits. */
 export const DRAIN_MS = 500;
 
@@ -45,7 +42,7 @@ export async function runCheck(
   check: string,
   timeoutMs: number,
   env: Record<string, string> = checkEnv(process.env, repo),
-): Promise<{ code: number | null; timedOut: boolean; tail: string[]; lines: string[] }> {
+): Promise<{ code: number | null; timedOut: boolean; tail: string[]; text: string; cut: boolean }> {
   const p = Bun.spawn(["sh", "-c", check], {
     cwd: repo,
     env,
@@ -70,10 +67,16 @@ export async function runCheck(
       Bun.sleep(DRAIN_MS).then(() => false),
     ]);
     if (!drained) killGroup(p.pid, "SIGKILL"); // leftovers still in the check's group
-    // every line, up to a bound, for the failing lines; the tail is what the report shows
+    // the whole output, for the failing lines; the tail is what the report shows. `cut`: a leftover held the pipes
+    // open, so what it wrote after the drain is lost
     const all = `${out.text()}${err.text()}`.split("\n").filter((l) => l.trim());
-    const lines = all.length <= ALLOW_LINES ? all : [];
-    return { code: timedOut ? null : code, timedOut, tail: all.slice(-TAIL_LINES), lines };
+    return {
+      code: timedOut ? null : code,
+      timedOut,
+      tail: all.slice(-TAIL_LINES),
+      text: all.join("\n"),
+      cut: !drained,
+    };
   } finally {
     clearTimeout(timer);
     out.stop();

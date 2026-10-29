@@ -287,3 +287,23 @@ export function coveredDir(item: string): string | null {
 export function andTail(command: string): string | null {
   return checkItems(command).slice(1).join(" && ") || null;
 }
+
+/**
+ * Plan 52: `command` with `mark` run after every top-level `&&` part but the last, so the marks that ran say which
+ * part failed (marks = parts - 1: the last part failed). `tracked` is false when the marks cannot be trusted: a `||`
+ * anywhere can run a later part after an earlier one failed.
+ */
+// shortcut: a `cd d && a && b` tail is one part (checkItems joins it), upgrade when a gate hides steps behind a cd
+export function markParts(
+  command: string,
+  mark: string,
+): { script: string; parts: number; tracked: boolean } {
+  let items: string[];
+  try {
+    items = checkItems(command);
+  } catch {
+    items = [command.trim()];
+  }
+  const tracked = items.length === 1 || !command.includes("||");
+  return { script: tracked ? items.join(` && ${mark} && `) : command, parts: items.length, tracked };
+}
