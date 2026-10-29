@@ -51,7 +51,7 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     };
     const brief = readFileSync(join(run.dir, "tasks", r.taskId, "brief.md"), "utf8");
     expect(brief).toStartWith("Verify A1.\n\ncatherd's record of the tests this run changed");
-    expect(brief).toContain("- removed test/pay.test.ts: keeps the currency");
+    expect(brief).toContain("- removed or renamed test/pay.test.ts: keeps the currency");
   });
 
   it("delegate_task writes the brief, appends task.delegated with the why, and returns at once", async () => {

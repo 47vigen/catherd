@@ -12,6 +12,9 @@ const lines = (s: string): string[] =>
     .map((l) => l.trim())
     .filter(Boolean);
 
+/** A snapshot or fixture file: it changes with its test, and says nothing a test name does not. */
+const DATA_FILE = /\.snap$|(^|\/)(__snapshots__|snapshots?|fixtures?|__fixtures__|testdata)\//i;
+
 async function out(tree: string, args: string[]): Promise<string> {
   const r = await git(tree, args, 60_000);
   if (r.kind !== "ok") throw new Error(`git ${args.join(" ")} failed`);
@@ -24,19 +27,27 @@ async function out(tree: string, args: string[]): Promise<string> {
  */
 export async function testChanges(tree: string, from: string, to?: string): Promise<TestChanges> {
   const range = [from, ...(to ? [to] : [])];
-  const diff = await out(tree, ["diff", "-U0", ...range]);
-  const removed = removedTests(diff);
-  const rewritten = lines(await out(tree, ["diff", "--numstat", "--diff-filter=M", ...range])).flatMap(
-    (l) => {
-      const [, minus, path] = l.split("\t");
-      const n = Number(minus);
-      return path && isTestPath(path) && n > 0 && !removed.some((r) => r.startsWith(`${path}: `))
-        ? [`${path} (-${n} line${n === 1 ? "" : "s"})`]
-        : [];
-    },
-  );
+  const diff = await out(tree, ["-c", "core.quotePath=false", "diff", "-U0", ...range]);
+  const deleted = lines(
+    await out(tree, ["-c", "core.quotePath=false", "diff", "--name-only", "--diff-filter=D", ...range]),
+  ).filter(isTestPath);
+  // a deleted file is listed as deleted; its cases are not removed ones
+  const removed = removedTests(diff).filter((r) => !deleted.some((p) => r.startsWith(`${p}: `)));
+  const rewritten = lines(
+    await out(tree, ["-c", "core.quotePath=false", "diff", "--numstat", "--diff-filter=M", ...range]),
+  ).flatMap((l) => {
+    const [, minus, path] = l.split("\t");
+    const n = Number(minus);
+    return path &&
+      isTestPath(path) &&
+      !DATA_FILE.test(path) &&
+      n > 0 &&
+      !removed.some((r) => r.startsWith(`${path}: `))
+      ? [`${path} (-${n} line${n === 1 ? "" : "s"})`]
+      : [];
+  });
   return {
-    deleted: lines(await out(tree, ["diff", "--name-only", "--diff-filter=D", ...range])).filter(isTestPath),
+    deleted,
     removed,
     rewritten,
     skipped: diff
