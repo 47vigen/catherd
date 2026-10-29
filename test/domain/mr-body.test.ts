@@ -146,19 +146,22 @@ describe("the merge request body (plan 50, spec D11)", () => {
     ]);
   });
 
-  it("counts a test name added anywhere in the diff as moved (plan 54)", () => {
+  it("counts a test name added in the same file as moved, never one added in another file (plan 54)", () => {
     const diff = [
       "diff --git a/a.test.ts b/a.test.ts",
       "--- a/a.test.ts",
       "+++ b/a.test.ts",
       '-it("moved", () => {',
-      '-it("gone", () => {',
+      '-it("x", () => {',
+      '+it("moved", () => {',
       "diff --git a/b.test.ts b/b.test.ts",
       "--- a/b.test.ts",
       "+++ b/b.test.ts",
-      '+it("moved", () => {',
+      '-it("x", () => {',
+      '+it("x", () => {',
+      '+it("y", () => {',
     ].join("\n");
-    expect(removedTests(diff)).toEqual(["a.test.ts: gone"]);
+    expect(removedTests(diff)).toEqual(["a.test.ts: x"]);
   });
 
   it("lists at most 20 removed tests and counts the rest, worded removed or renamed (plan 54)", () => {

@@ -99,18 +99,18 @@ const HEADER_LINE =
 
 /**
  * Plan 54: the test cases a `git diff -U0` removes from test files, as `<path>: <name>`: a declaration on a `-` line
- * whose name no `+` line of the diff declares again (a moved, renamed or edited test is not removed). The path is
+ * whose name no `+` line of the same file declares again (an edited or reordered test is not removed; one moved to
+ * another file shows as removed, which the wording allows). The path is
  * the `+++ b/` line's (`--- a/` for a deletion); run git with `core.quotePath=false`, a quoted path is skipped.
  */
 export function removedTests(diff: string): string[] {
-  const files = new Map<string, string[]>();
-  const plus = new Set<string>();
-  let cur = null as string[] | null;
+  const files = new Map<string, { minus: string[]; plus: Set<string> }>();
+  let cur = null as { minus: string[]; plus: Set<string> } | null;
   let header = false;
   let from: string | null = null;
   const open = (path: string | null) => {
     if (path === null || !isTestPath(path)) return;
-    cur = files.get(path) ?? [];
+    cur = files.get(path) ?? { minus: [], plus: new Set() };
     files.set(path, cur);
   };
   for (const line of diff.split("\n")) {
@@ -130,8 +130,8 @@ export function removedTests(diff: string): string[] {
     const m = TEST_NAME.exec(line.slice(1));
     const name = m?.[2] ?? m?.[3] ?? m?.[4];
     if (!name) continue;
-    if (line.startsWith("+")) plus.add(name);
-    else if (line.startsWith("-")) cur?.push(name);
+    if (line.startsWith("+")) cur?.plus.add(name);
+    else if (line.startsWith("-")) cur?.minus.push(name);
   }
-  return [...files].flatMap(([path, names]) => names.filter((n) => !plus.has(n)).map((n) => `${path}: ${n}`));
+  return [...files].flatMap(([path, f]) => f.minus.filter((n) => !f.plus.has(n)).map((n) => `${path}: ${n}`));
 }
