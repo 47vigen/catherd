@@ -114,6 +114,25 @@ describe("the run model of an architect run (plan 48, spec D4)", () => {
     expect(c.attempts[0]?.text).toContain("passed but for failures the base has too");
   });
 
+  it("draws a catherd fast check from its task, titled with it (plan 53)", () => {
+    const log = started();
+    delegate(log, "T1");
+    log.add("check.requested", {
+      checkId: "C1",
+      command: "bun test a",
+      scope: "fast",
+      base: false,
+      fresh: false,
+      by: "catherd",
+      why,
+      task: "T1",
+    });
+    const m = model(log);
+    expect(m.edges).toContainEqual({ from: "task/T1", to: "check/C1" });
+    expect(m.edges).not.toContainEqual({ from: "architect", to: "check/C1" });
+    expect(node(m, "check/C1").title).toBe("C1 fast check of T1");
+  });
+
   it("shows a fast check the run ended before it ran as cancelled, not queued (plan 53)", () => {
     const log = started();
     delegate(log, "T1");
