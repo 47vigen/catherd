@@ -10,7 +10,7 @@ import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import { RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
 import { type Action, type DispatchAction, unitOf } from "../domain/run-machine.ts";
-import { rungHeld, taskAttempts } from "../domain/architect-state.ts";
+import { fastCheckFor, rungHeld, taskAttempts } from "../domain/architect-state.ts";
 import type { RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
 import type { LockWait } from "../infra/heavy-lock.ts";
@@ -33,7 +33,7 @@ import { appendEvent, readEvents, replayRun, withEventsLock } from "./run-events
 import { runProfile } from "./run-pin.ts";
 import { readRecords, type Run } from "./run-store.ts";
 import { refreshState } from "./state.ts";
-import { teamLast } from "./team.ts";
+import { teamLast, teamSend } from "./team.ts";
 
 /**
  * What carries the reducer's actions out. `run` appends the events the action produces (a long one when it is
@@ -178,8 +178,25 @@ export function realEffects(deps: Deps, run: Run): Effects {
       const record = await finalizeDispatch(run, d);
       // under the lock: a settle of an earlier daemon in this process may still be running, and the second is a no-op
       const ended = await withEventsLock(run, (add) => {
-        if (replayRun(run).dispatches[id]?.ended) return false;
+        const s = replayRun(run);
+        if (s.dispatches[id]?.ended) return false;
         add(endedEvent(run, record, unit), at());
+        // spec D6: a task that ended complete gets its fast check at once; nothing waits on it
+        const fast = fastCheckFor(s, record);
+        if (fast)
+          add(
+            {
+              type: "check.requested",
+              ...fast,
+              scope: "fast",
+              base: false,
+              fresh: false,
+              by: "catherd",
+              why: `${record.name} ended complete: its fast check`,
+              task: record.name,
+            },
+            at(),
+          );
         return true;
       });
       if (!ended) return;
@@ -339,12 +356,21 @@ export function realEffects(deps: Deps, run: Run): Effects {
       case "runCheck": {
         const c = s.arch.checks[a.checkId];
         if (!c) throw new Error(`no check ${a.checkId} was asked for`);
-        return void (await append(
-          await runArchitectCheck(deps, run, c, {
-            timeoutMs: effectLimits.checkMs,
-            onWait: waitingOnce(a.checkId),
-          }),
-        ));
+        const done = await runArchitectCheck(deps, run, c, {
+          timeoutMs: effectLimits.checkMs,
+          onWait: waitingOnce(a.checkId),
+        });
+        await append(done);
+        // plan 53: a task's red fast check is news for every writer on the shared tree
+        if (c.task && done.exit !== 0)
+          await teamSend({
+            run: run.id,
+            from: "catherd",
+            to: "all",
+            mode: "queue",
+            text: `the fast check of ${c.task} (\`${c.command}\`) failed on the run's tree (exit ${done.exit ?? "timeout"}): ${done.failures.slice(0, 3).join("; ") || "no failing line read"}; log ${done.logPath}`,
+          }).catch((e) => log("warn", "daemon", { run: run.id, check: a.checkId, team: errorMessage(e) }));
+        return;
       }
       case "land": {
         const l = s.arch.lands[a.landId];

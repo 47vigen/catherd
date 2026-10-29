@@ -7,6 +7,7 @@ import {
   crossFamilyRung,
   isStanding,
   ladderRung,
+  nextCheckId,
   unheldRung,
   REVIEW_ROUNDS,
   reviewRounds,
@@ -447,7 +448,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
     },
   ),
   check: spec(
-    "Run a check command on the run's tree as it stands (base: true, on the run's start commit) under the machine's heavy lock. It returns at once with the check id; the result wakes you. A pass on an unchanged tree is reused unless fresh: true; nothing is rerun on its own. A failing full check is compared with the same command on the base (catherd runs it, once per base commit): failures all inherited count as passing for the verifier and land final.",
+    "Run a check command on the run's tree as it stands (base: true, on the run's start commit) under the machine's heavy lock. It returns at once with the check id; the result wakes you. A pass on an unchanged tree is reused unless fresh: true; nothing is rerun on its own. A failing full check is compared with the same command on the base (catherd runs it, once per base commit): failures all inherited count as passing for the verifier and land final. A task's fast check streams by itself when the task ends complete (delegate_task's check): call check for the integrated product, scope full once before land final.",
     {
       command: z.string().min(1),
       scope: z.enum(["fast", "full"]).optional(),
@@ -458,7 +459,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
     false,
     async (c, a) => {
       const checkId = await withEventsLock(c.run, (add) => {
-        const id = `C${Object.keys(replayRun(c.run).arch?.checks ?? {}).length + 1}`;
+        const id = nextCheckId(replayRun(c.run).arch);
         add(
           {
             type: "check.requested",

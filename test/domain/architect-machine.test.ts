@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { architectNext } from "../../src/domain/architect-machine.ts";
-import { STANDING_CAP, WRITER_CAP } from "../../src/domain/architect-state.ts";
+import { fastCheckFor, STANDING_CAP, WRITER_CAP } from "../../src/domain/architect-state.ts";
 import type { Role } from "../../src/domain/roles.ts";
 import type { Action } from "../../src/domain/run-machine.ts";
 import { HOLD_MS } from "../../src/domain/run-state.ts";
@@ -327,6 +327,76 @@ describe("the architect engine's machine (plan 47, spec D1 and D4)", () => {
     const last = log.state().arch.inbox.at(-1)?.text;
     expect(last).toContain("C5 (fast)");
     expect(last).not.toContain("counts as passing");
+  });
+
+  it("gives a task that ended complete its fast check, never one that ended short, was cancelled or outlived the run (plan 53)", () => {
+    const log = architectRun();
+    const work = (taskId: string, check?: string) => {
+      log.add("task.delegated", {
+        taskId,
+        role: "worker",
+        rung: RUNG,
+        thread: null,
+        ledgerTask: null,
+        by: "architect-1",
+        why: "w",
+        ...(check ? { check } : {}),
+      });
+      startDispatch(log, { name: taskId, unit: taskId });
+    };
+    const ok = { status: "ok", replyStatus: "complete" };
+    work("T1", "bun test a");
+    work("T2");
+    expect(fastCheckFor(log.state(), { name: "T1", ...ok })).toEqual({
+      checkId: "C1",
+      command: "bun test a",
+    });
+    expect(fastCheckFor(log.state(), { name: "T1", status: "ok", replyStatus: "partial" })).toBeNull();
+    expect(fastCheckFor(log.state(), { name: "T1", status: "failed", replyStatus: null })).toBeNull();
+    expect(fastCheckFor(log.state(), { name: "T2", ...ok })).toBeNull();
+    // the id follows the checks the architect asked for
+    log.add("check.requested", {
+      checkId: "C1",
+      command: "bun test",
+      scope: "full",
+      base: false,
+      fresh: false,
+      by: "architect-1",
+      why: "w",
+    });
+    expect(fastCheckFor(log.state(), { name: "T1", ...ok })?.checkId).toBe("C2");
+    log.add("task.cancelled", { taskId: "T1", by: "architect-1", why: "w" });
+    work("T3", "bun test c");
+    log.add("run.finishing", { verdict: "done", why: "w", by: "architect-1" });
+    expect(fastCheckFor(log.state(), { name: "T3", ...ok })).toBeNull();
+  });
+
+  it("names the task a fast check ran for in its digest line (plan 53)", () => {
+    const log = architectRun();
+    log.add("check.requested", {
+      checkId: "C1",
+      command: "bun test a",
+      scope: "fast",
+      base: false,
+      fresh: false,
+      by: "catherd",
+      why: "T1 ended complete: its fast check",
+      task: "T1",
+    });
+    expect(after(log)).toContainEqual({ type: "runCheck", checkId: "C1" });
+    log.add("check.done", {
+      checkId: "C1",
+      exit: 1,
+      failures: ["(fail) a"],
+      preExisting: [],
+      cached: false,
+      minutes: 1,
+      logPath: "checks/C1.log",
+    });
+    expect(log.state().arch.inbox.at(-1)).toMatchObject({
+      text: expect.stringMatching(/^C1 \(fast check of T1\) failed \(exit 1\): 1 failing line\(s\)/),
+      wakes: true,
+    });
   });
 
   it("says a quota is held only while it is, and otherwise that the architect is back on its default rung", () => {

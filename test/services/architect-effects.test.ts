@@ -7,6 +7,7 @@ import { writeTextAtomic } from "../../src/infra/store.ts";
 import { taskBriefFile } from "../../src/services/architect-run.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import { readRecords } from "../../src/services/run-store.ts";
+import { teamMessages } from "../../src/services/team.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { snapshotEnv } from "../helpers.ts";
@@ -82,6 +83,62 @@ describe("an architect run on the real effects (plan 47, spec D1–D3)", () => {
     expect(report).toContain("Verdict: stopped — idle");
     expect(report).toContain("the wallet first");
     expect(readFileSync(join(run.dir, "ledger", "progress.md"), "utf8")).toStartWith("# Progress");
+  });
+
+  it("runs each task's fast check the moment it ends complete, wakes the architect with it, and posts a red one to the team (plan 53)", async () => {
+    const { run } = freshRun("wallet");
+    process.env.PATH = simPath();
+    Object.assign(process.env, withScenario({ reply: "Done.\nSTATUS: complete — ok" }).env);
+    const view = testView();
+    view.roles.architect = { enabled: true, access: "workspace-write", rungs: [SOL] };
+    await appendEvent(run, { type: "run.started", ...startedFields, repo: run.meta.repo, title: "wallet" });
+    for (const [taskId, check] of [
+      ["T1", "echo fast-ok"],
+      ["T2", "echo '(fail) wallet balance'; exit 1"],
+    ] as const) {
+      writeTextAtomic(join(run.dir, taskBriefFile(taskId)), `Write the ${taskId} part.`);
+      await appendEvent(run, {
+        type: "task.delegated",
+        taskId,
+        role: "worker",
+        rung: SOL,
+        thread: null,
+        ledgerTask: null,
+        by: "architect",
+        why: "w",
+        check,
+      });
+    }
+    const clock = { now: Date.now, sleep: () => new Promise<void>((r) => setImmediate(r)) };
+    expect(await runDaemon(fakeDeps({ view }), run.id, { clock })).toBe("ended");
+    const events = readEvents(run);
+    const asked = events.flatMap((e) => (e.type === "check.requested" ? [e] : []));
+    expect(asked.map((e) => [e.task, e.command, e.scope, e.by]).sort()).toEqual([
+      ["T1", "echo fast-ok", "fast", "catherd"],
+      ["T2", "echo '(fail) wallet balance'; exit 1", "fast", "catherd"],
+    ]);
+    // asked in the same write as the task's end: nothing waited in between
+    for (const e of asked) {
+      const end = events.find((x) => x.type === "dispatch.ended" && x.name === e.task);
+      expect(e.seq).toBe((end?.seq ?? 0) + 1);
+    }
+    const done = (task: string) =>
+      events.find(
+        (e) => e.type === "check.done" && e.checkId === asked.find((a) => a.task === task)?.checkId,
+      );
+    expect([done("T1"), done("T2")]).toMatchObject([
+      { exit: 0 },
+      { exit: 1, failures: ["(fail) wallet balance"] },
+    ]);
+    const briefs = readRecords(run)
+      .records.filter((r) => r.role === "architect")
+      .map((r) => readFileSync(join(run.dir, "roles", r.name, r.dispatchId, "brief.md"), "utf8"))
+      .join("\n");
+    expect(briefs).toMatch(/C\d \(fast check of T1\) passed/);
+    expect(briefs).toMatch(/C\d \(fast check of T2\) failed \(exit 1\)/);
+    expect(teamMessages(run)).toMatchObject([
+      { from: "catherd", to: "all", text: expect.stringContaining("the fast check of T2") },
+    ]);
   });
 
   it("the architect's rung follows a profile change when nothing is held", async () => {

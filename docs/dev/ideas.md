@@ -16,6 +16,22 @@ judge on the role's exact brief (plan 44). Since 2.0 the daemon runs all of it (
 
 ## 2.0 follow-ups
 
+### From plan 53 (streaming fast checks)
+
+Left out of plan 53 on purpose:
+
+- **A fast check runs on the shared run tree.** Another task's half-written work can turn it red, and catherd cannot
+  tell whose failure it is; the architect decides. Per-writer trees (spec D5) make it the task's own work on top of
+  the integration branch, and a red one then goes back to the writer's thread by itself.
+- **No `check {ref}` yet.** A check on a commit in its own tree waits for D5's trees; until then a full check is proof
+  only for a tree no writer changed while it ran, and the architect is told to start it when no writer runs.
+- **The verifier still waits for the full check.** Land final needs both green on one commit, so the verifier could
+  run beside the full check and save one serial check per land; spec D8 has it read the full check's result first.
+  Measure the check wait on stage 2 before changing D8.
+- **A red notice goes to every role.** Narrow it to the running writers if it shows up as noise in their replies.
+- **A fast check is not rerun when a sibling ends.** A fast check that went red on a sibling's half-written work stays
+  red until the architect asks again.
+
 ### From plan 52 (stage-1 fixes)
 
 Left out of plan 52 on purpose:

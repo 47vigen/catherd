@@ -225,6 +225,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     fresh: z.boolean(),
     by: z.string(),
     why: z.string(),
+    /** plan 53, spec D6: the task whose end catherd ran this fast check for */
+    task: z.string().optional(),
   }),
   ev("check.done", {
     checkId: z.string(),
