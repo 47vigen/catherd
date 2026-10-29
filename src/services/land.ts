@@ -250,6 +250,14 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
     const events = readEvents(run);
     const tasks = ledgerTasks(run);
     const proof = greenFull(run, sha);
+    // an inherited line the architect logged as a known issue too is listed once
+    const logged = knownIssues(replayRun(run).arch, tasks);
+    const issues = [
+      ...logged,
+      ...(proof?.failures ?? [])
+        .filter((f) => !logged.some((k) => k.includes(f)))
+        .map((f) => `inherited from the base (\`${proof?.command}\`): ${f}`),
+    ];
     const body = mrBody({
       title: run.meta.title,
       aLines: run.meta.aLines,
@@ -258,10 +266,7 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
       audit: events
         .filter((e) => WHY_EVENTS.has(e.type) || (e.type === "question.parked" && e.why))
         .map((e) => describeEvent(e)),
-      knownIssues: [
-        ...knownIssues(replayRun(run).arch, tasks),
-        ...(proof?.failures ?? []).map((f) => `inherited from the base (\`${proof?.command}\`): ${f}`),
-      ],
+      knownIssues: issues,
       tests: {
         deleted: lines(await out(tree, ["diff", "--name-only", "--diff-filter=D", mb, "HEAD"])).filter(
           isTestPath,
