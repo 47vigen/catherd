@@ -329,7 +329,7 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
     case "check.requested":
       return `${e.by} asked for check ${e.checkId} (${e.scope}${e.base ? ", base" : ""}): ${one(e.why)}`;
     case "check.done":
-      return `check ${e.checkId} ${e.exit === 0 ? "passed" : `failed (exit ${e.exit ?? "timeout"})`}${e.cached ? " (cached)" : ""}`;
+      return `check ${e.checkId} ${e.exit === 0 ? "passed" : e.verdict === "inherited" ? `passed but for failures the base has too (exit ${e.exit})` : `failed (exit ${e.exit ?? "timeout"})`}${e.cached ? " (cached)" : ""}`;
     case "land.requested":
       return `${e.by} asked to land${e.final ? " (final)" : ""} ${e.landId}: ${one(e.why)}`;
     case "land.started":

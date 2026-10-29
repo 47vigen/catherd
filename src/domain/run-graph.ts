@@ -271,9 +271,10 @@ export function deriveRunModel(i: {
       push(`check/${e.checkId}`, {
         id: `check:${e.seq}`,
         kind: "check",
-        label: e.cached ? "cached pass" : "run",
+        label: e.cached ? "cached pass" : e.verdict === "inherited" ? "passed (inherited failures)" : "run",
         round: null,
-        status: e.exit === 0 ? "done" : "failed",
+        // an inherited failure counts as passing for land final (plan 52)
+        status: e.exit === 0 || e.verdict === "inherited" ? "done" : "failed",
         at: new Date(Date.parse(e.at) - e.minutes * 60_000).toISOString(),
         endedAt: e.at,
         dispatchId: null,
