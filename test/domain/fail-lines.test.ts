@@ -264,6 +264,16 @@ describe("failure normalization", () => {
     expect(checkFailLines(a)).toEqual(checkFailLines(b));
     expect(failLines.normalizeFailLine(a)).toBe("FAIL <role> <run> <tmp> port <port>");
   });
+  it("keeps the repo-relative path, stripping only the tree's own absolute prefix (plan 52)", () => {
+    const roots = ["/runs/a/tree"];
+    expect(failLines.normalizeFailLine("FAIL /runs/a/tree/src/a.test.ts", roots)).toBe("FAIL src/a.test.ts");
+    expect(checkFailLines("(fail) /runs/a/tree/src/a.ts\n(fail) /runs/a/tree/src/b.ts", roots)).toEqual([
+      "(fail) src/a.ts",
+      "(fail) src/b.ts",
+    ]);
+    expect(checkFailLines("(fail) /runs/b/base/src/a.ts", ["/runs/b/base"])).toEqual(["(fail) src/a.ts"]);
+    expect(checkFailLines("(fail) /usr/lib/x.so", roots)).toEqual(["(fail) <path>"]);
+  });
   it("normalizes absolute paths and address ports without hiding distinct failures", () => {
     expect(failLines.normalizeFailLine("error: worker-M1.L1 /workspace/one/a.ts 127.0.0.1:41234")).toBe(
       "error: <role> <path> 127.0.0.1:<port>",
@@ -289,5 +299,24 @@ describe("plan 52: a failing check against the same command on the base", () => 
     expect(checkVerdict(null, ["(fail) a"], base(1, ["(fail) a"]))).toBe("unknown");
     expect(checkVerdict(2, [], base(2, []))).toBe("unknown");
     expect(checkVerdict(2, [], base(0, []))).toBe("new");
+  });
+  it("is unknown when the exit codes differ, even when every line is on the base (plan 52)", () => {
+    expect(checkVerdict(1, ["(fail) a"], base(2, ["(fail) a"]))).toBe("unknown");
+    expect(checkVerdict(2, ["(fail) a"], base(2, ["(fail) a"]))).toBe("inherited");
+  });
+  it("is unknown when a side cannot be compared: cut output, or a part other than the last failing", () => {
+    expect(checkVerdict(1, ["(fail) a"], { ...base(1, ["(fail) a"]), comparable: false })).toBe("unknown");
+    expect(checkVerdict(1, ["(fail) a"], base(1, ["(fail) a"]), { comparable: false })).toBe("unknown");
+    expect(checkVerdict(1, ["(fail) a", "(fail) c"], base(1, ["(fail) a"]), { comparable: false })).toBe(
+      "new",
+    );
+  });
+  it("is unknown when a failing line only names a file or a package, which cannot tell a new test", () => {
+    for (const line of ["FAIL src/a.test.ts", "FAIL\tgithub.com/x/y", "FAIL", "FAIL ./pkg [build failed]"])
+      expect(checkVerdict(1, [line, "(fail) a"], base(1, [line, "(fail) a"]))).toBe("unknown");
+    expect(checkVerdict(1, ["FAIL src/a.test.ts > adds"], base(1, ["FAIL src/a.test.ts > adds"]))).toBe(
+      "inherited",
+    );
+    expect(checkVerdict(1, ["--- FAIL: TestX"], base(1, ["--- FAIL: TestX"]))).toBe("inherited");
   });
 });

@@ -5,10 +5,17 @@ const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 export const FAIL_DISPLAY_CAP = 60;
 
-/** Replace run-specific details before comparing failures across checks. */
-export function normalizeFailLine(line: string): string {
-  return line
-    .replace(ANSI, "")
+/**
+ * Replace run-specific details before comparing failures across checks. A path under one of `roots` (the trees the
+ * check ran in) keeps its repo-relative part, so two different files never collapse to one `<path>`.
+ */
+export function normalizeFailLine(line: string, roots: readonly string[] = []): string {
+  let out = line.replace(ANSI, "");
+  for (const root of [...roots].sort((a, b) => b.length - a.length)) {
+    const dir = root.replace(/\/+$/, "");
+    if (dir) out = out.split(`${dir}/`).join("");
+  }
+  return out
     .replace(/\s*[[(]\s*\d+(\.\d+)?\s*(ms|s|m)\s*[\])]/g, "")
     .replace(/\b\d+(\.\d+)?(ms|s)\b/g, "")
     .replace(
@@ -29,10 +36,10 @@ export const PASS_LINE = /^(?:(?!FAIL\b)\S+ \S+:\s*)?(?:\(pass\)|[✓✔√]|ok\
  * The lines of a check's output that name a failure, stripped of colour, timings and counters so two runs compare
  * equal: every distinct failure, at most 300 characters per line. A passing line never counts.
  */
-export function checkFailLines(out: string): string[] {
+export function checkFailLines(out: string, roots: readonly string[] = []): string[] {
   const seen = new Set<string>();
   for (const raw of out.split("\n")) {
-    const line = normalizeFailLine(raw);
+    const line = normalizeFailLine(raw, roots);
     const vuln = line.match(/^Vulnerability #\d+: (GO-\d{4}-\d+)/)?.[1];
     if (vuln) seen.add(`vulnerability ${vuln}`);
     else if (PASS_LINE.test(line)) continue;
@@ -82,21 +89,28 @@ export const newFails = (fails: string[], base: string[] | null): string[] =>
 /** Plan 52: a check's result against the same command on the base. */
 export type CheckVerdict = "pass" | "inherited" | "new" | "unknown";
 
+/** A failing line that names only a file or a package (jest `FAIL path`, Go `FAIL\tpkg`, a bare `FAIL`). */
+const FILE_LEVEL = /^FAIL(\s+\S+)?(\s+\[[^\]]*\])?$/;
+
 /**
- * Plan 52: `inherited` when the base fails every line this check fails (it counts as passing), `new` when a line is
- * not on the base or the base passed, `unknown` with no base result, on a timeout, or when no failing line could be
- * read and the base failed too (an exit code alone proves nothing).
+ * Plan 52: `inherited` when the base fails every line this check fails, with the same exit, on sides that can be
+ * compared (`comparable: false`: output cut, or a part before the last of an `&&` chain failed) and with no line
+ * that names only a file or package. `new` when a line is not on the base or the base passed. `unknown` with no
+ * base result, on a timeout, with no line to read, or when any of the above says the sets cannot be compared.
  */
 export function checkVerdict(
   exit: number | null,
   failures: readonly string[],
-  base: { exit: number | null; failures: readonly string[] } | null,
+  base: { exit: number | null; failures: readonly string[]; comparable?: boolean } | null,
+  o: { comparable?: boolean } = {},
 ): CheckVerdict {
   if (exit === 0) return "pass";
   if (base === null || exit === null) return "unknown";
   if (base.exit === 0) return "new";
   if (failures.length === 0) return "unknown";
-  return failures.every((f) => base.failures.includes(f)) ? "inherited" : "new";
+  if (!failures.every((f) => base.failures.includes(f))) return "new";
+  const same = base.exit === exit && base.comparable !== false && o.comparable !== false;
+  return same && !failures.some((f) => FILE_LEVEL.test(f)) ? "inherited" : "unknown";
 }
 
 /** A part that is exactly `cd <dir>`: the shell runs every part after it in that folder. */
