@@ -11,6 +11,8 @@ import { killGroup } from "../../src/infra/proc.ts";
 import { exited, snapshotEnv, withHome } from "../helpers.ts";
 import { waitFor } from "../services/helpers.ts";
 
+// plan 52: as the preload does; this file's spawned `catherd lock` must not see the lock its own suite runs under
+delete process.env.CATHERD_LOCK_HELD;
 afterEach(snapshotEnv());
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli.ts");
