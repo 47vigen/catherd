@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { db } from "../../src/infra/db.ts";
+import { db, ensureRunRow, insertCheck } from "../../src/infra/db.ts";
 import { realEffects } from "../../src/services/run-effects.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
@@ -81,5 +81,53 @@ describe("catherd's fast check and the end of the run (plan 53 review)", () => {
     await check;
     expect(readEvents(run).at(-1)).toMatchObject({ type: "check.done", checkId: "C1", exit: 1 });
     expect(teamMessages(run)).toEqual([]);
+  });
+
+  it("posts a red result to the team only when a failure is new, not when the base has them all", async () => {
+    const run = await started();
+    const d = db();
+    ensureRunRow(d, run);
+    const old = "echo '(fail) old'; exit 1";
+    insertCheck(d, run.id, {
+      checkId: "B1",
+      scope: "full",
+      ref: "abc",
+      tree: null,
+      command: old,
+      base: true,
+      exit: 1,
+      failures: ["(fail) old"],
+      minutes: 0,
+      cached: false,
+      at: new Date().toISOString(),
+      verdict: null,
+    });
+    const effects = realEffects(fakeDeps(), run);
+    await fast(run, "C1", old);
+    await effects.run({ type: "runCheck", checkId: "C1" }, replayRun(run));
+    expect(readEvents(run).at(-1)).toMatchObject({
+      type: "check.done",
+      checkId: "C1",
+      preExisting: ["(fail) old"],
+    });
+    expect(teamMessages(run)).toEqual([]);
+    const mixed = "echo '(fail) old'; echo '(fail) new'; exit 1";
+    insertCheck(d, run.id, {
+      checkId: "B2",
+      scope: "full",
+      ref: "abc",
+      tree: null,
+      command: mixed,
+      base: true,
+      exit: 1,
+      failures: ["(fail) old"],
+      minutes: 0,
+      cached: false,
+      at: new Date().toISOString(),
+      verdict: null,
+    });
+    await fast(run, "C2", mixed);
+    await effects.run({ type: "runCheck", checkId: "C2" }, replayRun(run));
+    expect(teamMessages(run)).toMatchObject([{ text: expect.stringContaining("the fast check of T1") }]);
   });
 });

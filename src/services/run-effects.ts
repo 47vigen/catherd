@@ -381,9 +381,10 @@ export function realEffects(deps: Deps, run: Run): Effects {
         });
         if (!recorded || done.exit === 0) return;
         // plan 53: a task's red fast check is news for every writer on the shared tree, unless the run is already
-        // stopping
+        // stopping, or the base is red the same way (a timeout names no line and is news)
         const now = replayRun(run);
         if (now.phase === "ended" || now.cancelling || now.arch.finishing) return;
+        if (done.failures.length > 0 && done.failures.every((f) => done.preExisting.includes(f))) return;
         await teamSend({
           run: run.id,
           from: "catherd",
