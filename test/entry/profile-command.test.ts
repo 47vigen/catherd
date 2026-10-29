@@ -37,6 +37,12 @@ describe("catherd profile show", () => {
     expect(r.out).toContain("harness codex native · claude-code native · opencode native\n");
   });
 
+  it("profile set's help says fastCheck takes a quoted command (plan 53)", () => {
+    withHome();
+    const r = catherd(["set", "--help"]);
+    expect(r.out).toContain('fastCheck "<command>"');
+  });
+
   it("profile show prints who merges", () => {
     withHome();
     expect(catherd(["show"]).out).toContain("\nland asks you to merge each landed milestone\n");
