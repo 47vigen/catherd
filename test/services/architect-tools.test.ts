@@ -7,6 +7,7 @@ import { ledgerTasks } from "../../src/services/ledger-store.ts";
 import { appendEvent, readEvents, replayRun, withEventsLock } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
 import { claimRunTree } from "../../src/services/run-tree.ts";
+import { git } from "../../src/infra/git.ts";
 import { endDispatch, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { commitInClone, snapshotEnv } from "../helpers.ts";
 import { branchRun, fakeDeps, freshRun, insertEarlier, testView } from "./helpers.ts";
@@ -483,6 +484,35 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     const old = freshRun().run;
     insertEarlier(old);
     await expect(call(old, "capabilities", {})).rejects.toMatchObject({ code: "E_ROLE_SCOPE" });
+  });
+  it("check takes a ref: a commit resolved to its sha, or a task with an unmerged tree of its own (plan 55)", async () => {
+    const { run } = branchRun();
+    const { tree } = await claimRunTree(deps, run);
+    await appendEvent(run, { type: "run.started", ...startedFields, base: "main", trees: "writer" });
+    const head = await git(tree, ["rev-parse", "HEAD"]);
+    const sha = head.kind === "ok" ? head.out.trim() : "";
+    const ask = (ref: string, extra: object = {}) =>
+      call(run, "check", { command: "bun test", scope: "full", ref, why: "w", ...extra });
+    expect(await ask("HEAD")).toEqual({ checkId: "C1", ref: sha });
+    expect(last(run)).toMatchObject({ type: "check.requested", ref: sha });
+    for (const [ref, extra] of [
+      ["no-such-ref", {}],
+      ["T1", {}],
+      ["HEAD", { base: true }],
+    ] as const)
+      await expect(ask(ref, extra)).rejects.toMatchObject({ code: "E_INPUT_INVALID" });
+    await appendEvent(run, {
+      type: "task.delegated",
+      taskId: "T1",
+      role: "worker",
+      rung: "codex:gpt-6-luna#high",
+      thread: null,
+      ledgerTask: null,
+      by: "architect-1",
+      why: "w",
+      tree: "T1",
+    });
+    expect(await ask("T1")).toEqual({ checkId: "C2", ref: "T1" });
   });
 });
 

@@ -286,3 +286,34 @@ describe("a check the architect asks for (plan 47, spec D6)", () => {
     expect(ref("C2")).toBe("worktree");
   });
 });
+
+describe("a check on a ref (plan 55, spec D3 and D5)", () => {
+  it("checks a commit in a tree of its own, names it as the result's ref, and reuses a pass on it", async () => {
+    const r = await run();
+    const deps = fakeDeps();
+    const sha = (await git(r.meta.repo, ["rev-parse", "HEAD"])) as { out: string };
+    writeFileSync(join(r.meta.repo, "dirty.txt"), "a writer's half-done work");
+    const cmd = "test ! -f dirty.txt";
+    const done = await runArchitectCheck(deps, r, check("C1", cmd, { ref: sha.out.trim() }), opts);
+    expect(done).toMatchObject({ exit: 0, cached: false });
+    expect(db().query("SELECT ref, tree FROM checks WHERE check_id = 'C1'").get()).toEqual({
+      ref: sha.out.trim(),
+      tree: sha.out.trim(),
+    });
+    expect((await runArchitectCheck(deps, r, check("C2", cmd, { ref: sha.out.trim() }), opts)).cached).toBe(
+      true,
+    );
+    // the run's tree as it stands has the dirty file
+    expect((await runArchitectCheck(deps, r, check("C3", cmd), opts)).exit).toBe(1);
+    expect(existsSync(join(r.dir, "checks", `ref-${sha.out.trim().slice(0, 12)}-C1`))).toBe(false);
+  });
+
+  it("refuses a task ref with no tree of its own", async () => {
+    const r = await run();
+    await expect(
+      runArchitectCheck(fakeDeps(), r, check("C1", "true", { ref: "T3" }), opts),
+    ).rejects.toMatchObject({
+      code: "E_INPUT_INVALID",
+    });
+  });
+});

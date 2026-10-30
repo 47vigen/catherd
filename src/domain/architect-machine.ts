@@ -92,7 +92,8 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
   const pending =
     queuedMerges.length > 0 || Object.values(a.checks).some((c) => c.task && c.state === "queued");
   for (const c of Object.values(a.checks))
-    if (c.state === "queued" && !(pending && c.scope === "full"))
+    // a check on a commit or a task's tree does not read the run's tree
+    if (c.state === "queued" && !(pending && c.scope === "full" && !c.ref))
       out.push({ type: "runCheck", checkId: c.checkId });
   // spec D5: merges into the run's branch go one at a time, in the order they were asked for
   const merge = queuedMerges[0];

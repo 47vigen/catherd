@@ -314,6 +314,27 @@ async function reviewSnapshot(run: Run, weak = false): Promise<string | null> {
   return head.kind === "ok" ? head.out.trim() || null : null;
 }
 
+/** Plan 55, spec D3: a check's ref as the event keeps it: a task with its own tree, or a commit's full sha. */
+async function checkRef(c: ToolContext, ref: string, base: boolean): Promise<string> {
+  if (base) throw invalid("base checks the run's base commit, not a ref", "omit ref or base");
+  if (/^T\d+$/.test(ref)) {
+    const t = taskOf(c, replayRun(c.run), ref);
+    if (!t.tree || t.merged)
+      throw invalid(`${ref} has no unmerged tree of its own`, "check its merged commit, or the run's tree");
+    return ref;
+  }
+  let tree: string;
+  try {
+    tree = runTree(c.run);
+  } catch (e) {
+    throw invalid(`the run has no tree to resolve ${ref} in: ${(e as Error).message}`, "check without ref");
+  }
+  const r = await git(tree, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+  const sha = r.kind === "ok" ? r.out.trim() : "";
+  if (!sha) throw invalid(`${ref} names no commit`, "give a sha, a branch or a checkpoint ref");
+  return sha;
+}
+
 /** Appends one event under the events lock. */
 const append = (c: ToolContext, e: RunEventInput): Promise<unknown> =>
   withEventsLock(c.run, (add) => add(e, at(c)));
@@ -538,16 +559,24 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
     },
   ),
   check: spec(
-    "Run a check command on the run's tree as it stands (base: true, on the run's start commit) under the machine's heavy lock. It returns at once with the check id; the result wakes you. A pass on an unchanged tree is reused unless fresh: true; nothing is rerun on its own. A failing full check is compared with the same command on the base (catherd runs it, once per base commit): failures all inherited count as passing for the verifier and land final. A task's fast check streams by itself when the task ends complete (delegate_task's check): call check for the integrated product, scope full once before land final.",
+    "Run a check command on the run's tree as it stands (base: true, on the run's start commit) under the machine's heavy lock. It returns at once with the check id; the result wakes you. A pass on an unchanged tree is reused unless fresh: true; nothing is rerun on its own. A failing full check is compared with the same command on the base (catherd runs it, once per base commit): failures all inherited count as passing for the verifier and land final. A task's fast check streams by itself when the task ends complete (delegate_task's check): call check for the integrated product, scope full once before land final. ref checks a commit apart (no writer changes it while it runs) or a task's own tree.",
     {
       command: z.string().min(1),
       scope: z.enum(["fast", "full"]).optional(),
       base: z.boolean().optional(),
       fresh: z.boolean().optional(),
+      ref: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "what to check instead of the run's tree as it stands: a commit (a sha or a ref, checked out apart, so no writer's work changes it while it runs) or a task id (that task's own tree)",
+        ),
       why,
     },
     false,
     async (c, a) => {
+      const ref = a.ref === undefined ? undefined : await checkRef(c, a.ref, a.base ?? false);
       const checkId = await withEventsLock(c.run, (add) => {
         const id = nextCheckId(replayRun(c.run).arch);
         add(
@@ -560,12 +589,13 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
             fresh: a.fresh ?? false,
             by: c.caller.name,
             why: a.why,
+            ...(ref ? { ref } : {}),
           },
           at(c),
         );
         return id;
       });
-      return { checkId };
+      return { checkId, ...(ref ? { ref } : {}) };
     },
   ),
   ledger: spec(

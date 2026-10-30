@@ -252,6 +252,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     why: z.string(),
     /** plan 53, spec D6: the task whose end catherd ran this fast check for */
     task: z.string().optional(),
+    /** plan 55, spec D3: what it checks: a commit (a full sha, in a detached tree) or a task id (its own tree) */
+    ref: z.string().optional(),
   }),
   ev("check.done", {
     checkId: z.string(),

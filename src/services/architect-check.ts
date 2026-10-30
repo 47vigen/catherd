@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ArchCheck } from "../domain/architect-state.ts";
+import { type ArchCheck, isTaskRef } from "../domain/architect-state.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { checkFailLines, checkVerdict, markParts, newFails } from "../domain/fail-lines.ts";
 import type { RunEventInput } from "../domain/run-events.ts";
@@ -13,7 +13,8 @@ import { checkEnvFor, runCheck } from "./check-command.ts";
 import { runProfile } from "./run-pin.ts";
 import type { Run } from "./run-store.ts";
 import { setUp } from "./run-tree.ts";
-import { runTree } from "./tree-path.ts";
+import { replayRun } from "./run-events-store.ts";
+import { runTree, taskTreeDir } from "./tree-path.ts";
 
 type CheckDone = Extract<RunEventInput, { type: "check.done" }>;
 
@@ -32,6 +33,7 @@ const NOT_COMPARABLE = "unknown";
  * a rerun.
  */
 function cachedRow(run: Run, c: ArchCheck, key: string | null): Row | null {
+  // a commit's pass is keyed by its sha, as a tree's is by its identity
   if (key === null || c.fresh) return null;
   const sql = c.base
     ? "SELECT check_id, exit, failures, verdict FROM checks WHERE run_id = ? AND command = ? AND base = 1 AND ref = ? AND exit IS NOT NULL ORDER BY id DESC LIMIT 1"
@@ -61,6 +63,17 @@ export async function baseSha(run: Run, tree: string): Promise<string | null> {
   if (!run.meta.base) return run.meta.startHead ?? null;
   const r = await git(tree, ["merge-base", "HEAD", `origin/${run.meta.base}`]);
   return r.kind === "ok" ? r.out.trim() || null : null;
+}
+
+/** Plan 55: where a check with `ref` runs: a task's own tree, or null for a commit (a detached tree). */
+function refTree(run: Run, ref: string): string | null {
+  if (!isTaskRef(ref)) return null;
+  const owner = replayRun(run).arch.tasks[ref]?.tree;
+  if (!owner)
+    throw new CatherdError("E_INPUT_INVALID", `${ref} has no tree of its own to check`, {
+      fix: "check a commit, or the run's tree",
+    });
+  return taskTreeDir(run, owner);
 }
 
 /** HEAD's full sha when the tree has nothing uncommitted, else null: a check result then names it (spec D11). */
@@ -118,14 +131,17 @@ async function execute(
   o: { timeoutMs: number; onWait?: (w: LockWait | null) => void; signal?: AbortSignal },
 ): Promise<{ done: CheckDone; comparable: boolean }> {
   const logPath = `checks/${c.checkId}.log`;
-  const repo = runTree(run);
-  const sha = c.base ? await baseSha(run, repo) : null;
+  // plan 55: a task id checks that task's tree; a commit is checked out detached, as the base is
+  const commit = c.ref && !c.base && !isTaskRef(c.ref) ? c.ref : null;
+  const repo = (c.ref && !c.base ? refTree(run, c.ref) : null) ?? runTree(run);
+  const sha = c.base ? await baseSha(run, repo) : commit;
+  const detached = sha !== null;
   if (c.base && !sha)
     throw new CatherdError("E_INPUT_INVALID", `run ${run.id} recorded no start commit to check the base on`, {
       fix: "check without base",
     });
-  const state = c.base ? null : await treeState(repo);
-  const key = c.base ? sha : (state?.id ?? null);
+  const state = detached ? null : await treeState(repo);
+  const key = detached ? sha : (state?.id ?? null);
   const at = new Date(deps.now()).toISOString();
   const hit = cachedRow(run, c, key);
   let exit: number | null;
@@ -134,7 +150,7 @@ async function execute(
   let minutes = 0;
   let before: { id: string | null; head: string | null } | null = null;
   let tree = key;
-  let head = state?.head ?? null;
+  let head = commit ?? state?.head ?? null;
   if (hit) {
     exit = hit.exit;
     failures = JSON.parse(hit.failures) as string[];
@@ -145,17 +161,20 @@ async function execute(
     else writeTextAtomic(join(run.dir, logPath), `(from ${hit.check_id}; its log is gone)\n`);
   } else {
     // the check id keeps concurrent base checks off each other's tree
-    const cwd = c.base ? join(run.dir, "checks", `base-${(sha as string).slice(0, 12)}-${c.checkId}`) : repo;
-    if (c.base) {
+    const cwd = detached
+      ? join(run.dir, "checks", `${c.base ? "base" : "ref"}-${(sha as string).slice(0, 12)}-${c.checkId}`)
+      : repo;
+    if (detached) {
       rmSync(cwd, { recursive: true, force: true });
       // a registered tree whose directory is gone would fail every later add
       await git(run.meta.repo, ["worktree", "prune"]);
       const added = await git(run.meta.repo, ["worktree", "add", "--detach", cwd, sha as string]);
-      if (added.kind !== "ok") throw new Error(`could not check out the base ${sha}: ${added.kind}`);
+      if (added.kind !== "ok")
+        throw new Error(`could not check out ${c.base ? "the base " : ""}${sha}: ${added.kind}`);
     }
     try {
       // the base tree is set up as the run's own tree is (submodules, the plan's Setup:), or it fails on missing deps
-      if (c.base) await setUp(deps, run, cwd);
+      if (detached) await setUp(deps, run, cwd);
       const env = await checkEnvFor(run.meta.repo);
       const started = Date.now();
       const { script, parts, tracked } = markParts(c.command, `printf . >>"$${PARTS_ENV}"`);
@@ -164,7 +183,7 @@ async function execute(
         heavySlots(runProfile(deps, run).heavy),
         async (_slot, tmp) => {
           // the tree as the check starts, after the wait for its slot
-          if (!c.base) before = await treeState(repo);
+          if (!detached) before = await treeState(repo);
           const partsFile = join(tmp, "catherd-parts");
           writeFileSync(partsFile, "");
           const done = await runCheck(
@@ -184,7 +203,7 @@ async function execute(
       minutes = (Date.now() - started) / 60_000;
       // a tree that changed while the check waited or ran is not the tree it passed on; the head is the one the
       // identity was taken with, never a later read
-      if (!c.base) {
+      if (!detached) {
         const b = before as { id: string | null; head: string | null } | null;
         tree = b?.id && b.id === (await worktreeIdentity(repo)) ? b.id : null;
         head = tree !== null ? (b?.head ?? null) : null;
@@ -195,13 +214,14 @@ async function execute(
       // a chain stopped at its last part only when every earlier part passed
       comparable = !r.cut && tracked && (parts <= 1 || marks === parts - 1);
     } finally {
-      if (c.base) await git(run.meta.repo, ["worktree", "remove", "--force", cwd]);
+      if (detached) await git(run.meta.repo, ["worktree", "remove", "--force", cwd]);
     }
   }
   let base: BaseResult | null = null;
   // a timeout proves nothing about the base, and a fast check compares with a base row that exists, as before
   if (!c.base && c.scope === "full" && exit !== 0 && exit !== null) {
-    const own = { ...c, checkId: `${c.checkId}-base`, base: true, fresh: false };
+    const { ref: _ref, ...plain } = c;
+    const own = { ...plain, checkId: `${c.checkId}-base`, base: true, fresh: false };
     // a base that cannot be checked (no start commit, a failed checkout or setup) leaves the verdict unknown
     base = await execute(deps, run, own, o).then(
       (b) => ({ exit: b.done.exit, failures: b.done.failures, comparable: b.comparable }),
@@ -217,7 +237,7 @@ async function execute(
     insertCheck(d, run.id, {
       checkId: c.checkId,
       scope: c.scope,
-      ref: c.base ? (sha as string) : tree !== null && head ? head : "worktree",
+      ref: detached ? (sha as string) : tree !== null && head ? head : "worktree",
       tree: c.base ? null : tree,
       command: c.command,
       base: c.base,

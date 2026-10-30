@@ -86,7 +86,12 @@ export interface ArchCheck {
   state: "queued" | "done";
   /** plan 53, spec D6: the task whose end catherd ran this fast check for; absent when the architect asked */
   task?: string;
+  /** plan 55: a commit's full sha (checked in a detached tree) or a task id (its own tree); absent: the run's tree */
+  ref?: string;
 }
+
+/** Plan 55: a check ref that names a task's tree rather than a commit. */
+export const isTaskRef = (ref: string): boolean => /^T\d+$/.test(ref);
 
 /** Plan 50, spec D11: a land the architect asked for. */
 export interface ArchLand {
@@ -681,6 +686,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         fresh: e.fresh,
         state: "queued",
         ...(e.task ? { task: e.task } : {}),
+        ...(e.ref ? { ref: e.ref } : {}),
       };
       a.idle = 0;
       return true;
@@ -704,7 +710,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       push(
         a,
         e,
-        `${e.checkId} (${c?.scope ?? "check"}${c?.task ? ` check of ${c.task}` : ""}${c?.base ? ", on the base" : ""}) ${result}${e.cached ? ", from a pass on the same tree" : ""}; log ${e.logPath}`,
+        `${e.checkId} (${c?.scope ?? "check"}${c?.task ? ` check of ${c.task}` : ""}${c?.base ? ", on the base" : ""}${c?.ref ? (isTaskRef(c.ref) ? `, in ${c.ref}'s tree` : `, on ${c.ref.slice(0, 12)}`) : ""}) ${result}${e.cached ? ", from a pass on the same tree" : ""}; log ${e.logPath}`,
       );
       return true;
     }

@@ -184,4 +184,39 @@ describe("writer trees in the architect's state (plan 55, spec D5)", () => {
       wakes: true,
     });
   });
+
+  it("runs a full check on a commit or a task's tree beside the merges, and names what it checked (plan 55)", () => {
+    const log = treesRun();
+    work(log, "T1", { tree: "T1" });
+    ask(log, "M1", "T1");
+    const full = (checkId: string, ref: string) =>
+      log.add("check.requested", {
+        checkId,
+        command: "bun test",
+        scope: "full",
+        base: false,
+        fresh: false,
+        by: "architect-1",
+        why: "w",
+        ref,
+      });
+    full("C1", "d".repeat(40));
+    full("C2", "T1");
+    expect(after(log)).toContainEqual({ type: "runCheck", checkId: "C1" });
+    expect(after(log)).toContainEqual({ type: "runCheck", checkId: "C2" });
+    const done = (checkId: string) =>
+      log.add("check.done", {
+        checkId,
+        exit: 0,
+        failures: [],
+        preExisting: [],
+        cached: false,
+        minutes: 1,
+        logPath: `checks/${checkId}.log`,
+      });
+    done("C1");
+    expect(log.state().arch.inbox.at(-1)?.text).toStartWith("C1 (full, on dddddddddddd) passed");
+    done("C2");
+    expect(log.state().arch.inbox.at(-1)?.text).toStartWith("C2 (full, in T1's tree) passed");
+  });
 });
