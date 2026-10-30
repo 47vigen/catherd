@@ -2,7 +2,6 @@ import { Button, Chip, cn } from "@heroui/react";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 
 import { flowGeometry, mergeIdle, tickStep } from "../../-lib/flow-view";
-import { formatCost } from "../../-lib/format";
 import { formatDuration } from "../../-lib/node-view";
 import type { FlowSelection, RunFlow, RunView } from "../../../../../client";
 
@@ -195,16 +194,6 @@ export function RunFlowView({
   });
   const positioned = rows.map((row, index) => ({ ...row, y: 32 + index * 36, height: 36 }));
   const y = 32 + rows.length * 36;
-  const m = run.metrics;
-  const stats = [
-    ["State", run.outcome ?? run.phase ?? "–"],
-    ["Wall time", m ? formatDuration(m.wallMin * 60) : "–"],
-    ["Idle", m ? `${Math.round(m.idlePct)}%` : "–"],
-    ["Concurrency", m ? m.concurrency.toFixed(2) : "–"],
-    ["Check share", m?.checkShare == null ? "–" : `${Math.round(m.checkShare * 100)}%`],
-    ["Review rounds", m ? String(m.rounds.total) : "–"],
-    ["Cost", m?.costUsd == null ? "–" : formatCost(m.costUsd)],
-  ];
   const step = tickStep((geometry.end - Date.parse(flow.startedAt)) / 1000, geometry.width);
   const ticks = Array.from(
     { length: Math.floor((geometry.end - Date.parse(flow.startedAt)) / 1000 / step) + 1 },
@@ -228,17 +217,6 @@ export function RunFlowView({
       aria-label="Run flow"
       className={cn("min-w-0 max-w-full", fill && "flex flex-1 flex-col overflow-y-auto pt-16")}
     >
-      <dl
-        aria-label="Run statistics"
-        className="border-border grid grid-cols-2 gap-x-5 gap-y-3 border-b px-4 py-4 sm:grid-cols-4 xl:grid-cols-7"
-      >
-        {stats.map(([label, value]) => (
-          <div key={label}>
-            <dt className="text-muted text-xs">{label}</dt>
-            <dd className="mt-1 font-mono text-sm tabular-nums">{value}</dd>
-          </div>
-        ))}
-      </dl>
       <div className="flex min-w-0 items-center gap-2 px-4 py-3">
         <div
           aria-label="Flow legend"

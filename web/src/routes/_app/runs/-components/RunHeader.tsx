@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { formatCost, formatTokens, totalsOf } from "../-lib/format";
+import { timeSplit } from "../-lib/insights";
 import { ledgerTasks } from "../-lib/ledger";
 import { formatDuration } from "../-lib/node-view";
 import { runStatus } from "../-lib/run-status";
@@ -92,6 +93,15 @@ export function RunHeader({
   const architect = run.engine === "2.0";
   const tasks = model?.flow ? model.flow.tasks.length : milestones;
   // The server counts every review round; summing the ledger's own rows can miss a task the architect has replaced.
+  // The flow's own idle spans, so the header and the time bar never disagree; the server's figure otherwise.
+  const split = model?.flow ? timeSplit(model.flow, now.getTime()) : null;
+  const idle = split
+    ? split.wallMs > 0
+      ? 1 - (split.parts.find((p) => p.key === "working")?.ms ?? 0) / split.wallMs
+      : null
+    : run.metrics
+      ? run.metrics.idlePct / 100
+      : null;
   const rounds = run.metrics ? run.metrics.rounds.total : run.milestones.reduce((s, m) => s + m.reviews, 0);
 
   return (
@@ -105,8 +115,20 @@ export function RunHeader({
         }
         title={run.title}
         description={
-          <span className="font-mono text-xs">
-            {run.id} · {run.repo}
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 font-mono text-xs">
+            <span>{run.id}</span>
+            <span aria-hidden="true">·</span>
+            <span title={run.repo} className="min-w-0 truncate">
+              {run.repo.split("/").filter(Boolean).at(-1) ?? run.repo}
+            </span>
+            {valid(started) ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>
+                  started {day.format(started)}, {clock.format(started)}
+                </span>
+              </>
+            ) : null}
           </span>
         }
         actions={
@@ -157,11 +179,6 @@ export function RunHeader({
           }
         />
         <Tile.Stat
-          label="Started"
-          value={valid(started) ? clock.format(started) : "–"}
-          hint={valid(started) ? day.format(started) : undefined}
-        />
-        <Tile.Stat
           label={live ? "Running for" : "Took"}
           value={Number.isNaN(elapsed) ? "–" : formatDuration(elapsed)}
           hint={
@@ -175,27 +192,49 @@ export function RunHeader({
           }
         />
         <Tile.Stat
-          label="Tokens"
-          value={formatTokens(totals.tokens)}
-          hint={
-            totals.tokens > 0
-              ? `${formatTokens(tokensIn - cacheRead - cacheWrite)} uncached · ${formatTokens(cacheRead)} cache read · ${formatTokens(cacheWrite)} cache write · ${formatTokens(tokensOut)} out`
-              : undefined
-          }
-        />
-        <Tile.Stat
           label="Cost"
           value={formatCost(totals.costUsd)}
           hint={
-            totals.unpriced > 0
-              ? `${totals.unpriced} unpriced`
-              : `${dispatches.length} ${dispatches.length === 1 ? "role run" : "role runs"}`
+            <span
+              title={
+                totals.tokens > 0
+                  ? `${formatTokens(tokensIn - cacheRead - cacheWrite)} uncached · ${formatTokens(cacheRead)} cache read · ${formatTokens(cacheWrite)} cache write · ${formatTokens(tokensOut)} out`
+                  : undefined
+              }
+            >
+              {formatTokens(totals.tokens)} tokens · {dispatches.length}{" "}
+              {dispatches.length === 1 ? "role run" : "role runs"}
+              {totals.unpriced > 0 ? ` · ${totals.unpriced} unpriced` : ""}
+            </span>
           }
+        />
+        <Tile.Stat
+          label={architect ? "Tasks" : "Milestones"}
+          value={
+            architect && model?.flow && tasks > 0 ? (
+              <>
+                {model.flow.tasks.filter((t) => t.state === "done").length}
+                <span className="text-muted text-lg"> / {tasks}</span>
+              </>
+            ) : architect ? (
+              "–"
+            ) : (
+              milestones
+            )
+          }
+          hint={architect ? (tasks > 0 ? `done of ${ledgerTasks(tasks)}` : "no ledger yet") : undefined}
         />
         <Tile.Stat
           label="Rounds"
           value={rounds}
-          hint={architect ? ledgerTasks(tasks) : `${milestones} ${milestones === 1 ? "milestone" : "milestones"}`}
+          hint={
+            run.metrics && run.metrics.rounds.total > 0 ? `at most ${run.metrics.rounds.max} on one task` : undefined
+          }
+        />
+        <Tile.Stat
+          label="Idle"
+          value={idle === null ? "–" : `${Math.round(idle * 100)}%`}
+          hint={run.metrics ? `${run.metrics.concurrency.toFixed(2)} roles at once on average` : undefined}
         />
       </Tile.Stats>
       <ConfirmDelete
