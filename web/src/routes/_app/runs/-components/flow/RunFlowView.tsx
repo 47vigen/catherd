@@ -177,7 +177,7 @@ export function RunFlowView({
           detail: `${c.checkId} · check · ${c.scope} · ${status} · ${c.startedAt ? formatDuration(Math.max(0, ((c.endedAt ? Date.parse(c.endedAt) : geometry.end) - Date.parse(c.startedAt)) / 1000)) : "Timing unknown"}`,
           family: "check",
           selection: c.selection,
-          tone: c.endedAt && c.exit !== 0 ? "danger" : undefined,
+          tone: c.endedAt && c.exit !== 0 && c.verdict !== "inherited" ? "danger" : undefined,
           unknown: c.startedAt === null,
         };
       }),

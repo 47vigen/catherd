@@ -295,3 +295,22 @@ test("overlapping roles mask waits and an open tail stays open", () => {
   ]);
   expect(flow.checks[0]).toMatchObject({ startedAt: at(3), endedAt: null, failureCount: null });
 });
+
+test("a check whose effect failed ends at the failure", () => {
+  const flow = derive(
+    [
+      event(1, 1, {
+        type: "check.requested",
+        checkId: "C1",
+        scope: "full",
+        base: false,
+        command: "test",
+        by: "architect",
+        why: "gate",
+      }),
+      event(2, 4, { type: "effect.failed", action: "runCheck", unit: "C1", message: "checkout failed" }),
+    ],
+    10,
+  );
+  expect(flow.checks[0]).toMatchObject({ startedAt: at(1), endedAt: at(4), exit: null });
+});

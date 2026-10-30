@@ -36,6 +36,12 @@ test("ledger order, dependencies, role markers and overlapping keyboard targets"
   expect(screen.getByRole("button", { name: /C1/ })).toHaveAttribute("data-tone", "danger");
   expect(document.querySelector('[data-idle-reason="gap"]')).not.toBeNull();
 });
+test("a check whose failures are all inherited is not drawn as failed", () => {
+  const base = flowFixture();
+  const flow = { ...base, checks: base.checks.map((c) => ({ ...c, verdict: "inherited" as const, newFailures: 0 })) };
+  render(<RunFlowView flow={flow} run={run} now={Date.parse(at(150))} onOpen={vi.fn<(s: FlowSelection) => void>()} />);
+  expect(screen.getByRole("button", { name: /C1 check/ })).not.toHaveAttribute("data-tone", "danger");
+});
 test("empty flow and unavailable metrics render without inventing activity", () => {
   const flow = { ...flowFixture(), architect: [], tasks: [], dispatches: [], checks: [], idle: [] };
   render(<RunFlowView flow={flow} run={run} now={0} onOpen={vi.fn<(selection: FlowSelection) => void>()} />);
@@ -46,7 +52,7 @@ test("empty flow and unavailable metrics render without inventing activity", () 
 
 test("statistics use Metrics values directly and timing-unknown checks remain selectable", () => {
   const flow = flowFixture();
-  flow.checks[0] = { ...flow.checks[0]!, startedAt: null, verdict: "inherited", exit: null };
+  flow.checks[0] = { ...flow.checks[0]!, startedAt: null, verdict: "new", exit: null };
   const metrics = {
     wallMin: 5,
     idlePct: 12,

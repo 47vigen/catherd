@@ -192,6 +192,9 @@ export function deriveRunFlow(input: RunFlowInput): RunFlow {
   }));
   const reqs = events.filter((e) => e.type === "check.requested");
   const dones = events.filter((e) => e.type === "check.done");
+  const checkFailures = events.flatMap((e) =>
+    e.type === "effect.failed" && e.action === "runCheck" ? [e] : [],
+  );
   const ids = new Set([
     ...reqs.map((e) => e.checkId),
     ...dones.map((e) => e.checkId),
@@ -201,7 +204,8 @@ export function deriveRunFlow(input: RunFlowInput): RunFlow {
     .map((id) => {
       const req = reqs.find((e) => e.checkId === id),
         done = dones.find((e) => e.checkId === id),
-        row = input.checks.find((c) => c.checkId === id);
+        row = input.checks.find((c) => c.checkId === id),
+        failed = checkFailures.find((e) => e.unit === id);
       const failures = [...(done?.failures ?? row?.failures ?? [])],
         preExisting = [...(done?.preExisting ?? [])];
       const comparable = done?.verdict && done.verdict !== "unknown";
@@ -212,7 +216,7 @@ export function deriveRunFlow(input: RunFlowInput): RunFlow {
         base: req?.base ?? row?.base ?? false,
         command: req?.command ?? row?.command ?? "",
         startedAt: req?.at ?? null,
-        endedAt: done?.at ?? row?.at ?? (req ? endedAt : null),
+        endedAt: done?.at ?? row?.at ?? failed?.at ?? (req ? endedAt : null),
         exit: done ? done.exit : (row?.exit ?? null),
         failureCount: done || row ? failures.length : null,
         verdict: done?.verdict ?? null,
