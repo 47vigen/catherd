@@ -267,14 +267,29 @@ function RunDetail({ runId }: { runId: string }) {
         {flow && model.data ? (
           <>
             <NeedsYou nodes={model.data.nodes} onOpen={open} />
-            <div className="flex min-w-0 flex-col gap-4 lg:col-span-7">
-              {live ? <Now run={r} flow={flow} now={now.getTime()} onOpen={openFlow} /> : null}
-              <Findings items={findings(r, flow, model.data.dispatches, now.getTime())} onOpen={openFlow} />
-            </div>
-            <div className="flex min-w-0 flex-col gap-4 lg:col-span-5">
-              <TimeSpent flow={flow} now={now.getTime()} />
-              <CostSpent flow={flow} attempts={model.data.dispatches} now={now.getTime()} onOpen={openFlow} />
-            </div>
+            {/* One bento row of equal tiles: what matters now, then where the time and the money went. */}
+            {live ? <Now run={r} flow={flow} now={now.getTime()} onOpen={openFlow} className="lg:col-span-4" /> : null}
+            <Findings
+              items={findings(r, flow, model.data.dispatches, now.getTime())}
+              onOpen={openFlow}
+              className="lg:col-span-4"
+            />
+            <TimeSpent
+              run={r}
+              flow={flow}
+              attempts={model.data.dispatches}
+              now={now.getTime()}
+              className="lg:col-span-4"
+            />
+            {live ? null : (
+              <CostSpent
+                flow={flow}
+                attempts={model.data.dispatches}
+                now={now.getTime()}
+                onOpen={openFlow}
+                className="lg:col-span-4"
+              />
+            )}
           </>
         ) : null}
         {is2 ? (
@@ -361,6 +376,9 @@ function RunDetail({ runId }: { runId: string }) {
           <div className="flex min-w-0 flex-col gap-4 lg:col-span-4">
             {/* The flow already lists every ledger task; the milestone card only belongs to a run drawn as a graph. */}
             {model.data && !flow ? <Milestones milestones={r.milestones} /> : null}
+            {flow && model.data && live ? (
+              <CostSpent flow={flow} attempts={model.data.dispatches} now={now.getTime()} onOpen={openFlow} />
+            ) : null}
             <Models dispatches={model.data?.dispatches ?? []} />
             {/* A flow run shows these figures in its header, time bar and findings. */}
             {r.metrics && !flow ? <Metrics metrics={r.metrics} /> : null}
@@ -387,7 +405,7 @@ function RunDetail({ runId }: { runId: string }) {
           ) : entries.length === 0 ? (
             <p className="text-muted px-4 py-4 text-sm">{types ? "No events of this type." : "No events yet."}</p>
           ) : (
-            <Timeline entries={entries} now={now} arrived={arrived} />
+            <Timeline entries={entries} now={now} arrived={arrived} startedAt={r.startedAt} />
           )}
           {(timeline.data?.total ?? 0) > 0 ? (
             <div className="border-border border-t px-4 py-2.5">

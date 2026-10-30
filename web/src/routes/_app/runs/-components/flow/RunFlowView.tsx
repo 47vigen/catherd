@@ -1,4 +1,4 @@
-import { Button, Chip, cn } from "@heroui/react";
+import { Button, cn } from "@heroui/react";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 
 import { flowGeometry, mergeIdle, tickStep } from "../../-lib/flow-view";
@@ -19,24 +19,45 @@ type Bar = {
   unknown?: boolean;
   idleReason?: RunFlow["idle"][number]["reason"];
 };
-type Row = { id: string; goal?: string; state?: string; depends?: string[]; bars: Bar[] };
-const FAMILY: Record<string, string> = {
-  worker: "fill-accent",
-  writer: "fill-accent",
-  artist: "fill-accent",
-  reviewer: "fill-success",
-  verifier: "fill-success",
-  researcher: "fill-warning",
-  architect: "fill-foreground",
-  check: "fill-muted",
+type Row = { id: string; goal?: string; state?: string; depends?: string[]; bars: Bar[]; section?: boolean };
+/** One colour per role family, shared with the run summary: body tint, solid edge and the legend swatch. */
+const FAMILY: Record<string, { body: string; edge: string; swatch: string }> = {
+  architect: { body: "fill-chart-4/30", edge: "fill-chart-4", swatch: "bg-chart-4" },
+  worker: { body: "fill-chart-1/32", edge: "fill-chart-1", swatch: "bg-chart-1" },
+  writer: { body: "fill-chart-1/32", edge: "fill-chart-1", swatch: "bg-chart-1" },
+  artist: { body: "fill-chart-1/32", edge: "fill-chart-1", swatch: "bg-chart-1" },
+  reviewer: { body: "fill-chart-2/30", edge: "fill-chart-2", swatch: "bg-chart-2" },
+  verifier: { body: "fill-chart-2/30", edge: "fill-chart-2", swatch: "bg-chart-2" },
+  researcher: { body: "fill-chart-3/34", edge: "fill-chart-3", swatch: "bg-chart-3" },
+  check: { body: "fill-muted/20", edge: "fill-muted", swatch: "bg-muted" },
 };
+const LEGEND = [
+  ["Architect", "architect"],
+  ["Worker, writer, artist", "worker"],
+  ["Reviewer, verifier", "reviewer"],
+  ["Researcher", "researcher"],
+  ["Check", "check"],
+] as const;
 const IDLE = { owner: "Owner", quota: "Quota", check: "Check", gap: "Gap" };
 const IDLE_FILL = {
-  owner: "fill-accent",
-  quota: "fill-warning",
-  check: "fill-chart-2",
-  gap: "fill-muted",
+  owner: "fill-chart-5/45",
+  quota: "fill-warning/45",
+  check: "fill-muted/22",
+  gap: "fill-muted/12",
 };
+const IDLE_SWATCH = { owner: "bg-chart-5/60", quota: "bg-warning/60", check: "bg-muted/50", gap: "bg-muted/20" };
+/** Waits that hold the whole run back are washed across every row, so what they stopped is plain to see. */
+const WASH = { owner: "fill-chart-5/7", quota: "fill-warning/7" } as const;
+const STATE_DOT: Record<string, string> = {
+  running: "bg-accent",
+  review: "bg-chart-2",
+  done: "bg-success",
+  blocked: "bg-danger",
+  impossible: "bg-danger",
+  todo: "bg-muted/50",
+};
+const ROW = 40;
+const TOP = 32;
 
 export function RunFlowView({
   flow,
@@ -159,10 +180,11 @@ export function RunFlowView({
     })),
   ];
   const unassigned = flow.dispatches.filter((d) => !assigned.has(d.dispatchId));
-  if (unassigned.length) rows.push({ id: "Unassigned roles", bars: unassigned.map(dispatchBar) });
+  if (unassigned.length) rows.push({ id: "Unassigned roles", bars: unassigned.map(dispatchBar), section: true });
   if (flow.checks.length)
     rows.push({
       id: "Run checks",
+      section: !unassigned.length,
       bars: flow.checks.map((c) => {
         const interval = c.startedAt
           ? geometry.interval(c.startedAt, c.endedAt)
@@ -183,6 +205,7 @@ export function RunFlowView({
     });
   rows.push({
     id: "Idle",
+    section: !unassigned.length && !flow.checks.length,
     bars: mergeIdle(flow.idle).map((i, index) => ({
       ...geometry.interval(i.startedAt, i.endedAt),
       id: `idle-${index}`,
@@ -192,8 +215,11 @@ export function RunFlowView({
       idleReason: i.reason,
     })),
   });
-  const positioned = rows.map((row, index) => ({ ...row, y: 32 + index * 36, height: 36 }));
-  const y = 32 + rows.length * 36;
+  const positioned = rows.map((row, index) => ({ ...row, y: TOP + index * ROW, height: ROW }));
+  const y = TOP + rows.length * ROW;
+  const washes = mergeIdle(flow.idle).filter(
+    (i): i is typeof i & { reason: keyof typeof WASH } => i.reason === "owner" || i.reason === "quota",
+  );
   const step = tickStep((geometry.end - Date.parse(flow.startedAt)) / 1000, geometry.width);
   const ticks = Array.from(
     { length: Math.floor((geometry.end - Date.parse(flow.startedAt)) / 1000 / step) + 1 },
@@ -212,6 +238,7 @@ export function RunFlowView({
     axisTicks.unshift({ seconds, x, label, endAligned });
     nextLabelLeft = left;
   }
+  const [head, ...rest] = (detail ?? "").split(" · ");
   return (
     <section
       aria-label="Run flow"
@@ -222,44 +249,69 @@ export function RunFlowView({
           aria-label="Flow legend"
           className="text-muted flex min-w-0 flex-1 items-center gap-4 overflow-x-auto text-xs whitespace-nowrap"
         >
-          <span className="text-foreground">● Architect</span>
-          <span className="text-foreground">
-            <span aria-hidden="true" className="text-accent">
-              ●
-            </span>{" "}
-            Worker / writer / artist
-          </span>
-          <span className="text-foreground">
-            <span aria-hidden="true" className="text-success">
-              ●
-            </span>{" "}
-            Reviewer / verifier
-          </span>
-          <span className="text-foreground">
-            <span aria-hidden="true" className="text-warning">
-              ●
-            </span>{" "}
-            Researcher
-          </span>
-          <span className="text-foreground">▧ Check</span>
+          {LEGEND.map(([label, family]) => (
+            <span key={family} className="text-foreground flex items-center gap-1.5">
+              <span aria-hidden="true" className={cn("size-2.5 rounded-[3px]", FAMILY[family]!.swatch)} />
+              {label}
+            </span>
+          ))}
+          <span aria-hidden="true" className="bg-border h-3.5 w-px shrink-0" />
+          {(["owner", "quota", "gap"] as const).map((reason) => (
+            <span key={reason} className="flex items-center gap-1.5">
+              <span aria-hidden="true" className={cn("size-2.5 rounded-[3px]", IDLE_SWATCH[reason])} />
+              {reason === "owner" ? "Waiting on you" : reason === "quota" ? "Quota hold" : "Idle"}
+            </span>
+          ))}
         </div>
-        <span className="text-muted text-xs" aria-hidden="true">
-          ›
-        </span>
-        <Button size="sm" variant="tertiary" aria-label="Zoom out" onPress={() => zoom(0.5)}>
-          −
-        </Button>
-        <Button size="sm" variant="tertiary" aria-label="Zoom in" onPress={() => zoom(2)}>
-          +
-        </Button>
-        <Button size="sm" variant="tertiary" onPress={fit}>
-          Fit
-        </Button>
+        <div className="border-border flex shrink-0 items-center rounded-sm border">
+          <Button
+            size="sm"
+            variant="ghost"
+            isIconOnly
+            aria-label="Zoom out"
+            className="rounded-none"
+            onPress={() => zoom(0.5)}
+          >
+            −
+          </Button>
+          <span aria-hidden="true" className="bg-border h-4 w-px" />
+          <Button
+            size="sm"
+            variant="ghost"
+            isIconOnly
+            aria-label="Zoom in"
+            className="rounded-none"
+            onPress={() => zoom(2)}
+          >
+            +
+          </Button>
+          <span aria-hidden="true" className="bg-border h-4 w-px" />
+          <Button size="sm" variant="ghost" className="rounded-none" onPress={fit}>
+            Fit
+          </Button>
+        </div>
         {onExpand ? (
           <Button size="sm" variant="tertiary" onPress={onExpand}>
             Full screen
           </Button>
         ) : null}
+      </div>
+      <div className="border-border bg-surface-secondary/50 flex h-9 min-w-0 items-center gap-2 border-y px-4 font-mono text-xs">
+        {detail ? (
+          <p role="tooltip" className="min-w-0 truncate">
+            <span className="text-foreground font-medium">{head}</span>
+            {rest.map((part, i) => (
+              <span key={i} className="text-muted">
+                {" · "}
+                {part}
+              </span>
+            ))}
+          </p>
+        ) : (
+          <p className="text-muted min-w-0 truncate">
+            {live ? "Live · " : ""}Point at a bar for its role, model, status and time; click it to open.
+          </p>
+        )}
       </div>
       {!flow.architect.length && !flow.dispatches.length && !flow.checks.length ? (
         <p className="text-muted px-4 py-2 text-sm">No activity recorded yet.</p>
@@ -268,24 +320,41 @@ export function RunFlowView({
         <svg
           width="180"
           height={y}
-          className="bg-surface sticky left-0 z-10 w-[120px] shrink-0 sm:w-[180px]"
+          className="bg-surface border-border sticky left-0 z-10 w-[120px] shrink-0 border-r sm:w-[180px]"
           aria-label="Flow rows"
         >
           {positioned.map((row) => (
             <g key={row.id}>
-              <line x1="0" x2="100%" y1={row.y} y2={row.y} className="stroke-border" />
-              <foreignObject x="0" y={row.y + 6} width="100%" height={row.height - 6}>
+              <line
+                x1="0"
+                x2="100%"
+                y1={row.y}
+                y2={row.y}
+                className={row.section || row.id === "Architect" ? "stroke-border" : "stroke-separator"}
+              />
+              <foreignObject x="0" y={row.y} width="100%" height={row.height}>
                 <div
-                  className="flex min-w-0 items-center gap-1 px-2"
+                  className="flex h-full min-w-0 items-center gap-2 px-3"
                   title={[row.id, row.goal, row.depends?.length ? `Depends on ${row.depends.join(", ")}` : null]
                     .filter(Boolean)
                     .join(" · ")}
                 >
-                  <span className="min-w-0 truncate font-mono text-xs">{row.id}</span>
+                  <span
+                    className={cn(
+                      "min-w-0 truncate font-mono text-xs whitespace-nowrap",
+                      row.state ? "text-foreground" : "text-muted",
+                    )}
+                  >
+                    {row.id}
+                  </span>
                   {row.state ? (
-                    <Chip size="sm" variant="soft">
-                      <Chip.Label className="text-[10px]">{row.state}</Chip.Label>
-                    </Chip>
+                    <span className="text-muted ml-auto flex shrink-0 items-center gap-1 text-[10px]">
+                      <span
+                        aria-hidden="true"
+                        className={cn("size-1.5 rounded-full", STATE_DOT[row.state] ?? "bg-muted")}
+                      />
+                      {row.state}
+                    </span>
                   ) : null}
                 </div>
               </foreignObject>
@@ -349,9 +418,22 @@ export function RunFlowView({
             viewBox={`0 0 ${geometry.width} ${y}`}
             className="font-mono text-[10px] tabular-nums"
           >
+            {washes.map((w, i) => {
+              const span = geometry.interval(w.startedAt, w.endedAt);
+              return (
+                <rect
+                  key={`wash-${i}`}
+                  x={span.x}
+                  y={TOP}
+                  width={span.width}
+                  height={y - TOP}
+                  className={WASH[w.reason]}
+                />
+              );
+            })}
             {axisTicks.map(({ seconds, x, label, endAligned }) => (
               <g key={seconds}>
-                <line x1={x} x2={x} y1="24" y2={y} className="stroke-border/40" />
+                <line x1={x} x2={x} y1="24" y2={y} className="stroke-separator" />
                 <text x={x} y="17" textAnchor={endAligned ? "end" : "start"} className="fill-muted">
                   {label}
                 </text>
@@ -359,9 +441,17 @@ export function RunFlowView({
             ))}
             {positioned.map((row) => (
               <g key={row.id}>
-                <line x1="0" x2={geometry.width} y1={row.y} y2={row.y} className="stroke-border" />
+                <line
+                  x1="0"
+                  x2={geometry.width}
+                  y1={row.y}
+                  y2={row.y}
+                  className={row.section || row.id === "Architect" ? "stroke-border" : "stroke-separator"}
+                />
                 {row.bars.map((bar) => {
-                  const top = row.y + 4;
+                  const top = row.y + 9;
+                  const color = FAMILY[bar.family] ?? FAMILY.worker!;
+                  const running = bar.detail.includes(" · running · ");
                   return (
                     <g
                       key={bar.id}
@@ -385,69 +475,80 @@ export function RunFlowView({
                       onBlur={() => setDetail(null)}
                     >
                       <rect
-                        x={bar.x}
-                        y={top}
-                        width={Math.max(28, bar.width)}
-                        height="28"
-                        rx="3"
-                        className="group-focus-visible:stroke-accent fill-transparent"
+                        x={bar.x - 2}
+                        y={bar.idleReason ? row.y : top - 3}
+                        width={Math.max(28, bar.width) + 4}
+                        height={bar.idleReason ? row.height : 28}
+                        rx="5"
+                        className={cn(
+                          "fill-transparent group-focus-visible:stroke-focus",
+                          bar.selection && "group-hover:fill-foreground/5",
+                          selected && bar.selection?.nodeId === selected && "stroke-focus",
+                        )}
                       />
                       {bar.unknown ? (
-                        <g>
-                          <path
-                            data-timing-unknown="true"
-                            d={`M ${bar.x + 7} ${top + 7} l 7 7 l -7 7 l -7 -7 Z`}
-                            strokeWidth="2"
-                            className={cn("fill-surface", bar.tone === "danger" ? "stroke-danger" : "stroke-muted")}
-                          >
-                            <title>Timing unknown</title>
-                          </path>
-                        </g>
-                      ) : (
+                        <path
+                          data-timing-unknown="true"
+                          d={`M ${bar.x + 11} ${top + 2} l 9 9 l -9 9 l -9 -9 Z`}
+                          strokeWidth="1.5"
+                          className={cn("fill-surface", bar.tone === "danger" ? "stroke-danger" : "stroke-muted")}
+                        >
+                          <title>Timing unknown</title>
+                        </path>
+                      ) : bar.idleReason ? (
                         <rect
                           x={bar.x}
-                          y={bar.idleReason ? row.y : top + 7}
+                          y={row.y + 1}
                           width={bar.width}
-                          height={bar.idleReason ? row.height : 14}
-                          rx="2"
-                          strokeWidth={bar.tone ? 2 : 1}
-                          className={cn(
-                            bar.idleReason ? IDLE_FILL[bar.idleReason] : (FAMILY[bar.family] ?? "fill-accent"),
-                            bar.tone === "danger"
-                              ? "stroke-danger"
-                              : bar.tone === "warning"
-                                ? "stroke-warning"
-                                : "stroke-transparent",
-                          )}
+                          height={row.height - 1}
+                          className={cn(IDLE_FILL[bar.idleReason], "stroke-transparent")}
                         />
+                      ) : (
+                        <>
+                          <rect
+                            x={bar.x}
+                            y={top}
+                            width={Math.min(3, bar.width)}
+                            height="22"
+                            rx="1.5"
+                            className={color.edge}
+                          />
+                          <rect
+                            x={bar.x}
+                            y={top}
+                            width={bar.width}
+                            height="22"
+                            rx="4"
+                            strokeWidth={bar.tone ? 1.5 : 1}
+                            className={cn(
+                              color.body,
+                              running && "motion-safe:animate-pulse",
+                              bar.tone === "danger"
+                                ? "stroke-danger"
+                                : bar.tone === "warning"
+                                  ? "stroke-warning"
+                                  : "stroke-transparent",
+                            )}
+                          />
+                        </>
                       )}
                       <svg
-                        x={bar.x + 2}
-                        y={top + 7}
-                        width={Math.max(0, bar.width - 4)}
-                        height="14"
-                        className="overflow-hidden"
+                        x={bar.x + 6}
+                        y={top}
+                        width={Math.max(0, bar.width - 8)}
+                        height="22"
+                        className="pointer-events-none overflow-hidden"
                       >
                         <text
-                          x="2"
-                          y="10"
-                          className={cn(
-                            bar.unknown
-                              ? "sr-only"
-                              : bar.family === "idle"
-                                ? "fill-foreground"
-                                : bar.family === "architect" || bar.family === "check"
-                                  ? "fill-background"
-                                  : bar.family === "researcher"
-                                    ? "fill-warning-foreground"
-                                    : "fill-accent-foreground",
-                          )}
+                          x="1"
+                          y="14.5"
+                          className={cn(bar.unknown ? "sr-only" : "fill-foreground", "text-[11px] font-medium")}
                         >
-                          {bar.visibleLabel && bar.width >= bar.visibleLabel.length * 6 + 8 ? bar.visibleLabel : ""}
+                          {bar.visibleLabel && bar.width >= bar.visibleLabel.length * 6.5 + 12 ? bar.visibleLabel : ""}
                         </text>
                       </svg>
                       {bar.climbed ? (
-                        <text x={bar.x} y={top + 9} className="fill-foreground" aria-hidden="true">
+                        <text x={bar.x - 1} y={top - 2} className="fill-warning text-[10px]" aria-hidden="true">
                           ↗
                         </text>
                       ) : null}
@@ -464,9 +565,10 @@ export function RunFlowView({
                   y1="24"
                   y2={y}
                   className="stroke-accent"
-                  strokeDasharray="3 3"
+                  strokeWidth="1.5"
                 />
-                <text x={geometry.nowX} y="17" textAnchor="end" className="fill-foreground">
+                <circle cx={geometry.nowX} cy="24" r="3" className="fill-accent" />
+                <text x={geometry.nowX - 6} y="17" textAnchor="end" className="fill-accent font-medium">
                   Now
                 </text>
               </g>
@@ -474,11 +576,6 @@ export function RunFlowView({
           </svg>
         </section>
       </div>
-      {detail ? (
-        <p role="tooltip" className="text-muted border-border border-t px-4 py-2 font-mono text-xs break-words">
-          {detail}
-        </p>
-      ) : null}
     </section>
   );
 }

@@ -16,7 +16,7 @@ test("ledger order, dependencies, role markers and overlapping keyboard targets"
   ).toEqual(["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8"]);
   expect(screen.getByTitle(/L8 · Task goal 8/)).toBeVisible();
   const rowLines = screen.getByLabelText("Flow rows").querySelectorAll("foreignObject");
-  expect([...rowLines].map((row) => row.getAttribute("height"))).toEqual(Array(rowLines.length).fill("30"));
+  expect([...rowLines].map((row) => row.getAttribute("height"))).toEqual(Array(rowLines.length).fill("40"));
   expect(screen.getByText("Unassigned roles")).toBeVisible();
   expect(screen.getByText("Run checks")).toBeVisible();
   const bars = within(screen.getByRole("region", { name: "Flow timeline" })).getAllByRole("button");
@@ -50,7 +50,7 @@ test("empty flow and unavailable metrics render without inventing activity", () 
   expect(screen.queryByRole("button", { name: /T1/ })).not.toBeInTheDocument();
 });
 
-test("statistics use Metrics values directly and timing-unknown checks remain selectable", () => {
+test("the flow carries no statistics copy and timing-unknown checks remain selectable", () => {
   const flow = flowFixture();
   flow.checks[0] = { ...flow.checks[0]!, startedAt: null, verdict: "new", exit: null };
   const metrics = {
@@ -69,13 +69,8 @@ test("statistics use Metrics values directly and timing-unknown checks remain se
       onOpen={vi.fn<(selection: FlowSelection) => void>()}
     />,
   );
-  const sheet = screen.getByLabelText("Run statistics");
-  expect(sheet).toHaveTextContent("Wall time5m");
-  expect(sheet).toHaveTextContent("Idle12%");
-  expect(sheet).toHaveTextContent("Concurrency1.25");
-  expect(sheet).toHaveTextContent("Check share20%");
-  expect(sheet).toHaveTextContent("Review rounds3");
-  expect(sheet).toHaveTextContent("$9.00");
+  // The run's figures live in the page header and summary now; the flow carries no copy of them.
+  expect(screen.queryByLabelText("Run statistics")).toBeNull();
   expect(screen.getByRole("button", { name: /C1 check/ })).toHaveAttribute("data-tone", "danger");
   expect(
     screen.getByRole("button", { name: /C1 check/ }).querySelector("[data-timing-unknown] title"),
@@ -108,16 +103,16 @@ test("each idle reason has a distinct fill and keeps its readable text label", (
     />,
   );
   const fills = {
-    owner: "fill-accent",
-    quota: "fill-warning",
-    check: "fill-chart-2",
-    gap: "fill-muted",
+    owner: "fill-chart-5/45",
+    quota: "fill-warning/45",
+    check: "fill-muted/22",
+    gap: "fill-muted/12",
   };
   const labels = { owner: "Owner", quota: "Quota", check: "Check", gap: "Gap" };
   for (const reason of reasons) {
     const interval = container.querySelector(`[data-idle-reason="${reason}"]`);
     expect(interval).not.toBeNull();
-    expect(interval?.querySelector('rect[height="36"]')).toHaveClass(fills[reason]);
+    expect(interval?.querySelector('rect[height="39"]')).toHaveClass(fills[reason]);
     fireEvent.mouseEnter(interval!);
     expect(screen.getByRole("tooltip")).toHaveTextContent(`${labels[reason]} · 0.3 min`);
   }

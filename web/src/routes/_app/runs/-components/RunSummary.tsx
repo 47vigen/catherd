@@ -1,6 +1,7 @@
 import { CircleExclamation, TriangleExclamation } from "@gravity-ui/icons";
 import { Button, cn } from "@heroui/react";
 
+import { formatCost, formatTokens } from "../-lib/format";
 import {
   costSplit,
   FAMILY_LABEL,
@@ -19,32 +20,32 @@ import { Blocks } from "../../../../components/charts/Blocks";
 import { Tile } from "../../../../components/tile/Tile";
 
 const FAMILY_FILL: Record<Family, string> = {
-  architect: "fill-foreground",
-  build: "fill-accent",
-  review: "fill-success",
-  research: "fill-warning",
+  architect: "fill-chart-4",
+  build: "fill-chart-1",
+  review: "fill-chart-2",
+  research: "fill-chart-3",
   other: "fill-muted",
 };
 const FAMILY_DOT: Record<Family, string> = {
-  architect: "bg-foreground",
-  build: "bg-accent",
-  review: "bg-success",
-  research: "bg-warning",
+  architect: "bg-chart-4",
+  build: "bg-chart-1",
+  review: "bg-chart-2",
+  research: "bg-chart-3",
   other: "bg-muted",
 };
 const TIME_FILL: Record<TimeKey, string> = {
-  working: "fill-accent",
-  check: "fill-chart-2",
-  owner: "fill-chart-3",
+  working: "fill-chart-1",
+  check: "fill-muted/70",
+  owner: "fill-chart-5",
   quota: "fill-warning",
-  gap: "fill-muted/45",
+  gap: "fill-muted/25",
 };
 const TIME_DOT: Record<TimeKey, string> = {
-  working: "bg-accent",
-  check: "bg-chart-2",
-  owner: "bg-chart-3",
+  working: "bg-chart-1",
+  check: "bg-muted/70",
+  owner: "bg-chart-5",
   quota: "bg-warning",
-  gap: "bg-muted/45",
+  gap: "bg-muted/25",
 };
 
 /** A share of a whole as one thin bar of segments; SVG attributes size it, so it needs no inline style. */
@@ -52,7 +53,7 @@ function Segments({ parts, label }: { parts: { key: string; value: number; fill:
   const total = parts.reduce((a, p) => a + p.value, 0);
   let x = 0;
   return (
-    <svg role="img" aria-label={label} viewBox="0 0 100 6" preserveAspectRatio="none" className="h-2 w-full">
+    <svg aria-hidden="true" data-label={label} viewBox="0 0 100 6" preserveAspectRatio="none" className="h-2 w-full">
       {total > 0
         ? parts.map((p) => {
             const width = (p.value / total) * 100;
@@ -102,7 +103,7 @@ export function NeedsYou({ nodes, onOpen }: { nodes: RunNode[]; onOpen: (id: str
               {n.title} · {n.question!.reason.replace(/_/g, " ")}
             </span>
           </span>
-          <Button size="sm" variant="secondary" onPress={() => onOpen(n.id)}>
+          <Button size="sm" variant="secondary" aria-label={`Answer ${n.title}`} onPress={() => onOpen(n.id)}>
             Answer
           </Button>
         </div>
@@ -117,11 +118,13 @@ export function Now({
   flow,
   now,
   onOpen,
+  className,
 }: {
   run: RunView;
   flow: RunFlow;
   now: number;
   onOpen: (s: FlowSelection) => void;
+  className?: string;
 }) {
   const running = [...flow.architect, ...flow.dispatches].filter((d) => d.status === "running");
   const rows = run.live.map((l) => ({
@@ -131,6 +134,7 @@ export function Now({
   return (
     <Tile
       title="Now"
+      className={className}
       aside={<span className="text-muted font-mono text-xs">{rows.length ? `${rows.length} working` : "idle"}</span>}
     >
       {rows.length === 0 ? (
@@ -198,12 +202,20 @@ const TONE_ICON = { danger: CircleExclamation, warning: TriangleExclamation, neu
 const TONE_TEXT = { danger: "text-danger", warning: "text-warning", neutral: "text-muted" } as const;
 
 /** The stories of the run, worst first; each opens what it is about. */
-export function Findings({ items, onOpen }: { items: Finding[]; onOpen: (s: FlowSelection) => void }) {
+export function Findings({
+  items,
+  onOpen,
+  className,
+}: {
+  items: Finding[];
+  onOpen: (s: FlowSelection) => void;
+  className?: string;
+}) {
   return (
     <Tile
       title="What stands out"
       aside={<span className="text-muted font-mono text-xs">{items.length || ""}</span>}
-      className="flex-1"
+      className={className}
     >
       {items.length === 0 ? (
         <p className="text-muted px-4 py-3 text-sm">Nothing stands out: no failure, no long wait, no outlier.</p>
@@ -254,10 +266,34 @@ export function Findings({ items, onOpen }: { items: Finding[]; onOpen: (s: Flow
 }
 
 /** Where the wall time went, as one bar: working, checks only, waiting on the owner, quota, gaps. */
-export function TimeSpent({ flow, now }: { flow: RunFlow; now: number }) {
+export function TimeSpent({
+  run,
+  flow,
+  attempts,
+  now,
+  className,
+}: {
+  run: RunView;
+  flow: RunFlow;
+  attempts: readonly Attempt[];
+  now: number;
+  className?: string;
+}) {
   const { wallMs, parts } = timeSplit(flow, now);
+  const finished = spends(flow, attempts, now)
+    .filter((s) => s.dispatch.role !== "architect" && s.dispatch.endedAt)
+    .map((s) => s.ms)
+    .sort((a, b) => a - b);
+  const m = run.metrics;
+  const facts: [string, string][] = [
+    ["Roles at once", m ? m.concurrency.toFixed(2) : "–"],
+    ["Median role run", finished.length ? formatDuration(finished[Math.floor(finished.length / 2)]! / 1000) : "–"],
+    ["Longest role run", finished.length ? formatDuration(finished.at(-1)! / 1000) : "–"],
+    ["Architect turns", String(flow.architect.length)],
+  ];
   return (
     <Tile
+      className={className}
       title="Where the time went"
       aside={<span className="text-muted font-mono text-xs tabular-nums">{formatDuration(wallMs / 1000)}</span>}
     >
@@ -276,6 +312,14 @@ export function TimeSpent({ flow, now }: { flow: RunFlow; now: number }) {
           }))}
         />
       </div>
+      <dl className="bg-separator border-border mt-auto grid grid-cols-2 gap-px border-t">
+        {facts.map(([label, value]) => (
+          <div key={label} className="bg-surface flex flex-col gap-1 px-4 py-2.5">
+            <dt className="text-muted text-[11px]">{label}</dt>
+            <dd className="font-mono text-[13px] tabular-nums">{value}</dd>
+          </div>
+        ))}
+      </dl>
     </Tile>
   );
 }
@@ -286,15 +330,28 @@ export function CostSpent({
   attempts,
   now,
   onOpen,
+  className,
 }: {
   flow: RunFlow;
   attempts: readonly Attempt[];
   now: number;
   onOpen: (s: FlowSelection) => void;
+  className?: string;
 }) {
-  const { unit, total, families, top } = costSplit(spends(flow, attempts, now));
+  const all = spends(flow, attempts, now);
+  const { unit, total, families, top } = costSplit(all);
+  const sum = (pick: (t: NonNullable<Attempt["tokens"]>) => number) =>
+    attempts.reduce((a, d) => a + (d.tokens ? pick(d.tokens) : 0), 0);
+  const priced = all.filter((s) => s.cost != null);
+  const facts: [string, string][] = [
+    ["Uncached in", formatTokens(sum((t) => t.input - t.cached - (t.cacheWrite ?? 0)))],
+    ["Cache read", formatTokens(sum((t) => t.cached))],
+    ["Output", formatTokens(sum((t) => t.output))],
+    ["Per role run", priced.length ? formatCost(priced.reduce((a, s) => a + (s.cost ?? 0), 0) / priced.length) : "–"],
+  ];
   return (
     <Tile
+      className={className}
       title={unit === "cost" ? "Where the cost went" : "Where the tokens went"}
       aside={
         <span className="text-muted font-mono text-xs tabular-nums">{total ? formatAmount(unit, total) : "—"}</span>
@@ -350,6 +407,14 @@ export function CostSpent({
               </ul>
             </>
           ) : null}
+          <dl className="bg-separator border-border mt-auto grid grid-cols-2 gap-px border-t">
+            {facts.map(([label, value]) => (
+              <div key={label} className="bg-surface flex flex-col gap-1 px-4 py-2.5">
+                <dt className="text-muted text-[11px]">{label}</dt>
+                <dd className="font-mono text-[13px] tabular-nums">{value}</dd>
+              </div>
+            ))}
+          </dl>
         </>
       )}
     </Tile>
