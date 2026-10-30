@@ -346,9 +346,28 @@ export function conflictMarkers(dir: string, base = "HEAD"): Promise<string[] | 
     );
     // exit 2 is "problems found"; anything else non-zero is git failing
     if (r.code !== 0 && r.code !== 2) return null;
-    return r.out
+    const found = r.out
       .split("\n")
       .filter((l) => l.includes(": leftover conflict marker"))
       .map((l) => l.slice(0, l.indexOf(": leftover conflict marker")));
+    // a lone `=======` (a Markdown heading's underline) or `|||||||` is a marker only beside a `<<<<<<<` or `>>>>>>>`
+    const lineOf = new Map<string, string[] | null>();
+    const textAt = async (at: string): Promise<string> => {
+      const k = at.lastIndexOf(":");
+      const path = at.slice(0, k);
+      if (!lineOf.has(path)) {
+        const c = await git(dir, ["cat-file", "-p", `:${path}`], 60_000, env);
+        lineOf.set(path, c.kind === "ok" ? c.out.split("\n") : null);
+      }
+      return lineOf.get(path)?.[Number(at.slice(k + 1)) - 1] ?? "<";
+    };
+    const texts: string[] = [];
+    for (const f of found) texts.push(await textAt(f));
+    const real = new Set(
+      found.filter((_, i) => /^[<>]/.test(texts[i] as string)).map((f) => f.slice(0, f.lastIndexOf(":"))),
+    );
+    return found.filter(
+      (f, i) => /^[<>]/.test(texts[i] as string) || real.has(f.slice(0, f.lastIndexOf(":"))),
+    );
   });
 }

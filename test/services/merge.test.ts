@@ -522,6 +522,16 @@ describe("conflict markers are never committed (plan 55 review I2)", () => {
     expect(git(tree, "rev-parse", "HEAD")).toBe(head);
   });
 
+  it("does not send a writer back for a lone ======= line (a Markdown heading), and merges it", async () => {
+    const { run, deps, tree } = await treesRun();
+    const dir = await worked(run, deps, "T1");
+    put(dir, "README.md", "Title\n=======\nbody\n");
+    const { done, back } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(back).toBeNull();
+    expect(done).toMatchObject({ outcome: "merged", files: ["README.md"] });
+    expect(readFileSync(join(tree, "README.md"), "utf8")).toBe("Title\n=======\nbody\n");
+  });
+
   it("sends back a tree a crash left in the middle of catherd's own merge, instead of concluding it", async () => {
     const { run, deps, tree } = await treesRun({ path: "a.txt", text: "base\n" });
     const dir = await worked(run, deps, "T1");

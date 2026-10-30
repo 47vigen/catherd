@@ -145,7 +145,7 @@ export async function runMerge(
       { files },
       {
         cause: "conflict",
-        text: `Your tree still holds conflict markers (${where})${midMerge ? " and a merge you have not concluded" : ""}. Resolve them (\`git status\` lists the files), leave the result uncommitted, and end complete: catherd commits and merges again.`,
+        text: `Your tree still holds conflict markers (${where})${midMerge ? " and a merge you have not concluded" : ""}. Resolve them (\`git status\` lists the files), and end complete (committed or not): catherd commits what is left and merges again.`,
       },
     );
   }
