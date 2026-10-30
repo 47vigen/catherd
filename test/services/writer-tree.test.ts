@@ -63,6 +63,39 @@ describe("a writer's own worktree (plan 55, spec D5)", () => {
     expect(readFileSync(join(again, "work.txt"), "utf8")).toBe("committed by catherd\n");
   });
 
+  it("prefers the latest checkpoint to the kept branch when the branch is behind it: uncommitted work after a send-back", async () => {
+    const { run } = branchRun("wallet");
+    const deps = fakeDeps();
+    await claimRunTree(deps, run);
+    const dir = await claimTaskTree(deps, run, "T1");
+    writeFileSync(join(dir, "work.txt"), "committed by catherd\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "catherd: T1");
+    // the send-back ran in the same tree and ended with more, uncommitted
+    writeFileSync(join(dir, "more.txt"), "after the send-back\n");
+    await checkpointTree(run, "T1", 1);
+    rmSync(dir, { recursive: true, force: true });
+    const again = await claimTaskTree(deps, run, "T1");
+    expect(readFileSync(join(again, "work.txt"), "utf8")).toBe("committed by catherd\n");
+    expect(readFileSync(join(again, "more.txt"), "utf8")).toBe("after the send-back\n");
+    expect(git(again, "rev-parse", "--abbrev-ref", "HEAD")).toBe(taskBranch(run, "T1"));
+  });
+
+  it("keeps the branch when it is ahead of the latest checkpoint", async () => {
+    const { run } = branchRun("wallet");
+    const deps = fakeDeps();
+    await claimRunTree(deps, run);
+    const dir = await claimTaskTree(deps, run, "T1");
+    writeFileSync(join(dir, "one.txt"), "first\n");
+    await checkpointTree(run, "T1", 1);
+    writeFileSync(join(dir, "two.txt"), "committed later\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "catherd: T1");
+    rmSync(dir, { recursive: true, force: true });
+    const again = await claimTaskTree(deps, run, "T1");
+    expect(readFileSync(join(again, "two.txt"), "utf8")).toBe("committed later\n");
+  });
+
   it("recreates a tree whose folder and branch are gone on its latest checkpoint (review I6)", async () => {
     const { run } = branchRun("wallet");
     const deps = fakeDeps();

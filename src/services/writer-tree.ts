@@ -1,6 +1,6 @@
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { CatherdError } from "../domain/errors.ts";
-import { git, gitRun, snapshotTree } from "../infra/git.ts";
+import { git, gitRun, isAncestor, snapshotTree } from "../infra/git.ts";
 import type { Deps } from "./ports.ts";
 import { claimRunTree, setUp } from "./run-tree.ts";
 import type { Run } from "./run-store.ts";
@@ -31,21 +31,18 @@ export async function claimTaskTree(deps: Deps, run: Run, owner: string): Promis
     });
   const kept = await git(repo, ["rev-list", "--count", `${head.out.trim()}..refs/heads/${branch}`]);
   const unmerged = kept.kind === "ok" && Number(kept.out.trim()) > 0;
-  const add = unmerged
-    ? ["worktree", "add", dir, branch]
-    : await (async () => {
-        await gitRun(repo, ["branch", "-D", branch]);
-        // the writer's last checkpoint holds work the folder lost; else the run's branch as last committed
-        return [
-          "worktree",
-          "add",
-          "--no-track",
-          "-b",
-          branch,
-          dir,
-          (await latestCheckpoint(run, owner)) ?? head.out.trim(),
-        ];
-      })();
+  // the writer's last checkpoint holds work the folder lost; the kept branch holds only what catherd committed, so a
+  // checkpoint ahead of it (uncommitted work after a send-back) wins
+  const checkpoint = await latestCheckpoint(run, owner);
+  const behind =
+    unmerged && checkpoint !== null && (await isAncestor(repo, `refs/heads/${branch}`, checkpoint)) === true;
+  const add =
+    unmerged && !behind
+      ? ["worktree", "add", dir, branch]
+      : await (async () => {
+          if (!unmerged) await gitRun(repo, ["branch", "-D", branch]);
+          return ["worktree", "add", "--no-track", "-B", branch, dir, checkpoint ?? head.out.trim()];
+        })();
   const r = await gitRun(repo, add);
   if (r.code !== 0)
     throw new CatherdError("E_TREE", `git worktree add failed for ${branch}: ${tail(`${r.out}${r.err}`)}`, {
