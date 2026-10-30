@@ -1,21 +1,18 @@
-import { Button, cn, Drawer, Tabs, toast } from "@heroui/react";
+import { Drawer, Tabs, toast } from "@heroui/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { formatDuration, modelName, nodeSecs, nodeView, parseRung, roundsOf, type Tone } from "../../-lib/node-view";
 import { TAB_LABEL, type Tab, tabsFor } from "../../-lib/tabs";
-import type { Attempt, ParkedView, RunModel, RunNode, RunView } from "../../../../../client";
+import type { ParkedView, RunModel, RunNode, RunView } from "../../../../../client";
 import { cancelRoleMutation, getDispatchOptions } from "../../../../../client/@tanstack/react-query.gen";
 import { ConfirmDelete } from "../../../../../components/confirm-delete/ConfirmDelete";
-import { ProviderIcon } from "../../../../../components/provider-icon/ProviderIcon";
 import { QuestionAnswer } from "../../../../../components/question-answer/QuestionAnswer";
-import { StatusChip } from "../../../../../components/status-chip/StatusChip";
 import { errorMessage } from "../../../../../lib/api";
 import { REASON_TEXT } from "../../../../../lib/park-reasons";
 import { invalidateOps } from "../../../../../lib/query";
 import { ChangesTab } from "./ChangesTab";
 import { ChecksTab } from "./ChecksTab";
-import { FlowCheckDetails } from "./FlowCheckDetails";
+import { Header } from "./Header";
 import { LogTab } from "./LogTab";
 import { OutputTab } from "./OutputTab";
 import { OverviewTab } from "./OverviewTab";
@@ -37,68 +34,26 @@ function parkedView(run: RunView, q: NonNullable<RunNode["question"]>, at: strin
   );
 }
 
+/** The step waits for the owner: the question, why it was asked, and the ways to answer, above every tab. */
 function Question({ run, node }: { run: RunView; node: RunNode }) {
   if (!node.question) return null;
   const q = parkedView(run, node.question, node.startedAt ?? run.updatedAt);
   return (
-    <section aria-label="Question" className="border-warning bg-warning/8 flex flex-col gap-3 rounded-sm border p-3">
-      <h3 className="label-caps text-warning">Waiting for you</h3>
-      <p className="text-sm leading-6 break-words whitespace-pre-wrap">{q.question}</p>
-      <p className="text-muted text-xs">{REASON_TEXT[q.reason]}</p>
-      <QuestionAnswer q={q} />
+    <section aria-label="Question" className="border-warning/45 bg-warning/6 flex flex-col rounded-sm border">
+      <header className="border-warning/25 flex items-center gap-2 border-b px-4 py-2.5">
+        <span aria-hidden="true" className="bg-warning size-1.5 rounded-full motion-safe:animate-pulse" />
+        <h3 className="label-caps text-warning">Waiting for your answer</h3>
+      </header>
+      <div className="flex flex-col gap-3 p-4">
+        <p className="text-foreground text-[15px] leading-6 break-words whitespace-pre-wrap">{q.question}</p>
+        <p className="text-muted text-xs">{REASON_TEXT[q.reason]}</p>
+        <QuestionAnswer q={q} />
+      </div>
     </section>
   );
 }
 
-const ICON_TILE: Record<Tone, string> = {
-  running: "bg-success/15 text-success",
-  success: "bg-success/12 text-success",
-  danger: "bg-danger/12 text-danger",
-  warning: "bg-warning/20 text-warning",
-  muted: "bg-surface-tertiary text-muted",
-};
-
-/** One short line under the title: who runs the step, on which model, for how long, in which round. */
-function Meta({ node, attempt, now }: { node: RunNode; attempt: Attempt | undefined; now: number }) {
-  const rung = attempt?.rung ?? (node.kind === "check" ? null : node.rung);
-  const r = rung ? parseRung(rung) : null;
-  const secs = attempt?.secs ?? nodeSecs(node, now);
-  const rounds = roundsOf(node);
-  const role = attempt?.role ?? node.role;
-  const parts = [
-    role ? <span key="role">{role}</span> : null,
-    r ? (
-      <span key="model" className="inline-flex items-center gap-1.5">
-        <ProviderIcon backend={r.backend} size="xs" />
-        {r.model ? modelName(r.model) : r.backend}
-        {r.effort ? <span className="text-muted">{r.effort}</span> : null}
-      </span>
-    ) : null,
-    secs !== null ? (
-      <span key="secs" className="font-mono tabular-nums">
-        {formatDuration(secs)}
-      </span>
-    ) : null,
-    rounds > 1 ? <span key="rounds">{rounds} rounds</span> : null,
-  ].filter(Boolean);
-  if (parts.length === 0) return null;
-  return (
-    <p className="text-muted flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-      {parts.flatMap((p, i) =>
-        i === 0
-          ? [p]
-          : [
-              <span key={`dot${i}`} aria-hidden="true">
-                ·
-              </span>,
-              p,
-            ],
-      )}
-    </p>
-  );
-}
-
-/** A step opened from the graph: its question if it waits, then one tab per kind of detail. */
+/** A step opened from the graph: who and what it is with its figures, its question if it waits, then one tab per kind of detail. */
 export function NodeDrawer({
   runId,
   run,
@@ -133,7 +88,9 @@ export function NodeDrawer({
   const dispatchId = attempt?.dispatchId ?? null;
   const running = attempt?.status === "running";
   const dispatch = useQuery({
-    ...getDispatchOptions({ path: { id: runId, dispatchId: dispatchId ?? "" } }),
+    ...getDispatchOptions({
+      path: { id: runId, dispatchId: dispatchId ?? "" },
+    }),
     enabled: dispatchId !== null,
     refetchInterval: running ? 4000 : false,
   });
@@ -155,11 +112,10 @@ export function NodeDrawer({
     onError: (e) => toast.danger(errorMessage(e)),
   });
 
-  const tabs = node ? tabsFor(node) : [];
+  const tabs = node ? tabsFor(node, flowCheck !== undefined) : [];
   const shown: Tab = tabs.includes(tab) ? tab : "overview";
-  const view = node ? nodeView(node) : null;
-  const Icon = view?.icon;
   const dq = dispatchId !== null ? dispatch : null;
+  const panel = "flex flex-col gap-6 px-0 pt-5 pb-8";
 
   return (
     <>
@@ -171,104 +127,74 @@ export function NodeDrawer({
         variant="transparent"
       >
         <Drawer.Content placement="right">
-          <Drawer.Dialog className="w-[min(680px,100vw)] max-w-full">
-            {/* On the title row's centre line, not the panel's corner. */}
-            <Drawer.CloseTrigger className="top-[22px]" />
-            {node && Icon ? (
-              <>
-                <Drawer.Header className="flex flex-col gap-1.5 pe-8">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span
-                      className={cn(
-                        "flex size-7 shrink-0 items-center justify-center rounded-sm",
-                        ICON_TILE[view?.tone ?? "muted"],
-                      )}
-                    >
-                      <Icon aria-hidden="true" className="size-4" />
-                    </span>
-                    <Drawer.Heading className="min-w-0 truncate text-base leading-7">{node.title}</Drawer.Heading>
-                    <StatusChip status={node.status} />
-                  </div>
-                  <Meta node={node} attempt={attempt} now={now} />
-                  {live_role && live ? (
-                    <div className="pt-1">
-                      <Button size="sm" variant="secondary" onPress={() => setConfirming(true)}>
-                        Cancel this role
-                      </Button>
-                    </div>
-                  ) : null}
-                </Drawer.Header>
-                <Drawer.Body className="text-foreground flex flex-col gap-5 pt-4">
+          <Drawer.Dialog className="border-border w-[min(720px,100vw)] max-w-full border-s p-0">
+            {/* On the title's centre line, not the panel's corner. */}
+            <Drawer.CloseTrigger className="end-4 top-6" />
+            {node ? (
+              <Tabs
+                variant="secondary"
+                selectedKey={shown}
+                onSelectionChange={(k) => onChange({ tab: String(k) as Tab })}
+                className="flex min-h-0 flex-1 flex-col gap-0"
+              >
+                <Header
+                  divided={tabs.length < 2}
+                  node={node}
+                  attempt={attempt}
+                  check={flowCheck}
+                  now={now}
+                  cancel={
+                    live_role && live
+                      ? {
+                          name: live_role.name,
+                          onPress: () => setConfirming(true),
+                        }
+                      : undefined
+                  }
+                />
+                <Tabs.ListContainer className={tabs.length > 1 ? "px-5 sm:px-6" : "hidden"}>
+                  <Tabs.List aria-label="Details of this step" className="w-fit gap-1">
+                    {tabs.map((t) => (
+                      <Tabs.Tab key={t} id={t} className="h-10 w-auto flex-none px-2.5 text-[13px] whitespace-nowrap">
+                        {TAB_LABEL[t]}
+                        <Tabs.Indicator className="bg-foreground" />
+                      </Tabs.Tab>
+                    ))}
+                  </Tabs.List>
+                </Tabs.ListContainer>
+                <Drawer.Body className="text-foreground m-0 flex flex-col px-5 pt-5 sm:px-6">
                   <Question run={run} node={node} />
-                  <Tabs selectedKey={shown} onSelectionChange={(k) => onChange({ tab: String(k) as Tab })}>
-                    <Tabs.ListContainer className="w-fit max-w-full">
-                      <Tabs.List aria-label="Details of this step" className="p-0.5">
-                        {tabs.map((t) => (
-                          <Tabs.Tab key={t} id={t} className="h-7 px-3 text-[13px] whitespace-nowrap">
-                            {TAB_LABEL[t]}
-                            <Tabs.Indicator />
-                          </Tabs.Tab>
-                        ))}
-                      </Tabs.List>
-                    </Tabs.ListContainer>
-                    <Tabs.Panel id="overview" className="px-0 pt-4 pb-0">
-                      {flowCheck ? <FlowCheckDetails check={flowCheck} /> : null}
-                      {flowTurn ? (
-                        <section aria-label="Architect turn" className="mb-4 flex flex-col gap-3">
-                          <h3 className="label-caps text-muted">Summary</h3>
-                          <p className="text-sm whitespace-pre-wrap">{flowTurn.why ?? "No summary recorded."}</p>
-                          {model.flow?.causes
-                            .filter((c) => c.turnDispatchId === flowTurn.dispatchId)
-                            .map((c) => (
-                              <div key={c.seq}>
-                                <h4 className="text-muted font-mono text-xs">{c.type}</h4>
-                                <p className="text-sm whitespace-pre-wrap">{c.why}</p>
-                              </div>
-                            ))}
-                        </section>
-                      ) : null}
-                      {flowTask ? (
-                        <section aria-label="Ledger goal" className="mb-4 text-sm">
-                          <h3 className="label-caps text-muted">Goal</h3>
-                          <p className="whitespace-pre-wrap">{flowTask.goal}</p>
-                        </section>
-                      ) : null}
-                      {flowDispatch ? (
-                        <section aria-label="Dispatch reason" className="mb-4 text-sm">
-                          <p className="whitespace-pre-wrap">{flowDispatch.why ?? "No reason recorded."}</p>
-                          <p className="text-muted mt-2 font-mono text-xs">
-                            Status: {flowDispatch.status} · Reply: {flowDispatch.replyStatus ?? "Unknown"}
-                            {flowDispatch.ledgerTask ? ` · Ledger task: ${flowDispatch.ledgerTask}` : ""}
-                          </p>
-                        </section>
-                      ) : null}
-                      {flowCheck ? null : (
-                        <OverviewTab
-                          node={node}
-                          attempt={attempt}
-                          now={now}
-                          onAttempt={(id) => onChange({ attempt: id })}
-                        />
-                      )}
-                    </Tabs.Panel>
-                    <Tabs.Panel id="prompt" className="px-0 pt-4 pb-0">
-                      <PromptTab dispatch={dq} />
-                    </Tabs.Panel>
-                    <Tabs.Panel id="log" className="px-0 pt-4 pb-0">
-                      <LogTab runId={runId} dispatchId={dispatchId} live={running && live} />
-                    </Tabs.Panel>
-                    <Tabs.Panel id="output" className="px-0 pt-4 pb-0">
-                      <OutputTab dispatch={dq} />
-                    </Tabs.Panel>
-                    <Tabs.Panel id="changes" className="px-0 pt-4 pb-0">
-                      <ChangesTab runId={runId} model={model} node={node} attempt={attempt} />
-                    </Tabs.Panel>
-                    <Tabs.Panel id="checks" className="px-0 pt-4 pb-0">
-                      <ChecksTab runId={runId} lane={node.lane} check={flowCheck} />
-                    </Tabs.Panel>
-                  </Tabs>
+                  <Tabs.Panel id="overview" className={panel}>
+                    <OverviewTab
+                      node={node}
+                      attempt={attempt}
+                      flow={{
+                        check: flowCheck,
+                        turn: flowTurn,
+                        causes: model.flow?.causes.filter((c) => c.turnDispatchId === flowTurn?.dispatchId) ?? [],
+                        task: flowTask,
+                        dispatch: flowDispatch,
+                      }}
+                      onAttempt={(id) => onChange({ attempt: id })}
+                    />
+                  </Tabs.Panel>
+                  <Tabs.Panel id="prompt" className={panel}>
+                    <PromptTab dispatch={dq} />
+                  </Tabs.Panel>
+                  <Tabs.Panel id="log" className={panel}>
+                    <LogTab runId={runId} dispatchId={dispatchId} live={running && live} />
+                  </Tabs.Panel>
+                  <Tabs.Panel id="output" className={panel}>
+                    <OutputTab dispatch={dq} />
+                  </Tabs.Panel>
+                  <Tabs.Panel id="changes" className={panel}>
+                    <ChangesTab runId={runId} model={model} node={node} attempt={attempt} />
+                  </Tabs.Panel>
+                  <Tabs.Panel id="checks" className={panel}>
+                    <ChecksTab runId={runId} lane={node.lane} />
+                  </Tabs.Panel>
                 </Drawer.Body>
-              </>
+              </Tabs>
             ) : null}
           </Drawer.Dialog>
         </Drawer.Content>

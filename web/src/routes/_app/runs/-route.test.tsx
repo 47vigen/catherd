@@ -499,7 +499,7 @@ test("a check node's drawer shows the check logs and the exit", async () => {
   renderRoute(`/runs/r1?node=${encodeURIComponent("M1/check/M1.L1")}&tab=checks`, api);
   const dialog = await screen.findByRole("dialog");
   expect(await within(dialog).findByText(/lint ok/)).toBeInTheDocument();
-  expect(within(dialog).getByText("0")).toBeInTheDocument();
+  expect(within(dialog).getByText(/exited with/).parentElement).toHaveTextContent(/exited with0$/);
   expect(within(dialog).getByText("No full check log yet.")).toBeInTheDocument();
 });
 
@@ -961,7 +961,7 @@ test("flow opens the exact record-only dispatch through the existing drawer and 
   expect(router.state.location.search).toMatchObject({ node: "task/orphan", attempt: "DU", tab: "overview" });
   const drawer = await screen.findByRole("dialog");
   expect(within(drawer).getByRole("heading", { name: "orphan" })).toBeVisible();
-  expect(within(drawer).getByText(/Ledger task: removed/)).toBeVisible();
+  expect(within(drawer).getByText("Ledger task").nextElementSibling).toHaveTextContent("removed");
   const ws = await openSocket();
   const replacement = { ...flowFixture(), endedAt: null };
   replacement.tasks[0] = { ...replacement.tasks[0]!, state: "done" };
@@ -1005,7 +1005,7 @@ test("flow opens the exact record-only dispatch through the existing drawer and 
   ).toHaveLength(5);
 });
 
-test("flow check opens evidence and the Checks tab without a lane log request", async () => {
+test("flow check opens its evidence on the overview, with no log tab and no lane log request", async () => {
   const user = userEvent.setup();
   model = { ...model, flow: flowFixture(), nodes: [] };
   const requests: string[] = [];
@@ -1018,12 +1018,12 @@ test("flow check opens evidence and the Checks tab without a lane log request", 
   const drawer = await screen.findByRole("dialog");
   const evidence = within(drawer).getByRole("region", { name: "Check details" });
   expect(evidence).toHaveTextContent("bun test");
-  expect(evidence).toHaveTextContent("1 new failures · 1 inherited failures");
+  expect(evidence).toHaveTextContent("1 new failure · 1 inherited failure");
   expect(evidence).toHaveTextContent("scratch/check.log");
-  expect(evidence).toHaveTextContent(at(40));
-  expect(evidence).toHaveTextContent(at(50));
-  await user.click(within(drawer).getByRole("tab", { name: "Checks" }));
-  expect(within(drawer).getByRole("region", { name: "Check details" })).toHaveTextContent("new failure");
+  expect(evidence.querySelector(`time[datetime="${at(40)}"]`)).not.toBeNull();
+  expect(evidence.querySelector(`time[datetime="${at(50)}"]`)).not.toBeNull();
+  expect(within(evidence).getByRole("list", { name: "Failures" })).toHaveTextContent("new failure");
+  expect(within(drawer).queryByRole("tab", { name: "Check logs" })).toBeNull();
   expect(requests.filter((p) => p.includes("/checks/"))).toEqual([]);
 });
 

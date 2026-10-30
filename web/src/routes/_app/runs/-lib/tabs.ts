@@ -9,15 +9,18 @@ export const TAB_LABEL: Record<Tab, string> = {
   log: "Log",
   output: "Output",
   changes: "Changes",
-  checks: "Checks",
+  checks: "Check logs",
 };
 
-/** The tabs that mean something for a step: a role has a prompt, a log and an output; a check has its logs. */
-export function tabsFor(n: RunNode): Tab[] {
+/**
+ * The tabs that mean something for a step: a role has a prompt, a log and an output; a check has its logs. A flow
+ * check records its evidence, not a log the panel can read, so its overview carries everything.
+ */
+export function tabsFor(n: RunNode, flowCheck = false): Tab[] {
   const tabs: Tab[] = ["overview"];
   if (n.role || n.attempts.some((a) => a.dispatchId)) tabs.push("prompt", "log", "output");
   if (n.kind === "lane" || n.kind === "commit" || n.kind === "land") tabs.push("changes");
-  if (n.kind === "check") tabs.push("checks");
+  if (n.kind === "check" && !flowCheck) tabs.push("checks");
   return tabs;
 }
 

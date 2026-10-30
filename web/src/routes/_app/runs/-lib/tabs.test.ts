@@ -11,6 +11,10 @@ test("each step gets the tabs that mean something for it", () => {
   expect(tabsFor(node("start"))).toEqual(["overview"]);
 });
 
+test("a flow check keeps its evidence on the overview, with no log tab", () => {
+  expect(tabsFor(node("M1/check/M1.L1"), true)).toEqual(["overview"]);
+});
+
 test("no step has a Decision tab (plan 49: there is no decision model)", () => {
   for (const n of model.nodes) expect(tabsFor(n)).not.toContain("decision" as never);
 });
