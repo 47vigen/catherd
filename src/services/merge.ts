@@ -3,9 +3,17 @@ import { join } from "node:path";
 import { type ArchMerge, type ArchTask, treeBusy } from "../domain/architect-state.ts";
 import { runBranch } from "../domain/branch.ts";
 import type { RunEventInput } from "../domain/run-events.ts";
-import { git, gitRun } from "../infra/git.ts";
+import { errorMessage } from "../domain/errors.ts";
+import type { Regen } from "../domain/profile.ts";
+import { git, gitRun, snapshotTree } from "../infra/git.ts";
+import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
+import { log } from "../infra/log.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import { runArchitectCheck } from "./architect-check.ts";
+import { checkEnvFor, runCheck } from "./check-command.ts";
+import { runProfile } from "./run-pin.ts";
+import { treeLimits } from "./run-tree.ts";
+import { teamSend } from "./team.ts";
 import { oracleDiffFile, oracleOf } from "./oracle.ts";
 import type { Deps } from "./ports.ts";
 import { replayRun } from "./run-events-store.ts";
@@ -94,7 +102,15 @@ export async function runMerge(
       `it changed ${held.paths.join(", ")}, the oracle of ledger ${t.ledgerTask} (diff ${held.diff}): accept it with oracle_accept and merge it again, or send the task back to restore it`,
       { files: held.paths, oracle: held },
     );
-  const merged = await gitRun(dir, ["merge", "--no-edit", "-q", branch]);
+  const regen = runProfile(deps, run).regen;
+  const pre = (await out(dir, ["rev-parse", "HEAD"]))?.trim() ?? "";
+  const merged = await gitRun(dir, [
+    ...(regen ? regenConfig(run, regen.paths) : []),
+    "merge",
+    "--no-edit",
+    "-q",
+    branch,
+  ]);
   if (merged.code !== 0) {
     const files = lines((await out(dir, ["diff", "--name-only", "--diff-filter=U"])) ?? "");
     await gitRun(dir, ["merge", "--abort"]);
@@ -108,6 +124,19 @@ export async function runMerge(
         text: `Merging the run's branch \`${branch}\` into your tree conflicts in: ${where}. Run \`git merge ${branch}\` in your tree, resolve the conflicts, and leave the result uncommitted: catherd commits it and merges again when you end complete.`,
       },
     );
+  }
+  if (regen) {
+    const failed = await regenerate(deps, run, dir, regen, pre, branch);
+    if (failed)
+      return end(
+        "red",
+        `${failed}: catherd sends it back to its writer`,
+        {},
+        {
+          cause: "red",
+          text: `After the run's branch \`${branch}\` merged into your tree, ${failed}. Fix it and end complete.`,
+        },
+      );
   }
   if (t.check) {
     const c = await runArchitectCheck(
@@ -155,6 +184,93 @@ export async function runMerge(
     `${branch} is at ${sha?.slice(0, 12)}: ${files.length} file(s) from ${m.taskId}${files.length ? ` (${files.slice(0, 10).join(", ")}${files.length > 10 ? ", …" : ""})` : ""}`,
     { sha, files },
   );
+}
+
+/**
+ * Spec D5: a regenerable path never conflicts. Its `merge=regen` attribute's driver keeps the run's side (`cp %B %A`),
+ * set for this one merge through `-c`, so neither the repository's config nor its attributes change.
+ */
+function regenConfig(run: Run, paths: string[]): string[] {
+  const file = join(run.dir, "trees", "regen.attributes");
+  writeTextAtomic(file, `${paths.map((p) => `${p} merge=regen`).join("\n")}\n`);
+  return [
+    "-c",
+    `core.attributesFile=${file}`,
+    "-c",
+    "merge.regen.name=catherd: keep the run's side, then regenerate",
+    "-c",
+    "merge.regen.driver=cp %B %A",
+  ];
+}
+
+/**
+ * Spec D5: when both the task and the run's branch changed a regenerable path, the merge kept the run's side, so the
+ * regenerate command rebuilds it in the task's tree and catherd commits the result. A failure's line, else null.
+ */
+async function regenerate(
+  deps: Deps,
+  run: Run,
+  dir: string,
+  regen: Regen,
+  pre: string,
+  branch: string,
+): Promise<string | null> {
+  const base = (await out(dir, ["merge-base", pre, branch]))?.trim();
+  if (!base) return null;
+  const changed = async (to: string) =>
+    lines((await out(dir, ["diff", "--name-only", base, to, "--", ...regen.paths])) ?? "");
+  const theirs = new Set(await changed(branch));
+  const both = (await changed(pre)).filter((p) => theirs.has(p));
+  if (both.length === 0) return null;
+  const env = await checkEnvFor(run.meta.repo);
+  const r = await withHeavySlot(heavySlots(runProfile(deps, run).heavy), (_slot, tmp) =>
+    runCheck(dir, regen.command, treeLimits.setupMs, { ...env, TMPDIR: tmp, GOTMPDIR: tmp }),
+  );
+  if (r.timedOut || r.code !== 0)
+    return `the regenerate command \`${regen.command}\` for ${both.join(", ")} ${r.timedOut ? "timed out" : `exited ${r.code}`}: ${tail(r.tail.join("\n"))}`;
+  if ((await out(dir, ["status", "--porcelain"]))?.trim()) {
+    await gitRun(dir, ["add", "-A"]);
+    await gitRun(dir, ["commit", "-q", "-m", `catherd: regenerate ${both.join(", ")}`.slice(0, 100)]);
+  }
+  return null;
+}
+
+/**
+ * Spec D5: after a merge, every running writer hears what landed (the completed-change notice), and a writer in its own
+ * tree whose work would now conflict with the run's branch is told the paths at once (`git merge-tree` on a snapshot of
+ * its tree; no tree is touched). A notice that cannot be sent is logged and never fails the merge.
+ */
+export async function noticeMerged(run: Run, done: MergeDone): Promise<void> {
+  if (done.outcome !== "merged" || !done.sha) return;
+  const branch = runBranch(run.meta.title);
+  const files = done.files.length
+    ? `${done.files.slice(0, 20).join(", ")}${done.files.length > 20 ? ", …" : ""}`
+    : "no file changed";
+  const head = `${done.taskId} merged into the run's branch \`${branch}\` at ${done.sha.slice(0, 12)}: ${files}.`;
+  const writers = Object.values(replayRun(run).arch.tasks).filter(
+    (t) => t.state === "working" && (t.role === "worker" || t.role === "writer" || t.role === "artist"),
+  );
+  for (const t of writers) {
+    const conflicts = t.tree ? await predictedConflicts(taskTreeDir(run, t.tree), done.sha) : [];
+    const text = !t.tree
+      ? `${head} It is in the run's tree you work in.`
+      : conflicts.length
+        ? `${head} Your work would conflict with it in: ${conflicts.join(", ")}. Run \`git merge ${branch}\` in your tree now and resolve them.`
+        : `${head} Run \`git merge ${branch}\` in your tree when you need that work.`;
+    await teamSend({ run: run.id, from: "catherd", to: t.taskId, mode: "queue", text }).catch((e) =>
+      log("warn", "daemon", { run: run.id, merge: done.mergeId, team: errorMessage(e) }),
+    );
+  }
+}
+
+/** The paths a writer's tree, as it is now, would conflict in with `sha`; none when it merges clean or git cannot say. */
+async function predictedConflicts(dir: string, sha: string): Promise<string[]> {
+  if (!existsSync(dir)) return [];
+  const snap = await snapshotTree(dir);
+  if (!snap) return [];
+  const r = await gitRun(dir, ["merge-tree", "--write-tree", "--name-only", "--no-messages", sha, snap]);
+  // exit 1 is a conflict: the tree's id, then one conflicted path a line
+  return r.code === 1 ? [...new Set(lines(r.out).slice(1))] : [];
 }
 
 /**

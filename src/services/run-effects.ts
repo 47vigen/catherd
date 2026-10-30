@@ -27,7 +27,7 @@ import { runArchitectCheck } from "./architect-check.ts";
 import { runLand } from "./land.ts";
 import { claimRunTree } from "./run-tree.ts";
 import { checkpointTree, claimTaskTree } from "./writer-tree.ts";
-import { runMerge } from "./merge.ts";
+import { noticeMerged, runMerge } from "./merge.ts";
 import { sendBack } from "./architect-tools.ts";
 import { writeArchitectReport } from "./architect-run.ts";
 import { renderLedger } from "./ledger-store.ts";
@@ -469,6 +469,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
           done = { ...done, message: done.message.replace(/: catherd sends it back to its writer$/, sent) };
         }
         await append(done);
+        await noticeMerged(run, done);
         return;
       }
       case "watch": {

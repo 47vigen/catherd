@@ -5,7 +5,8 @@ import { dirname, join } from "node:path";
 import type { ArchMerge } from "../../src/domain/architect-state.ts";
 import { db } from "../../src/infra/db.ts";
 import { writeLedger } from "../../src/services/ledger-store.ts";
-import { runMerge } from "../../src/services/merge.ts";
+import { noticeMerged, runMerge } from "../../src/services/merge.ts";
+import { teamMessages } from "../../src/services/team.ts";
 import { realEffects } from "../../src/services/run-effects.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
@@ -183,5 +184,61 @@ describe("merging a writer's tree into the run's branch (plan 55, spec D5)", () 
       message: expect.stringMatching(/: catherd sent it back as T2$/),
     });
     expect(readFileSync(join(run.dir, "tasks/T2/brief.md"), "utf8")).toContain("conflicts in: a.txt");
+  });
+});
+
+describe("after a merge (plan 55, spec D5)", () => {
+  it("keeps the run's side of a regenerable path both sides changed, then regenerates it in the task's tree", async () => {
+    const { run, deps, tree } = await treesRun({ path: "bun.lock", text: "v1\n" });
+    deps.view.regen = { paths: ["bun.lock"], command: "printf 'regenerated\\n' > bun.lock" };
+    const dir = await worked(run, deps, "T1");
+    put(dir, "bun.lock", "mine\n");
+    put(tree, "bun.lock", "theirs\n");
+    git(tree, "commit", "-q", "-am", "theirs");
+    const { done } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done).toMatchObject({ outcome: "merged", files: ["bun.lock"] });
+    expect(readFileSync(join(tree, "bun.lock"), "utf8")).toBe("regenerated\n");
+    expect(git(tree, "log", "-1", "--format=%s")).toBe("catherd: regenerate bun.lock");
+  });
+
+  it("sends the task back when the regenerate command fails", async () => {
+    const { run, deps, tree } = await treesRun({ path: "bun.lock", text: "v1\n" });
+    deps.view.regen = { paths: ["bun.lock"], command: "echo 'registry down'; exit 7" };
+    const dir = await worked(run, deps, "T1");
+    put(dir, "bun.lock", "mine\n");
+    put(tree, "bun.lock", "theirs\n");
+    git(tree, "commit", "-q", "-am", "theirs");
+    const { done, back } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done).toMatchObject({ outcome: "red", message: expect.stringContaining("exited 7") });
+    expect(back?.cause).toBe("red");
+  });
+
+  it("tells every running writer what merged, and a writer in its own tree the paths it would now conflict in", async () => {
+    const { run, deps } = await treesRun({ path: "a.txt", text: "base\n" });
+    const one = await worked(run, deps, "T1");
+    put(one, "a.txt", "one\n");
+    const two = await worked(run, deps, "T2", { end: false });
+    put(two, "a.txt", "two\n");
+    await appendEvent(run, {
+      type: "task.delegated",
+      taskId: "T3",
+      role: "writer",
+      rung: RUNG,
+      thread: null,
+      ledgerTask: null,
+      by: "architect-1",
+      why: "w",
+    });
+    const log = makeLog();
+    startDispatch(log, { name: "T3", unit: "T3" });
+    for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    const { done } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    await noticeMerged(run, done);
+    const sent = teamMessages(run);
+    expect(sent.find((m) => m.to === "T2")?.text).toContain("Your work would conflict with it in: a.txt");
+    expect(sent.find((m) => m.to === "T3")?.text).toContain("It is in the run's tree you work in");
+    expect(
+      sent.every((m) => m.from === "catherd" && m.text.startsWith("T1 merged into the run's branch")),
+    ).toBe(true);
   });
 });
