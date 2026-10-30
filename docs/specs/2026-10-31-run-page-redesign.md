@@ -48,34 +48,38 @@ so none of the stories was visible.
 
 ## Design
 
-Top to bottom, on a 12-column grid (one column on a phone):
+The page is a bento grid: tiles in a row share one height, and no tile leaves a hole. Top to bottom, on 12
+columns (one column on a phone):
 
-1. **Header.** Title, then one line: status chip, started, repo folder name (the full path on hover). Actions as
-   before. One stat sheet with each figure once: Status, Took / Running for, Cost (tokens under it), Tasks (done of
-   the ledger), Rounds, Idle (concurrency under it).
+1. **Header.** Title, then one line: id, repo folder name (the full path on hover), started. Actions as before. One
+   stat sheet with each figure once: Status, Took / Running for, Cost (tokens and role runs under it, the token
+   split on hover), Tasks (done of the ledger), Rounds, Idle (from the flow's own idle spans, so it never disagrees
+   with the time bar; concurrency under it).
 2. **Needs you** (only when a unit is parked on the owner): one warning band, each question with its Answer button.
-3. **Now** (live only, 7 columns): one row per live role (name, role colour, model, how long it has run); a row
-   opens that role in the drawer.
-4. **What stands out** (7 columns; under Now when live): findings derived from the run, the most serious first, each
-   with a tone (danger, warning, neutral) and a link to its role run or check:
-   - a check whose last result failed (and, for a run that ended done, that it ended done anyway);
-   - role runs that failed, were cancelled or timed out;
-   - limits hit and rung climbs;
-   - the role run that took the largest share of the cost (when it took a quarter or more);
-   - the role run that ran far longer than the median (three times or more, and at least five minutes);
-   - time spent waiting on the owner and on quota;
-   - idle time of a third of the run or more, with its main reason;
-   - the architect's turn count and its share of the wall time;
-   - ledger tasks left blocked or impossible at the end.
-   No finding: "Nothing stands out."
-5. **Where the time went** and **Where the cost went** (5 columns, stacked): one segmented bar each with a legend.
-   Time: roles working, checks only, waiting on you, quota, gaps. Cost: by role family; under it the top five role
-   runs by cost (tokens when no cost is known), each with a share bar, each opening its role run.
-6. **Run flow** (12 columns), without its own copy of the figures.
-7. **Plan and report** (8) beside **Models** (4).
-8. **Timeline** (12).
+3. **The summary row, three equal tiles:**
+   - ended: What stands out · Where the time went · Where the cost went;
+   - live: Now · What stands out · Where the time went (cost moves beside Models).
+   **What stands out** lists findings derived from the run, the most serious first, each with a tone and a link to
+   its role run or check: a failing last check per scope (and that the run ended done anyway), role runs that
+   failed, were cancelled or timed out, limits and climbs, the role run with a quarter or more of the cost, a role
+   run three times the median and at least five minutes long, waits on the owner and on quota, idle of a third or
+   more with its main reason, the architect's turns and share of the wall time, tasks left blocked. **Where the time
+   went** is one bar (working, checks only, waiting on you, quota, nothing running) plus concurrency, median and
+   longest role run, architect turns. **Where the cost went** is one bar by role family, the five most expensive
+   role runs when they differ, and the token split. **Now** lists the live roles, each opening its drawer.
+4. **Run flow** (12 columns): no copy of the figures. Bars are a tinted body with a solid edge in the role's colour
+   and the task id inside; failures and limits keep their outlined edge; a running bar pulses; waits on the owner
+   and on quota wash across every row; each row has a state dot; a fixed inspector strip shows the bar under the
+   pointer.
+5. **Plan and report** (8) beside **Models** (4), and the cost tile on a live run.
+6. **Timeline** (12): a rail with clock time and offset into the run, an icon per kind of event and its outcome,
+   the line, then type and seq.
+7. **Drawers:** redesigned in the same pass (see the drawer commit).
 
-The Metrics card goes: each of its figures now lives in the stat sheet, the time bar or a finding.
+One palette everywhere: architect chart-4, worker/writer/artist chart-1, reviewer/verifier chart-2, researcher
+chart-3, checks muted, waiting on the owner chart-5, quota warning.
+
+The Metrics card goes on flow runs: each of its figures now lives in the stat sheet, the time tile or a finding.
 
 ## Left to the builder
 
