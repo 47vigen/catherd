@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { claimRunTree } from "../../src/services/run-tree.ts";
 import { taskBranch, taskTreeDir } from "../../src/services/tree-path.ts";
@@ -45,6 +45,40 @@ describe("a writer's own worktree (plan 55, spec D5)", () => {
     const dir = await claimTaskTree(deps, run, "T2");
     expect(existsSync(join(dir, "junk"))).toBe(false);
     expect(git(dir, "rev-parse", "--abbrev-ref", "HEAD")).toBe(taskBranch(run, "T2"));
+  });
+
+  it("recreates a tree whose folder is gone on its own branch, keeping the commit catherd made of the writer's work (review I6)", async () => {
+    const { run } = branchRun("wallet");
+    const deps = fakeDeps();
+    await claimRunTree(deps, run);
+    const dir = await claimTaskTree(deps, run, "T1");
+    writeFileSync(join(dir, "work.txt"), "committed by catherd\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "catherd: T1");
+    const tip = git(dir, "rev-parse", "HEAD");
+    rmSync(dir, { recursive: true, force: true });
+    const again = await claimTaskTree(deps, run, "T1");
+    expect(git(again, "rev-parse", "--abbrev-ref", "HEAD")).toBe(taskBranch(run, "T1"));
+    expect(git(again, "rev-parse", "HEAD")).toBe(tip);
+    expect(readFileSync(join(again, "work.txt"), "utf8")).toBe("committed by catherd\n");
+  });
+
+  it("recreates a tree whose folder and branch are gone on its latest checkpoint (review I6)", async () => {
+    const { run } = branchRun("wallet");
+    const deps = fakeDeps();
+    await claimRunTree(deps, run);
+    const dir = await claimTaskTree(deps, run, "T1");
+    writeFileSync(join(dir, "one.txt"), "first\n");
+    await checkpointTree(run, "T1", 1);
+    writeFileSync(join(dir, "two.txt"), "second\n");
+    await checkpointTree(run, "T1", 2);
+    rmSync(dir, { recursive: true, force: true });
+    git(run.meta.repo, "worktree", "prune");
+    git(run.meta.repo, "branch", "-D", taskBranch(run, "T1"));
+    const again = await claimTaskTree(deps, run, "T1");
+    expect(readFileSync(join(again, "one.txt"), "utf8")).toBe("first\n");
+    expect(readFileSync(join(again, "two.txt"), "utf8")).toBe("second\n");
+    expect(git(again, "rev-parse", "--abbrev-ref", "HEAD")).toBe(taskBranch(run, "T1"));
   });
 
   it("checkpoints the tree under a ref, untracked files in and the index untouched, and keeps the ref after removal", async () => {

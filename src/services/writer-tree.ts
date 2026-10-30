@@ -19,17 +19,34 @@ export async function claimTaskTree(deps: Deps, run: Run, owner: string): Promis
   await claimRunTree(deps, run);
   const repo = run.meta.repo;
   const branch = taskBranch(run, owner);
-  // nothing worked in a tree before its ready mark: a half-made one goes, with its branch
+  // a half-made folder goes; a branch stays when it holds commits the run's branch lacks (catherd's commit of the
+  // writer's work), since the folder alone was lost
   await gitRun(repo, ["worktree", "remove", "--force", dir]);
   rmSync(dir, { recursive: true, force: true });
   await gitRun(repo, ["worktree", "prune"]);
-  await gitRun(repo, ["branch", "-D", branch]);
   const head = await git(runTree(run), ["rev-parse", "HEAD"]);
   if (head.kind !== "ok")
     throw new CatherdError("E_TREE", `the run's tree has no commit to cut ${owner}'s tree from`, {
       fix: "restore the run's tree, then delegate again",
     });
-  const r = await gitRun(repo, ["worktree", "add", "--no-track", "-b", branch, dir, head.out.trim()]);
+  const kept = await git(repo, ["rev-list", "--count", `${head.out.trim()}..refs/heads/${branch}`]);
+  const unmerged = kept.kind === "ok" && Number(kept.out.trim()) > 0;
+  const add = unmerged
+    ? ["worktree", "add", dir, branch]
+    : await (async () => {
+        await gitRun(repo, ["branch", "-D", branch]);
+        // the writer's last checkpoint holds work the folder lost; else the run's branch as last committed
+        return [
+          "worktree",
+          "add",
+          "--no-track",
+          "-b",
+          branch,
+          dir,
+          (await latestCheckpoint(run, owner)) ?? head.out.trim(),
+        ];
+      })();
+  const r = await gitRun(repo, add);
   if (r.code !== 0)
     throw new CatherdError("E_TREE", `git worktree add failed for ${branch}: ${tail(`${r.out}${r.err}`)}`, {
       fix: "fix the repository, then delegate again",
@@ -37,6 +54,22 @@ export async function claimTaskTree(deps: Deps, run: Run, owner: string): Promis
   await setUp(deps, run, dir);
   writeFileSync(taskReadyFile(run, owner), "");
   return dir;
+}
+
+/** The sha of the owner's highest-numbered checkpoint ref, else null. */
+async function latestCheckpoint(run: Run, owner: string): Promise<string | null> {
+  const r = await git(run.meta.repo, [
+    "for-each-ref",
+    "--format=%(refname) %(objectname)",
+    `refs/catherd/${run.id}/${owner}/`,
+  ]);
+  if (r.kind !== "ok") return null;
+  const found = r.out
+    .split("\n")
+    .map((l) => /\/(\d+) ([0-9a-f]+)$/.exec(l.trim()))
+    .filter((x): x is RegExpExecArray => x !== null)
+    .map((x) => ({ n: Number(x[1]), sha: x[2] as string }));
+  return found.sort((x, y) => y.n - x.n)[0]?.sha ?? null;
 }
 
 /** A merged writer's tree and branch go; its checkpoint refs stay. */
