@@ -2,7 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { codexRoleMcpArgs } from "../../infra/role-mcp.ts";
 import { CatherdError } from "../../domain/errors.ts";
-import type { Access, RunStatus } from "../../domain/record.ts";
+import {
+  type Access,
+  MODEL_UNAVAILABLE,
+  MODEL_UNAVAILABLE_WHY,
+  type RunStatus,
+} from "../../domain/record.ts";
 import { composeReply } from "../../domain/reply.ts";
 import {
   type AccessShell,
@@ -20,7 +25,13 @@ import {
 import { type CliResult, runCli } from "../cli.ts";
 import { scratchShell, writableRoots } from "../access.ts";
 import { codexTranscript } from "./transcript.ts";
-import { CODEX_LIMIT, CODEX_TOO_OLD, foldCodexEvents, parseCodexLine } from "./events.ts";
+import {
+  CODEX_LIMIT,
+  CODEX_MODEL_UNAVAILABLE,
+  CODEX_TOO_OLD,
+  foldCodexEvents,
+  parseCodexLine,
+} from "./events.ts";
 
 /** The item types that are a tool call running, as the idle watchdog counts them. */
 const CODEX_TOOL_ITEMS = new Set(["command_execution", "mcp_tool_call", "web_search", "file_change"]);
@@ -120,22 +131,22 @@ function plan(r: RunRequest): SpawnPlan {
 
 function finalize(run: FinishedRun): Outcome {
   const f = foldCodexEvents(run.eventLines);
-  const tooOld = f.tooOld || CODEX_TOO_OLD.some((re) => re.test(run.stderr));
+  // plan 55: a model the account cannot use is a rung that cannot run, held and climbed as a usage limit is
+  const unavailable =
+    !f.limit && (f.modelUnavailable || CODEX_MODEL_UNAVAILABLE.some((re) => re.test(run.stderr)));
   const stopped = run.exit.reason;
   const status: RunStatus =
     stopped === "cancelled"
       ? "cancelled"
       : stopped === "idle-timeout" || stopped === "wall-timeout"
         ? "timeout"
-        : tooOld
-          ? "cli-too-old"
-          : f.limit
-            ? "limit"
-            : f.turnFailed
+        : unavailable || f.limit
+          ? "limit"
+          : f.turnFailed
+            ? "failed"
+            : run.exit.code !== 0 && !run.reply.trim()
               ? "failed"
-              : run.exit.code !== 0 && !run.reply.trim()
-                ? "failed"
-                : "ok";
+              : "ok";
   const lastErr = run.stderr.trim().split("\n").at(-1) ?? "";
   const home = run.request.isolated ? isolatedCodexHomePath() : userCodexHome();
   const reply = composeReply(f.finals, run.reply);
@@ -149,8 +160,10 @@ function finalize(run: FinishedRun): Outcome {
       status === "ok"
         ? null
         : {
-            code: status,
-            message: f.failure ?? (lastErr || `${stopped}, exit ${run.exit.code ?? run.exit.signal}`),
+            code: unavailable ? MODEL_UNAVAILABLE : status,
+            message:
+              (unavailable ? `${MODEL_UNAVAILABLE_WHY}: ` : "") +
+              (f.failure ?? (lastErr || `${stopped}, exit ${run.exit.code ?? run.exit.signal}`)),
           },
     // plan 22: -o keeps the last turn's message; a later turn never overwrites the report
     ...(reply !== run.reply ? { reply } : {}),
@@ -304,7 +317,6 @@ export const codexAdapter: BackendAdapter = {
       ...(activity ? { activity } : {}),
       ...(f.turnFailed ? { failure: f.failure ?? "turn failed" } : {}),
       ...(f.limit ? { limit: true } : {}),
-      ...(f.tooOld ? { tooOld: true } : {}),
     };
   },
   transcript: codexTranscript,

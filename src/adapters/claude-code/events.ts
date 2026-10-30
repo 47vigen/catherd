@@ -12,6 +12,8 @@ export interface ClaudeFold {
   thread: string | null;
   result: ClaudeResult | null;
   limit: boolean;
+  /** plan 55: the account cannot use the rung's model */
+  modelUnavailable: boolean;
   lastEvent: string | null;
 }
 
@@ -59,6 +61,13 @@ export function eventName(e: Event): string {
   return String(e.type ?? "?");
 }
 
+/** plan 55: claude says the model "may not exist or you may not have access to it" (`error: model_not_found`). */
+const modelGone = (e: Event): boolean =>
+  (e.type === "assistant" && e.error === "model_not_found") ||
+  (e.type === "result" &&
+    e.is_error === true &&
+    /issue with the selected model|may not have access to it/i.test(String(e.result ?? "")));
+
 const limited = (e: Event): boolean =>
   (e.type === "rate_limit_event" && e.rate_limit_info?.status === "rejected") ||
   (e.type === "assistant" && e.error === "rate_limit") ||
@@ -68,13 +77,20 @@ const limited = (e: Event): boolean =>
 
 /** Tokens and cost come from the final `result` event only: assistant events repeat one message's usage. */
 export function foldClaudeEvents(lines: string[]): ClaudeFold {
-  const f: ClaudeFold = { thread: null, result: null, limit: false, lastEvent: null };
+  const f: ClaudeFold = {
+    thread: null,
+    result: null,
+    limit: false,
+    modelUnavailable: false,
+    lastEvent: null,
+  };
   for (const line of lines) {
     const e = parseClaudeLine(line);
     if (!e) continue;
     f.lastEvent = eventName(e);
     if (typeof e.session_id === "string" && e.session_id) f.thread ??= e.session_id;
     if (limited(e)) f.limit = true;
+    if (modelGone(e)) f.modelUnavailable = true;
     if (e.type === "result")
       f.result = {
         isError: e.is_error === true,

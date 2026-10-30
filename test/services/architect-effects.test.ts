@@ -161,6 +161,50 @@ describe("an architect run on the real effects (plan 47, spec D1–D3)", () => {
     expect(first).toMatchObject({ rung: SOL });
   });
 
+  it("climbs to the next rung when the account cannot use the architect's model, never repeating it (plan 55)", async () => {
+    const { run } = freshRun("wallet");
+    const ASTRA = "codex:gpt-6-astra#xhigh";
+    const OPUS = "claude-code:claude-opus-5-5#high";
+    process.env.PATH = simPath();
+    Object.assign(
+      process.env,
+      withScenario({
+        reply: "Done.\nSTATUS: complete — ok",
+        // the real run: the model is refused within seconds, with the CLI's error stream
+        byRung: {
+          "gpt-6-astra#xhigh": {
+            eventsFile: join(import.meta.dir, "..", "fixtures", "adapters", "codex", "model-not-found.jsonl"),
+            reply: "",
+            exitCode: 1,
+          },
+        },
+      }).env,
+    );
+    Object.assign(process.env, withClaudeScenario({}).env);
+    const view = testView();
+    view.roles.architect = { enabled: true, access: "workspace-write", rungs: [ASTRA, OPUS] };
+    await appendEvent(run, {
+      type: "run.started",
+      ...startedFields,
+      repo: run.meta.repo,
+      title: "wallet",
+      architectRungs: [ASTRA, OPUS],
+    });
+    const clock = { now: Date.now, sleep: () => new Promise<void>((r) => setImmediate(r)) };
+    await runDaemon(fakeDeps({ view }), run.id, { clock });
+    const events = readEvents(run);
+    const turns = events.flatMap((e) => (e.type === "dispatch.started" && e.role === "architect" ? [e] : []));
+    expect(turns.slice(0, 2).map((e) => [e.name, e.rung])).toEqual([
+      ["architect-1", ASTRA],
+      ["architect-2", OPUS],
+    ]);
+    expect(turns.filter((e) => e.rung === ASTRA)).toHaveLength(1);
+    expect(events.find((e) => e.type === "dispatch.ended" && e.name === "architect-1")).toMatchObject({
+      status: "limit",
+      why: expect.stringContaining("model not available to this account"),
+    });
+  });
+
   it("keeps the free rung the machine picked when the profile's new default is on a held quota", async () => {
     const { run } = freshRun("wallet");
     process.env.PATH = simPath();

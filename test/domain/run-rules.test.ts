@@ -74,6 +74,16 @@ describe("dispatchHints", () => {
     );
   });
 
+  it("names a model the account cannot use apart from a usage limit (plan 55)", () => {
+    const r = makeRecord({
+      status: "limit",
+      error: { code: "model-unavailable", message: "model not available to this account: model_not_found" },
+    });
+    expect(dispatchHints(r, ["src/a.ts"], dir)[0]).toBe(
+      "limit: codex:gpt-6-sol#medium cannot run (model not available to this account: model_not_found); it fails over as on a usage limit",
+    );
+  });
+
   it("says the changes are unknown, not unchanged, when git could not see them", () => {
     const r = makeRecord({ changedOwned: [], gitUnavailable: true });
     expect(dispatchHints(r, ["src/a.ts"], dir)).toEqual(["git-unavailable: changed files unknown"]);
