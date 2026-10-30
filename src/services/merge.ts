@@ -131,6 +131,13 @@ export async function runMerge(
   const status = await out(dir, ["status", "--porcelain"]);
   if (status === null) return end("refused", `git cannot read ${dir}`);
   const midMerge = (await out(dir, ["rev-parse", "-q", "--verify", "MERGE_HEAD"])) !== null;
+  // a commit records a submodule's HEAD, not its edits: they would be lost with the tree
+  const sub = await dirtySubmodule(dir);
+  if (sub)
+    return end(
+      "refused",
+      `submodule ${sub} has uncommitted changes: commit them inside it or send the task back; catherd keeps the tree`,
+    );
   // markers a writer left, committed or not, or a merge a crash or the writer left unfinished: never merged, nothing is touched
   const marks = await conflictMarkers(
     dir,
@@ -519,6 +526,19 @@ async function heldOracle(
   const file = oracleDiffFile(t.taskId);
   writeTextAtomic(join(run.dir, file), diff || "git could not diff\n");
   return { paths, diff: file };
+}
+
+/**
+ * The first submodule with edits or untracked files of its own (`status --porcelain=v2`: `S<commit><tracked><untracked>`,
+ * so `M` second to last or `U` last), else null. A moved HEAD alone is a change a commit records.
+ */
+async function dirtySubmodule(dir: string): Promise<string | null> {
+  const st = (await out(dir, ["status", "--porcelain=v2", "--ignore-submodules=none"])) ?? "";
+  for (const l of st.split("\n")) {
+    const f = l.split(" ");
+    if (f[0] === "1" && /^S(.M.|..U)$/.test(f[2] ?? "")) return f.slice(8).join(" ");
+  }
+  return null;
 }
 
 /** A file's mtime, or null when it is not there (a git's lock can vanish between a look and a stat). */

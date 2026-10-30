@@ -16,7 +16,7 @@ import { claimRunTree } from "../../src/services/run-tree.ts";
 import { taskBranch, taskTreeDir } from "../../src/services/tree-path.ts";
 import { claimTaskTree, removeTaskTree } from "../../src/services/writer-tree.ts";
 import { endDispatch, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
-import { commitInClone, snapshotEnv } from "../helpers.ts";
+import { commitInClone, snapshotEnv, tempRepo } from "../helpers.ts";
 import { branchRun, fakeDeps } from "./helpers.ts";
 
 afterEach(snapshotEnv());
@@ -385,6 +385,30 @@ describe("a merge moves what the tree holds and nothing else (plan 55 review I5 
     expect(second.done).toMatchObject({ outcome: "refused", message: expect.stringContaining("detached") });
     expect(git(tree, "rev-parse", "HEAD")).toBe(head);
     expect(readFileSync(join(dir, "w.txt"), "utf8")).toBe("work\n");
+  });
+
+  it("refuses a tree whose submodule holds uncommitted changes, before any commit, instead of failing the commit", async () => {
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = "protocol.file.allow";
+    process.env.GIT_CONFIG_VALUE_0 = "always";
+    const { run, deps, tree } = await treesRun();
+    const source = tempRepo();
+    put(source, "lib.txt", "lib\n");
+    git(source, "add", "-A");
+    git(source, "commit", "-q", "-m", "lib");
+    git(tree, "submodule", "add", "-q", source, "lib");
+    git(tree, "commit", "-q", "-m", "add lib");
+    const dir = await worked(run, deps, "T1");
+    put(dir, "lib/lib.txt", "edited inside the submodule\n");
+    put(dir, "w.txt", "work\n");
+    const own = git(dir, "rev-parse", "HEAD");
+    const { done } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done).toMatchObject({
+      outcome: "refused",
+      message: expect.stringContaining("submodule lib has uncommitted changes"),
+    });
+    expect(git(dir, "rev-parse", "HEAD")).toBe(own);
+    expect(existsSync(dir)).toBe(true);
   });
 
   it("fast-forwards to what the task tree's HEAD is, and keeps a tree that is not clean after the check", async () => {
