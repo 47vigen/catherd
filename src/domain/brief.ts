@@ -1,3 +1,4 @@
+import type { TreeMode } from "./caps.ts";
 import { roleContract } from "./role-prompts.ts";
 import { ARCHITECT_TOOLS, roleMcpTools } from "./role-tools.ts";
 import type { Role } from "./roles.ts";
@@ -19,6 +20,8 @@ export interface BriefContext {
   role: Role;
   /** the catherd version whose `lock` a worker's text names */
   version: string;
+  /** plan 55: where the run's writers work; the architect's contract names writer trees only for `writer` */
+  trees?: TreeMode;
   /** a resumed thread holds the role, facts and unit already, so only this round goes */
   resumed: boolean;
   /** the lane file as it stands, header and body */
@@ -91,7 +94,7 @@ export function composeBrief(parts: BriefParts, c: BriefContext): string {
     return `${tag("this-round", [...parts.round, pointer])}\n`;
   }
   return `${[
-    tag("role-contract", [roleContract(c.role, c.version)]),
+    tag("role-contract", [roleContract(c.role, c.version, c.trees)]),
     tag("run-facts", [...parts.facts, roleNotes(c)]),
     tag("unit-context", [...parts.unit, c.lane ? laneBlock(c.lane.id, c.lane.text) : ""]),
     tag("this-round", parts.round),

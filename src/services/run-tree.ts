@@ -94,7 +94,18 @@ export async function setUp(deps: Deps, run: Run, tree: string): Promise<void> {
  * `origin/<base>` after a fetch, set up once. A claim a crash interrupted reuses the folder and runs Setup: again,
  * since `.ready` was never written. A branch of the run's name that this run did not make is refused.
  */
-export async function claimRunTree(deps: Deps, run: Run): Promise<TreeClaim> {
+export function claimRunTree(deps: Deps, run: Run): Promise<TreeClaim> {
+  // plan 55: a writer's tree and the run's first actions claim at once; one claim at a time per run
+  const pending = claiming.get(run.id);
+  if (pending) return pending;
+  const p = claim(deps, run).finally(() => claiming.delete(run.id));
+  claiming.set(run.id, p);
+  return p;
+}
+
+const claiming = new Map<string, Promise<TreeClaim>>();
+
+async function claim(deps: Deps, run: Run): Promise<TreeClaim> {
   const base = run.meta.base;
   if (!base)
     throw new CatherdError("E_INPUT_INVALID", `run ${run.id} has no base branch`, {

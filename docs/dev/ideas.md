@@ -16,15 +16,48 @@ judge on the role's exact brief (plan 44). Since 2.0 the daemon runs all of it (
 
 ## 2.0 follow-ups
 
+### From plan 55 (writer trees and merge)
+
+Left out of plan 55 on purpose:
+
+- **The writer cap is still 4, not memory-bound.** Spec D5 applies plan 35's milestone memory to writers; that needs
+  a free-memory read in the machine's admission and a wait on it. Measure stage 2's peak memory per writer tree first.
+- **Checkpoints are taken at each dispatch's end only,** not every two minutes. A writer's tree stays on disk until it
+  merges, so a kill or a timeout loses nothing; a periodic snapshot is for a tree that can vanish.
+- **`from` takes only `clean`.** A rewind to an earlier checkpoint (`from: refs/catherd/<run>/<task>/<n>`) is spec D5's
+  too; add it when an architect asks for one.
+- **A new tree runs `git submodule update` on its own,** not `--reference --dissociate` against the main checkout.
+- **An unmerged writer tree and every checkpoint ref outlive the run,** as the run's own tree does. A cleanup command
+  would remove them (`git worktree remove`, `git update-ref -d refs/catherd/<run>/…`).
+- **`regen` is the profile's, not the repo's.** A profile shared by repos names one set of paths and one command; per-repo
+  knowledge would fit better. The merge sets `core.attributesFile` for its own command, so a global attributes file of
+  the owner's is not read for that one merge.
+- **The architect's uncommitted edits in the run's tree do not reach a new writer tree:** a tree is cut from the run's
+  branch as last committed. The contract says to commit them first; catherd could commit them at each tree's cut.
+- **A merge is refused while the run's tree holds uncommitted edits in the same files** (the fast-forward cannot carry
+  them). The architect commits or drops them and merges again.
+- **Two daemons on one run** could still claim its tree at once: the claim is serialized within one process only.
+- **A fast check that leaves untracked files in the task's tree makes its merge refuse** (the tree must be clean before
+  it is removed, review I5); gitignore the output, or let catherd commit or discard what the check leaves.
+- **A new line of `======= ` alone (a 7-character setext underline) reads as a conflict marker** in a writer's tree
+  (`git diff --check`); the merge sends the task back. Restrict the check to unmerged paths if it shows up.
+- **A merge in progress in a writer's tree is never aborted by catherd,** only sent back with its state intact (an abort
+  would drop a half-resolved merge); a writer that cannot finish it needs `git merge --abort` by hand.
+- **A nested regenerable file is regenerated only if the profile's command rebuilds it:** the attribute matches a bare
+  name at any depth, but the command runs at the tree's root (`cd web && bun install` belongs in the command).
+- **A merge recorded after a restart (its tree already removed) lists no files,** so the writers' completed-change
+  notice says "no file changed"; read the files from the `refs/catherd/<run>/<task>/merged` ref's diff if it matters.
+- **The native architect agent file keeps the writer-tree lines;** only the brief's role contract is gated on `trees`.
+- **A real submodule with uncommitted content in a writer tree has no test;** the `--ignore-submodules=none` status
+  check covers it by construction.
+- **The fast-forward and the tree's removal run under the events lock** (seconds): other event appends wait for them.
+
 ### From plan 53 (streaming fast checks)
 
 Left out of plan 53 on purpose:
 
-- **A fast check runs on the shared run tree.** Another task's half-written work can turn it red, and catherd cannot
-  tell whose failure it is; the architect decides. Per-writer trees (spec D5) make it the task's own work on top of
-  the integration branch, and a red one then goes back to the writer's thread by itself.
-- **No `check {ref}` yet.** A check on a commit in its own tree waits for D5's trees; until then a full check is proof
-  only for a tree no writer changed while it ran, and the architect is told to start it when no writer runs.
+- **A fast check runs on the shared run tree** of a `trees: shared` run (and a run without a base). Plan 55 moved it
+  into the task's own tree at its merge on every other run.
 - **The verifier still waits for the full check.** Land final needs both green on one commit, so the verifier could
   run beside the full check and save one serial check per land; spec D8 has it read the full check's result first.
   Measure the check wait on stage 2 before changing D8.
@@ -36,8 +69,8 @@ Left out of plan 53 on purpose:
 Left out of plan 54 on purpose:
 
 - **On the shared tree an oracle diff is the task's window, not its author.** Any edit to the oracle while the task
-  worked (another writer's, the architect's) is held against it. Per-writer trees (spec D5) make the diff the
-  writer's own; move the check to the merge then.
+  worked (another writer's, the architect's) is held against it. Plan 55 diffs the writer's own commits at its merge;
+  the window stays only on a `trees: shared` run.
 - **An oracle set after a task was delegated does not cover that attempt.** Its tree was not snapshotted; the next
   attempt is covered.
 - **An oracle snapshot has no ref.** After a `git gc --prune=now` land final cannot prove a restore, so the hold stays

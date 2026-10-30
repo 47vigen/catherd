@@ -3,7 +3,7 @@ import { quotaOf } from "./failover.ts";
 import { modelFamily, tryParseRung } from "./ids.ts";
 import type { TaskAttempt } from "./ledger.ts";
 import type { Role } from "./roles.ts";
-import { type Finding, type Handling, RUN_UNIT, type RunEvent } from "./run-events.ts";
+import { type Finding, type Handling, MERGE_CAUSES, RUN_UNIT, type RunEvent } from "./run-events.ts";
 import { HOLD_MS, liveDispatches, type RunState, recomputeWake } from "./run-state.ts";
 
 /**
@@ -59,6 +59,24 @@ export interface ArchTask {
   oracle: { paths: string[]; diff: string; accepted: string | null } | null;
   /** plan 54, R4: the oracle paths it was delegated against; null on an event stream from before the field */
   delegatedOracle: string[] | null;
+  /** plan 55, spec D5: the task whose worktree it works in (its own id for a new one), else null: the run's tree */
+  tree: string | null;
+  /** its tree was merged into the run's branch (and removed) */
+  merged: boolean;
+  /** catherd sent it back to its writer after a merge that conflicted or went red */
+  cause: (typeof MERGE_CAUSES)[number] | null;
+  /** the last checkpoint ref of its tree, taken when its dispatch ended */
+  checkpoint: string | null;
+}
+
+/** Plan 55, spec D5: a merge of a task's tree into the run's branch. */
+export interface ArchMerge {
+  mergeId: string;
+  taskId: string;
+  by: string;
+  state: "queued" | "done";
+  /** the seq of its `merge.requested`: a task delegated into the tree after it is not part of this merge */
+  seq: number;
 }
 
 export interface ArchCheck {
@@ -70,7 +88,14 @@ export interface ArchCheck {
   state: "queued" | "done";
   /** plan 53, spec D6: the task whose end catherd ran this fast check for; absent when the architect asked */
   task?: string;
+  /** plan 55: a commit's full sha (checked in a detached tree) or a task id (its own tree); absent: the run's tree */
+  ref?: string;
+  /** the `check.requested` seq: orders a task-ref check against a merge of the same tree (R19) */
+  seq?: number;
 }
+
+/** Plan 55: a check ref that names a task's tree rather than a commit. */
+export const isTaskRef = (ref: string): boolean => /^T\d+$/.test(ref);
 
 /** Plan 50, spec D11: a land the architect asked for. */
 export interface ArchLand {
@@ -94,6 +119,7 @@ export interface ArchState {
   tasks: Record<string, ArchTask>;
   checks: Record<string, ArchCheck>;
   lands: Record<string, ArchLand>;
+  merges: Record<string, ArchMerge>;
   /** a final land asked the owner to merge: the owner's answer ends the run done (spec D11) */
   mergeAsked: boolean;
   inbox: InboxItem[];
@@ -123,6 +149,7 @@ export function emptyArch(): ArchState {
     tasks: {},
     checks: {},
     lands: {},
+    merges: {},
     mergeAsked: false,
     inbox: [],
     turns: 0,
@@ -365,6 +392,62 @@ export const taskAttempts = (a: ArchState): TaskAttempt[] =>
       outcome: t.outcome,
     }));
 
+/** The id of the run's next merge. */
+export const nextMergeId = (a: ArchState): string => `M${Object.keys(a.merges).length + 1}`;
+
+/**
+ * Plan 55, spec D5: the tree a new attempt at a ledger task continues in by default: the latest earlier attempt's own
+ * tree, while it is not merged; null when there is none (the attempt gets a new tree).
+ */
+export function continuedTree(a: ArchState, ledgerTask: string | null, except?: string): string | null {
+  if (ledgerTask === null) return null;
+  const last = Object.values(a.tasks)
+    .filter((t) => t.ledgerTask === ledgerTask && t.tree !== null && t.state !== "refused")
+    .reduce<ArchTask | undefined>((x, t) => (!x || t.delegatedSeq > x.delegatedSeq ? t : x), undefined);
+  return last && !last.merged && !treeBusy(a, last.tree as string, except) ? last.tree : null;
+}
+
+/** Whether a task works in `tree` right now (queued or working). */
+export const treeWorking = (a: ArchState, tree: string): boolean =>
+  Object.values(a.tasks).some((t) => t.tree === tree && (t.state === "queued" || t.state === "working"));
+
+/**
+ * Whether a second task may not join `tree`: one works in it, or a merge of it is queued or running (the merge commits
+ * what the tree holds and removes it). `except` is the merge whose own send-back is the one task allowed in.
+ */
+export const treeBusy = (a: ArchState, tree: string, except?: string): boolean =>
+  treeWorking(a, tree) ||
+  Object.values(a.merges).some(
+    (m) => m.state === "queued" && m.mergeId !== except && a.tasks[m.taskId]?.tree === tree,
+  );
+
+/**
+ * R19: a queued task-ref check and a queued merge of the same tree never run together (the merge changes the tree and
+ * removes it): whichever was asked for first runs, the other waits for its end.
+ */
+export const treeRaced = (a: ArchState, c: ArchCheck, m: ArchMerge): boolean =>
+  !!c.ref &&
+  isTaskRef(c.ref) &&
+  c.state === "queued" &&
+  m.state === "queued" &&
+  a.tasks[c.ref]?.tree != null &&
+  a.tasks[c.ref]?.tree === a.tasks[m.taskId]?.tree;
+
+/**
+ * Plan 55, spec D5 and D6: the merge catherd asks for when a task in its own tree ends complete, from the state before
+ * its `dispatch.ended`; null for a task on the run's tree, an end short of complete, or a run that is stopping.
+ */
+export function mergeFor(
+  s: RunState,
+  end: { name: string; status: string; replyStatus: string | null },
+): { mergeId: string } | null {
+  const t = s.arch.tasks[end.name];
+  if (!t?.tree || t.merged || t.state !== "working" || end.status !== "ok" || end.replyStatus !== "complete")
+    return null;
+  if (s.phase === "ended" || s.cancelling || s.arch.finishing) return null;
+  return { mergeId: nextMergeId(s.arch) };
+}
+
 /** The id of the run's next check. */
 export const nextCheckId = (a: ArchState): string => `C${Object.keys(a.checks).length + 1}`;
 
@@ -378,7 +461,14 @@ export function fastCheckFor(
   end: { name: string; status: string; replyStatus: string | null },
 ): { checkId: string; command: string } | null {
   const t = s.arch.tasks[end.name];
-  if (!t?.check || t.state !== "working" || end.status !== "ok" || end.replyStatus !== "complete")
+  // plan 55: a task in its own tree gets its fast check in that tree, at its merge
+  if (
+    !t?.check ||
+    t.tree !== null ||
+    t.state !== "working" ||
+    end.status !== "ok" ||
+    end.replyStatus !== "complete"
+  )
     return null;
   if (s.phase === "ended" || s.cancelling || s.arch.finishing) return null;
   return { checkId: nextCheckId(s.arch), command: t.check };
@@ -386,7 +476,7 @@ export function fastCheckFor(
 
 /** The architect's own calls, and the owner's through `catherd call`: their results wake the architect. */
 const byArchitect = (by: string): boolean =>
-  by === "owner" || by === "architect" || by.startsWith("architect-");
+  by === "owner" || by === "catherd" || by === "architect" || by.startsWith("architect-");
 
 /** A review's findings in one digest note: `2 important, 1 nit`, or `clean`. */
 function findingCounts(fs: Finding[]): string {
@@ -416,6 +506,7 @@ function idleNow(s: RunState, a: ArchState): boolean {
     !Object.values(a.tasks).some((t) => t.state === "queued") &&
     !Object.values(a.checks).some((c) => c.state === "queued") &&
     !Object.values(a.lands).some((l) => l.state === "queued") &&
+    !Object.values(a.merges).some((m) => m.state === "queued") &&
     !a.inbox.some((i) => i.wakes) &&
     Object.keys(s.questions).length === 0 &&
     a.finishing === null
@@ -542,6 +633,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         e.findings.some((f) => f.label === "IMPORTANT" || f.label === "BLOCKER");
       if (t.role === "reviewer") t.findings = e.findings;
       if (e.oracle) t.oracle = { ...e.oracle, accepted: null };
+      if (e.checkpoint) t.checkpoint = e.checkpoint;
       const mine = byArchitect(t.by);
       const notes = [
         ...(e.reason ? [e.reason] : []),
@@ -552,7 +644,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
           ? [findingCounts(t.findings), ...(t.sameFamily ? ["same-family"] : [])]
           : []),
       ];
-      const ended = `ended ${t.outcome}${notes.length ? ` (${notes.join(", ")})` : ""}`;
+      const ended = `ended ${t.outcome}${notes.length ? ` (${notes.join(", ")})` : ""}${e.checkpoint ? `, checkpoint ${e.checkpoint}` : ""}`;
       const held = e.oracle
         ? `; HELD: it changed ${e.oracle.paths.join(", ")}, the oracle of ledger ${t.ledgerTask} (diff ${e.oracle.diff}): accept it with oracle_accept and a reason, or send the task back to restore it; land final waits for one or the other`
         : "";
@@ -591,6 +683,10 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         check: e.check ?? null,
         oracle: null,
         delegatedOracle: e.oracle ?? null,
+        tree: e.tree ?? null,
+        merged: false,
+        cause: e.cause ?? null,
+        checkpoint: null,
       };
       if (byArchitect(e.by)) a.idle = 0;
       else push(a, e, `${e.by} delegated ${e.taskId} to the ${e.role}: ${e.why}`, false, e.taskId);
@@ -616,6 +712,8 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         fresh: e.fresh,
         state: "queued",
         ...(e.task ? { task: e.task } : {}),
+        ...(e.ref ? { ref: e.ref } : {}),
+        seq: e.seq,
       };
       a.idle = 0;
       return true;
@@ -639,7 +737,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       push(
         a,
         e,
-        `${e.checkId} (${c?.scope ?? "check"}${c?.task ? ` check of ${c.task}` : ""}${c?.base ? ", on the base" : ""}) ${result}${e.cached ? ", from a pass on the same tree" : ""}; log ${e.logPath}`,
+        `${e.checkId} (${c?.scope ?? "check"}${c?.task ? ` check of ${c.task}` : ""}${c?.base ? ", on the base" : ""}${c?.ref ? (isTaskRef(c.ref) ? `, in ${c.ref}'s tree` : `, on ${c.ref.slice(0, 12)}`) : ""}) ${result}${e.cached ? ", from a pass on the same tree" : ""}; log ${e.logPath}`,
       );
       return true;
     }
@@ -657,6 +755,25 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       if (l) l.state = "done";
       if (e.final && e.outcome === "pushed") a.mergeAsked = true;
       push(a, e, `${e.landId} (land${e.final ? ", final" : ""}) ${e.outcome}: ${e.message}`);
+      return true;
+    }
+    case "merge.requested":
+      a.merges[e.mergeId] = { mergeId: e.mergeId, taskId: e.taskId, by: e.by, state: "queued", seq: e.seq };
+      a.idle = 0;
+      return true;
+    case "merge.done": {
+      const m = a.merges[e.mergeId];
+      if (m) m.state = "done";
+      const t = a.tasks[e.taskId];
+      if (t && e.outcome === "merged") {
+        // spec D10: a new commit on the run's branch is news for every ledger task
+        a.newsSeq = e.seq;
+        const asked = m?.seq ?? Number.POSITIVE_INFINITY;
+        for (const x of Object.values(a.tasks))
+          if (x.tree !== null && x.tree === t.tree && x.delegatedSeq < asked) x.merged = true;
+      }
+      if (t && e.outcome === "held" && e.oracle) t.oracle = { ...e.oracle, accepted: null };
+      push(a, e, `${e.mergeId} (merge of ${e.taskId}) ${e.outcome}: ${e.message}`);
       return true;
     }
     case "ledger.changed":
@@ -708,6 +825,10 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       if (e.action === "land") {
         const l = a.lands[e.unit];
         if (l) l.state = "done";
+      }
+      if (e.action === "merge") {
+        const m = a.merges[e.unit];
+        if (m) m.state = "done";
       }
       if (e.action === "dispatch" && e.unit === RUN_UNIT)
         failTurn(a, `your turn could not start: ${e.message}`);

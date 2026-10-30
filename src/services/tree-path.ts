@@ -6,6 +6,22 @@ import type { Run } from "./run-store.ts";
 /** `<run dir>/trees/run`: the integration tree of a base run (spec D5), on the run's own branch. */
 export const treeDir = (run: Run): string => join(run.dir, "trees", "run");
 
+/** Plan 55, spec D5: `<run dir>/trees/<task>`, a writer's own worktree, named by the task that made it. */
+export const taskTreeDir = (run: Run, owner: string): string => join(run.dir, "trees", owner);
+
+/** The marker beside a writer's tree that its Setup: finished. */
+export const taskReadyFile = (run: Run, owner: string): string => join(run.dir, "trees", `${owner}.ready`);
+
+/** A writer tree's local branch; never pushed. */
+export const taskBranch = (run: Run, owner: string): string => `catherd/${run.id}/${owner}`;
+
+/** Spec D5's checkpoint refs: the n-th snapshot of a writer's tree. */
+export const checkpointRef = (run: Run, owner: string, n: number): string =>
+  `refs/catherd/${run.id}/${owner}/${n}`;
+
+/** Written just before a merge fast-forwards the run's branch to a writer's tree: a restart that finds the tree gone can tell. */
+export const mergedRef = (run: Run, owner: string): string => `refs/catherd/${run.id}/${owner}/merged`;
+
 /** The marker beside the tree, never inside it, that Setup: finished. */
 export const readyFile = (run: Run): string => join(run.dir, "trees", "run.ready");
 

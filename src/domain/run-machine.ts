@@ -42,7 +42,8 @@ export type Action =
       bare?: true;
     }
   | { type: "runCheck"; checkId: string }
-  | { type: "land"; landId: string };
+  | { type: "land"; landId: string }
+  | { type: "merge"; mergeId: string };
 
 // every action type is one `effect.failed` can name, and the other way round
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
@@ -69,6 +70,8 @@ export function actionKey(a: Action): string {
       return `runCheck:${a.checkId}`;
     case "land":
       return `land:${a.landId}`;
+    case "merge":
+      return `merge:${a.mergeId}`;
   }
 }
 
@@ -89,6 +92,8 @@ export function unitOf(a: Action, s?: RunState): string {
       return a.checkId;
     case "land":
       return a.landId;
+    case "merge":
+      return a.mergeId;
   }
 }
 
@@ -115,6 +120,8 @@ export function confirms(e: RunEvent): string[] {
       return [`runCheck:${e.checkId}`];
     case "land.done":
       return [`land:${e.landId}`];
+    case "merge.done":
+      return [`merge:${e.mergeId}`];
     default:
       return [];
   }

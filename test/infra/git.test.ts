@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { changedPaths } from "../../src/domain/changes.ts";
 import {
   commitExists,
+  conflictMarkers,
   currentBranch,
   fetchBase,
   git,
@@ -381,5 +382,30 @@ describe("updateSubmodules", () => {
     const r = await updateSubmodules(tree, 30_000);
     expect(r.code).toBe(0);
     expect(existsSync(join(tree, "lib/nested/deep.txt"))).toBe(true);
+  });
+});
+
+describe("conflictMarkers", () => {
+  it("lists every marker line of a file that holds a real conflict", async () => {
+    const repo = tempRepo();
+    writeFileSync(join(repo, "a.txt"), "x\n<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> wallet\n");
+    expect(await conflictMarkers(repo)).toEqual(["a.txt:2", "a.txt:4", "a.txt:6"]);
+  });
+
+  it("does not flag a lone ======= line, a Markdown heading's underline, in a file with no other marker", async () => {
+    const repo = tempRepo();
+    writeFileSync(join(repo, "README.md"), "Title\n=======\nbody\n");
+    writeFileSync(join(repo, "a.txt"), "<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> wallet\n");
+    expect(await conflictMarkers(repo)).toEqual(["a.txt:1", "a.txt:3", "a.txt:5"]);
+  });
+
+  it("flags a lone opening or closing marker, and reads from the given base so committed lines count", async () => {
+    const repo = tempRepo();
+    const base = sh(repo, "rev-parse", "HEAD");
+    writeFileSync(join(repo, "b.txt"), "ok\n>>>>>>> wallet\n");
+    sh(repo, "add", "-A");
+    sh(repo, "commit", "-qm", "markers");
+    expect(await conflictMarkers(repo)).toEqual([]);
+    expect(await conflictMarkers(repo, base)).toEqual(["b.txt:2"]);
   });
 });

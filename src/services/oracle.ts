@@ -88,7 +88,9 @@ export async function oracleChange(
  */
 export async function unreleasedOracles(tree: string, a: ArchState): Promise<string[]> {
   const groups = new Map<string | null, ArchTask[]>();
-  for (const t of heldOracles(a)) groups.set(t.ledgerTask, [...(groups.get(t.ledgerTask) ?? []), t]);
+  // plan 55: a held task in its own tree was never merged, so its change is not in HEAD
+  for (const t of heldOracles(a).filter((x) => x.tree === null))
+    groups.set(t.ledgerTask, [...(groups.get(t.ledgerTask) ?? []), t]);
   const out: string[] = [];
   for (const group of groups.values()) {
     const first = group.reduce((f, x) => (x.delegatedSeq < f.delegatedSeq ? x : f));

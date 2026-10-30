@@ -91,6 +91,8 @@ export async function runStart(
       base: i.base ?? null,
       rolesOff: ROLES.filter((r) => !runProfile(deps, run).roles[r]?.enabled),
       caps: runProfile(deps, run).caps ?? DEFAULT_CAPS,
+      // plan 55, spec D5: a run without a base works in the owner's checkout, which has no branch to merge into
+      trees: i.base ? (runProfile(deps, run).trees ?? "writer") : "shared",
       architectRungs: first ? [...new Set([first, ...(architect?.rungs ?? [])].map(headlessRung))] : [],
     },
     new Date(deps.now()),

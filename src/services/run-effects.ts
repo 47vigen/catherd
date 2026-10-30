@@ -10,7 +10,7 @@ import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import { RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
 import { type Action, type DispatchAction, unitOf } from "../domain/run-machine.ts";
-import { fastCheckFor, rungHeld, taskAttempts } from "../domain/architect-state.ts";
+import { fastCheckFor, mergeFor, rungHeld, taskAttempts } from "../domain/architect-state.ts";
 import type { RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
 import type { LockWait } from "../infra/heavy-lock.ts";
@@ -26,6 +26,9 @@ import type { Deps } from "./ports.ts";
 import { runArchitectCheck } from "./architect-check.ts";
 import { runLand } from "./land.ts";
 import { claimRunTree } from "./run-tree.ts";
+import { checkpointTree, claimTaskTree } from "./writer-tree.ts";
+import { noticeMerged, runMerge } from "./merge.ts";
+import { sendBack } from "./architect-tools.ts";
 import { writeArchitectReport } from "./architect-run.ts";
 import { renderLedger } from "./ledger-store.ts";
 import { writeTextAtomic } from "../infra/store.ts";
@@ -69,6 +72,7 @@ export function endedEvent(
   record: RunRecord,
   unit: string,
   oracle: { paths: string[]; diff: string } | null = null,
+  checkpoint: string | null = null,
 ): RunEventInput {
   const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
   let verdict: "pass" | "fail" | "blocked" | null = null;
@@ -122,6 +126,7 @@ export function endedEvent(
       ? { lost: true as const }
       : {}),
     ...(oracle ? { oracle } : {}),
+    ...(checkpoint ? { checkpoint } : {}),
   };
 }
 
@@ -188,13 +193,21 @@ export function realEffects(deps: Deps, run: Run): Effects {
       const record = await finalizeDispatch(run, d);
       // an oracle diff that cannot be taken never keeps the dispatch from ending
       const oracle = await oracleChange(run, d.admit.name).catch(() => null);
+      // spec D5: a writer's tree as the dispatch left it, the n-th of that tree; a failed snapshot ends it all the same
+      const before = replayRun(run).arch;
+      const tree = before.tasks[d.admit.name]?.tree ?? null;
+      const n = Object.values(before.tasks).filter((t) => t.tree === tree && t.endedSeq !== null).length + 1;
+      const checkpoint = tree ? await checkpointTree(run, tree, n).catch(() => null) : null;
       // under the lock: a settle of an earlier daemon in this process may still be running, and the second is a no-op
       const ended = await withEventsLock(run, (add) => {
         const s = replayRun(run);
         if (s.dispatches[id]?.ended) return false;
         // the diff file goes with the event, so a duplicate settle never overwrites it
         if (oracle) writeTextAtomic(join(run.dir, oracle.diff), oracle.text);
-        add(endedEvent(run, record, unit, oracle && { paths: oracle.paths, diff: oracle.diff }), at());
+        add(
+          endedEvent(run, record, unit, oracle && { paths: oracle.paths, diff: oracle.diff }, checkpoint),
+          at(),
+        );
         // spec D6: a task that ended complete gets its fast check at once; nothing waits on it
         const fast = fastCheckFor(s, record);
         if (fast)
@@ -208,6 +221,19 @@ export function realEffects(deps: Deps, run: Run): Effects {
               by: "catherd",
               why: `${record.name} ended complete: its fast check`,
               task: record.name,
+            },
+            at(),
+          );
+        // plan 55, spec D5: a task in its own tree that ended complete is merged at once; its fast check runs there
+        const merge = mergeFor(s, record);
+        if (merge)
+          add(
+            {
+              type: "merge.requested",
+              ...merge,
+              taskId: record.name,
+              by: "catherd",
+              why: `${record.name} ended complete: its merge`,
             },
             at(),
           );
@@ -274,6 +300,9 @@ export function realEffects(deps: Deps, run: Run): Effects {
     if (parsed !== null && heldQuotas(s).includes(quotaOf(parsed)))
       return void (await refuse("E_RUNG_HELD", `the quota of ${rung} is held`));
     const resumed = a.thread === null ? full : await render(true);
+    // plan 55, spec D5: a writer works in its own tree, made the first time a task of it starts
+    const tree = s.arch.tasks[a.name]?.tree ?? null;
+    const cwd = tree ? await claimTaskTree(deps, run, tree) : undefined;
     let admitted: Awaited<ReturnType<typeof admit>>;
     try {
       admitted = await admit(deps, run, {
@@ -286,6 +315,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
         thread: a.thread,
         lane: a.lane,
         failoverFrom: a.failoverFrom,
+        ...(cwd ? { cwd } : {}),
       });
     } catch (e) {
       if (!isCatherdError(e)) throw e;
@@ -361,7 +391,10 @@ export function realEffects(deps: Deps, run: Run): Effects {
 
   async function perform(a: Action, s: RunState): Promise<void> {
     // spec D5, stage 1: a base run works in its own tree, made before the first thing that needs it
-    if (run.meta.base && (a.type === "dispatch" || a.type === "runCheck" || a.type === "land"))
+    if (
+      run.meta.base &&
+      (a.type === "dispatch" || a.type === "runCheck" || a.type === "land" || a.type === "merge")
+    )
       await claimRunTree(deps, run);
     switch (a.type) {
       case "dispatch":
@@ -419,6 +452,24 @@ export function realEffects(deps: Deps, run: Run): Effects {
             reason: "land",
             why: l.why,
           });
+        return;
+      }
+      case "merge": {
+        const m = s.arch.merges[a.mergeId];
+        if (!m) throw new Error(`no merge ${a.mergeId} was asked for`);
+        const r = await runMerge(deps, run, m, effectLimits.checkMs);
+        let done = r.done;
+        const now = replayRun(run);
+        // spec D5: a conflict or a red check goes back to the same writer, unless the run is stopping
+        if (r.back && !(now.phase === "ended" || now.cancelling || now.arch.finishing)) {
+          const sent = await sendBack(deps, run, m.taskId, r.back, m.mergeId).then(
+            (id) => `: catherd sent it back as ${id}`,
+            (e: unknown) => `; catherd could not send it back (${errorMessage(e)}): send it back or replan`,
+          );
+          done = { ...done, message: done.message.replace(/: catherd sends it back to its writer$/, sent) };
+        }
+        await append(done);
+        await noticeMerged(run, done);
         return;
       }
       case "watch": {

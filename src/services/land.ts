@@ -176,6 +176,7 @@ const WHY_EVENTS = new Set([
   "findings.handled",
   "review.missed",
   "oracle.accepted",
+  "merge.requested",
 ]);
 
 /**
@@ -271,7 +272,8 @@ export async function runLand(run: Run, l: ArchLand): Promise<{ done: LandDone; 
         // plan 53: a fast check catherd asked for is the daemon's, not a decision of the run's
         .filter(
           (e) =>
-            (WHY_EVENTS.has(e.type) && !(e.type === "check.requested" && e.by === "catherd")) ||
+            (WHY_EVENTS.has(e.type) &&
+              !((e.type === "check.requested" || e.type === "merge.requested") && e.by === "catherd")) ||
             (e.type === "question.parked" && e.why),
         )
         .map((e) => describeEvent(e)),

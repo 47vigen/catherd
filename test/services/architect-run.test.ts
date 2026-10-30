@@ -149,6 +149,35 @@ describe("a task's fast check in its brief (plan 53)", () => {
     );
     expect(t("T2")).not.toContain("fast check");
   });
+
+  it("tells a task in its own tree its branch, that catherd commits and merges it, and where its check runs (plan 55)", () => {
+    const { run } = freshRun("wallet");
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, base: "main", trees: "writer" });
+    log.add("task.delegated", {
+      taskId: "T1",
+      role: "worker",
+      rung: "codex:m#high",
+      thread: null,
+      ledgerTask: null,
+      by: "architect-1",
+      why: "w",
+      check: "bun test a",
+      tree: "T1",
+    });
+    const brief = taskBrief(run, log.state(), {
+      ...wake(),
+      name: "T1",
+      unit: "T1",
+      role: "worker",
+      brief: "task",
+    }).round.join("\n");
+    expect(brief).toContain(`on branch \`catherd/${run.id}/T1\`, cut from the run's branch \`wallet\``);
+    expect(brief).toContain("Leave your work uncommitted: when you end complete, catherd commits it");
+    expect(brief).toContain(
+      "catherd runs it in your tree, merged with the run's branch, when you end complete",
+    );
+  });
 });
 
 describe("the architect run's report (plan 48)", () => {

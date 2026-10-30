@@ -37,6 +37,11 @@ export function parsedOf(run: Run): Parsed {
 export function metricsOf(run: Run, now: number, parsed: Parsed = parsedOf(run)): RunMetrics {
   const { events, s } = parsed;
   const daemon = s !== null;
+  // plan 55: a dispatch of a task catherd sent back after its merge is rework, named by what the merge found
+  const rework = (name: string): string | undefined => {
+    const cause = s?.arch.tasks[name]?.cause;
+    return cause ? `merge_${cause}` : undefined;
+  };
   const ended = events.find((e) => e.type === "run.ended");
   const end = ended
     ? Date.parse(ended.at)
@@ -53,6 +58,7 @@ export function metricsOf(run: Run, now: number, parsed: Parsed = parsedOf(run))
     replyStatus: r.replyStatus,
     reason: parseBlockedReason(r.replyWhy)?.reason ?? null,
     costUsd: r.costUsd,
+    ...(rework(r.name) ? { rework: rework(r.name) } : {}),
   }));
   const arch = s && s.arch.turns > 0 ? s.arch : null;
   const tasks = arch ? Object.values(arch.tasks) : [];

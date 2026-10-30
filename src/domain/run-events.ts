@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BLOCKED_REASONS } from "./blocked.ts";
+import { TREE_MODES } from "./caps.ts";
 import { REPLY_STATUSES, RUN_STATUSES } from "./record.ts";
 import { ROLES, readRole } from "./roles.ts";
 
@@ -62,8 +63,15 @@ export const ACTION_TYPES = [
   "runCheck",
   /** plan 50: a land the architect asked for (spec D11) */
   "land",
+  /** plan 55: a merge of a writer's tree (spec D5) */
+  "merge",
 ] as const;
 export type ActionType = (typeof ACTION_TYPES)[number];
+
+/** Plan 55, spec D5: how a merge ended. `held`: a writer changed its task's oracle (spec D9). */
+export const MERGE_OUTCOMES = ["merged", "conflict", "red", "held", "refused"] as const;
+/** The merges catherd sends back to the writer. */
+export const MERGE_CAUSES = ["conflict", "red"] as const;
 
 /** Spec D8: what the architect did with a review finding; `known-issue` puts it under the MR's Known issues. */
 export const HANDLINGS = ["fix", "rejected", "intentional", "not-worth-it", "known-issue"] as const;
@@ -116,6 +124,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     caps: z.object({ wallMin: z.number().positive(), attempts: z.number().int().positive() }).optional(),
     /** plan 52: the architect's ladder, its default first; absent on an earlier run (it waits on its last rung) */
     architectRungs: strings.optional(),
+    /** plan 55, spec D5: where its writers work; absent on a run before plan 55, which shared one tree */
+    trees: z.enum(TREE_MODES).optional(),
   }),
   ev("daemon.started", { pid: z.number().int(), version: z.string() }),
   ev("dispatch.started", {
@@ -159,6 +169,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     lost: z.literal(true).optional(),
     /** plan 54, spec D9: the oracle paths of its ledger task it changed, and the run file holding that diff */
     oracle: z.object({ paths: strings, diff: z.string() }).optional(),
+    /** plan 55, spec D5: the ref catherd snapshotted the writer's tree as when the dispatch ended */
+    checkpoint: z.string().optional(),
   }),
   /** `why`: the architect's reason for an ask_owner (plan 47); other parks have none */
   ev("question.parked", { unit: z.string(), question: z.string(), reason, why: z.string().optional() }),
@@ -204,6 +216,10 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     check: z.string().optional(),
     /** plan 54, R4: a worker's or writer's oracle paths at delegation, the set its dispatch is judged against */
     oracle: z.array(z.string()).optional(),
+    /** plan 55, spec D5: the task whose worktree it works in (its own id for a new one); absent: the run's tree */
+    tree: z.string().optional(),
+    /** plan 55: catherd sent a task back to its writer after a merge that conflicted or whose fast check failed */
+    cause: z.enum(MERGE_CAUSES).optional(),
   }),
   /** plan 51, spec D8: how the architect handled a review's findings, numbered as task_status lists them */
   ev("findings.handled", {
@@ -236,6 +252,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     why: z.string(),
     /** plan 53, spec D6: the task whose end catherd ran this fast check for */
     task: z.string().optional(),
+    /** plan 55, spec D3: what it checks: a commit (a full sha, in a detached tree) or a task id (its own tree) */
+    ref: z.string().optional(),
   }),
   ev("check.done", {
     checkId: z.string(),
@@ -249,6 +267,20 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     verdict: z.enum(["pass", "inherited", "new", "unknown"]).optional(),
     minutes: z.number(),
     logPath: z.string(),
+  }),
+  /** plan 55, spec D5: a merge of a writer's tree into the run's branch, asked by the architect or by catherd */
+  ev("merge.requested", { mergeId: z.string(), taskId: z.string(), by: z.string(), why: z.string() }),
+  ev("merge.done", {
+    mergeId: z.string(),
+    taskId: z.string(),
+    outcome: z.enum(MERGE_OUTCOMES),
+    /** the run's branch after a merge, else null */
+    sha: z.string().nullable(),
+    /** what the merge brought in, or the paths that conflict */
+    files: strings,
+    message: z.string(),
+    /** spec D9: a held merge's oracle paths and the run file holding their diff */
+    oracle: z.object({ paths: strings, diff: z.string() }).optional(),
   }),
   /** plan 50, spec D11: the architect's land, and what it did: pushed (and asked when final) or refused */
   ev("land.requested", { landId: z.string(), final: z.boolean(), by: z.string(), why: z.string() }),
@@ -345,6 +377,10 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
       return `${e.by} asked for check ${e.checkId} (${e.scope}${e.base ? ", base" : ""}): ${one(e.why)}`;
     case "check.done":
       return `check ${e.checkId} ${e.exit === 0 ? "passed" : e.verdict === "inherited" ? `passed but for failures the base has too (exit ${e.exit})` : `failed (exit ${e.exit ?? "timeout"})`}${e.cached ? " (cached)" : ""}`;
+    case "merge.requested":
+      return `${e.by} asked to merge ${e.taskId} (${e.mergeId}): ${one(e.why)}`;
+    case "merge.done":
+      return `merge ${e.mergeId} of ${e.taskId} ${e.outcome}: ${one(e.message)}`;
     case "land.requested":
       return `${e.by} asked to land${e.final ? " (final)" : ""} ${e.landId}: ${one(e.why)}`;
     case "land.started":

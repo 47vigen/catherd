@@ -1,5 +1,5 @@
 import { applyArchitect, type ArchState, checkWall, emptyArch, nextWallMark } from "./architect-state.ts";
-import { type Caps, DEFAULT_CAPS } from "./caps.ts";
+import { type Caps, DEFAULT_CAPS, type TreeMode } from "./caps.ts";
 import type { BlockedReason } from "./blocked.ts";
 import type { ReplyStatus, RunStatus } from "./record.ts";
 import { ROLES, type Role } from "./roles.ts";
@@ -81,6 +81,8 @@ export interface RunState {
   caps: Caps;
   /** plan 52: the architect's ladder, its default first; empty on a run an earlier build started */
   architectRungs: string[];
+  /** plan 55, spec D5: where the run's writers work, pinned at its start */
+  trees: TreeMode;
   startedAt: string | null;
   /** the run's time spent in closed pauses, which the wall cap does not count */
   pausedMs: number;
@@ -116,6 +118,7 @@ export function emptyState(run: string): RunState {
     earlier: false,
     caps: DEFAULT_CAPS,
     architectRungs: [],
+    trees: "shared",
     startedAt: null,
     pausedMs: 0,
     arch: emptyArch(),
@@ -167,6 +170,7 @@ function applyRun(s: RunState, e: RunEvent): void {
       s.earlier = e.v < EVENTS_SCHEMA;
       s.caps = e.caps ?? DEFAULT_CAPS;
       s.architectRungs = e.architectRungs ?? [];
+      s.trees = e.trees ?? "shared";
       s.startedAt = e.at;
       s.phase = "running";
       s.arch.inbox.push({ seq: e.seq, text: `the run started: ${e.title}`, wakes: true });

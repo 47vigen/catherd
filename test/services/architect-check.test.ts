@@ -5,6 +5,8 @@ import type { ArchCheck } from "../../src/domain/architect-state.ts";
 import { db } from "../../src/infra/db.ts";
 import { git } from "../../src/infra/git.ts";
 import { runArchitectCheck } from "../../src/services/architect-check.ts";
+import { appendEvent } from "../../src/services/run-events-store.ts";
+import { mergedRef } from "../../src/services/tree-path.ts";
 import { createRun, runPaths } from "../../src/services/run-store.ts";
 import { tempRepo, withHome } from "../helpers.ts";
 import { fakeDeps } from "./helpers.ts";
@@ -284,5 +286,76 @@ describe("a check the architect asks for (plan 47, spec D6)", () => {
     writeFileSync(join(r.meta.repo, "lib", "dirty.txt"), "x");
     await runArchitectCheck(fakeDeps(), r, check("C2", "true"), opts);
     expect(ref("C2")).toBe("worktree");
+  });
+});
+
+describe("a check on a ref (plan 55, spec D3 and D5)", () => {
+  it("checks a commit in a tree of its own, names it as the result's ref, and reuses a pass on it", async () => {
+    const r = await run();
+    const deps = fakeDeps();
+    const sha = (await git(r.meta.repo, ["rev-parse", "HEAD"])) as { out: string };
+    writeFileSync(join(r.meta.repo, "dirty.txt"), "a writer's half-done work");
+    const cmd = "test ! -f dirty.txt";
+    const done = await runArchitectCheck(deps, r, check("C1", cmd, { ref: sha.out.trim() }), opts);
+    expect(done).toMatchObject({ exit: 0, cached: false });
+    expect(db().query("SELECT ref, tree FROM checks WHERE check_id = 'C1'").get()).toEqual({
+      ref: sha.out.trim(),
+      tree: sha.out.trim(),
+    });
+    expect((await runArchitectCheck(deps, r, check("C2", cmd, { ref: sha.out.trim() }), opts)).cached).toBe(
+      true,
+    );
+    // the run's tree as it stands has the dirty file
+    expect((await runArchitectCheck(deps, r, check("C3", cmd), opts)).exit).toBe(1);
+    expect(existsSync(join(r.dir, "checks", `ref-${sha.out.trim().slice(0, 12)}-C1`))).toBe(false);
+  });
+
+  it("checks the merged commit when the task's tree was merged and removed (R19)", async () => {
+    const r = await run();
+    const repo = r.meta.repo;
+    writeFileSync(join(repo, "merged.txt"), "the task's work");
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "work"]);
+    const sha = ((await git(repo, ["rev-parse", "HEAD"])) as { out: string }).out.trim();
+    await git(repo, ["update-ref", mergedRef(r, "T1"), sha]);
+    await appendEvent(r, {
+      type: "task.delegated",
+      taskId: "T1",
+      role: "worker",
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+      ledgerTask: null,
+      by: "architect-1",
+      why: "w",
+      tree: "T1",
+    });
+    await appendEvent(r, { type: "merge.requested", mergeId: "M1", taskId: "T1", by: "catherd", why: "w" });
+    await appendEvent(r, {
+      type: "merge.done",
+      mergeId: "M1",
+      taskId: "T1",
+      outcome: "merged",
+      sha,
+      files: [],
+      message: "merged",
+    });
+    // no tree of T1 on disk: the check reads the commit that was merged
+    const done = await runArchitectCheck(
+      fakeDeps(),
+      r,
+      check("C1", "test -f merged.txt", { ref: "T1" }),
+      opts,
+    );
+    expect(done).toMatchObject({ exit: 0 });
+    expect(db().query("SELECT ref FROM checks WHERE check_id = 'C1'").get()).toEqual({ ref: sha });
+  });
+
+  it("refuses a task ref with no tree of its own", async () => {
+    const r = await run();
+    await expect(
+      runArchitectCheck(fakeDeps(), r, check("C1", "true", { ref: "T3" }), opts),
+    ).rejects.toMatchObject({
+      code: "E_INPUT_INVALID",
+    });
   });
 });

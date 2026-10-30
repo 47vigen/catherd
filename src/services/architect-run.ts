@@ -9,6 +9,7 @@ import {
   WRITER_CAP,
 } from "../domain/architect-state.ts";
 import type { BriefParts } from "../domain/brief.ts";
+import { runBranch } from "../domain/branch.ts";
 import { ledgerView } from "../domain/ledger.ts";
 import { planInputNames } from "../domain/plan-doc.ts";
 import { lintPlan } from "../domain/plan-lint.ts";
@@ -19,6 +20,7 @@ import { writeTextAtomic } from "../infra/store.ts";
 import { ledgerProgress, ledgerTasks } from "./ledger-store.ts";
 import { PLAN_INPUT_DIR } from "./plan-input.ts";
 import type { Run } from "./run-store.ts";
+import { taskBranch } from "./tree-path.ts";
 
 /** Plan 47: a delegated task's brief, written by delegate_task and sent as the task's whole round. */
 export const taskBriefFile = (taskId: string): string => `tasks/${taskId}/brief.md`;
@@ -125,9 +127,14 @@ export function taskBrief(run: Run, s: RunState, a: DispatchAction): Pick<BriefP
     round: [
       `You are task ${a.name}${t ? `, a ${t.role} delegated by ${t.by}` : ""}. You have no lane file: this task is your whole brief.`,
       text || "(the task's brief is missing: reply STATUS: blocked — needs_user: no brief)",
+      ...(t?.tree
+        ? [
+            `You work in your own worktree, on branch \`${taskBranch(run, t.tree)}\`, cut from the run's branch \`${runBranch(run.meta.title)}\`; no other task writes in it. Leave your work uncommitted: when you end complete, catherd commits it, merges the run's branch into yours, runs your fast check there, and then merges your work into the run's branch. A notice that another task merged names its files: run \`git merge ${runBranch(run.meta.title)}\` in your tree when you need that work.`,
+          ]
+        : []),
       ...(t?.check
         ? [
-            `Your fast check: \`${t.check}\`. catherd runs it on the run's tree when you end complete, and the architect reads its result: make it pass before you reply.`,
+            `Your fast check: \`${t.check}\`. catherd runs it ${t.tree ? "in your tree, merged with the run's branch," : "on the run's tree"} when you end complete, and the architect reads its result: make it pass before you reply.`,
           ]
         : []),
       ...(t?.role === "reviewer" ? reviewLines(s, t) : []),

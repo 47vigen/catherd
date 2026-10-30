@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { rolePrompt } from "../../src/domain/role-prompts.ts";
+import { roleContract, rolePrompt } from "../../src/domain/role-prompts.ts";
 
 describe("the reviewer contract (plan 51, spec D8)", () => {
   const text = rolePrompt("reviewer", "2.0.0");
@@ -26,5 +26,17 @@ describe("the reviewer contract (plan 51, spec D8)", () => {
     expect(architect).toContain("after three review rounds on one task, replan it");
     expect(architect).toContain("money, auth, migrations or CI");
     expect(architect).toContain("- findings {taskId?, handled?, missed?, why}");
+  });
+
+  it("names writer trees and merges to the architect of a trees: writer run only, so a shared run reads stage 1's (plan 55)", () => {
+    const writer = roleContract("architect", "2.0.0", "writer");
+    const shared = roleContract("architect", "2.0.0", "shared");
+    expect(writer).toContain("- merge {taskId, why}");
+    expect(writer).toContain("worktree?, from?");
+    expect(shared).not.toContain("- merge {taskId, why}");
+    expect(shared).not.toMatch(/worktree|its own tree/);
+    expect(shared).toContain("- delegate_task {role, task, rung?, ledgerTask?, why}");
+    expect(shared).toContain("- oracle_accept {taskId, why}");
+    expect(roleContract("worker", "2.0.0", "shared")).toBe(roleContract("worker", "2.0.0", "writer"));
   });
 });

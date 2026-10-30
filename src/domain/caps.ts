@@ -9,6 +9,13 @@ export interface Caps {
   attempts: number;
 }
 
+/**
+ * Plan 55, spec D5: where a base run's writers work. `writer`: each in its own worktree, merged into the run's branch;
+ * `shared`: all on the run's one tree (stage 1), kept so stage 2 can be measured against it and reverted (O7).
+ */
+export const TREE_MODES = ["writer", "shared"] as const;
+export type TreeMode = (typeof TREE_MODES)[number];
+
 export const DEFAULT_CAPS: Caps = { wallMin: 720, attempts: 4 };
 /** At this share of a cap the architect is woken once. */
 export const CAP_WARN = 0.8;
