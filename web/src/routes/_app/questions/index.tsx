@@ -41,7 +41,7 @@ function QuestionsPage() {
   const done = answered.data?.items ?? [];
   const total = list.data?.total ?? 0;
   const filtered = q !== "" || run !== undefined;
-  const now = new Date(Math.max(list.dataUpdatedAt, answered.dataUpdatedAt) || Date.now());
+  const now = new Date(Math.max(list.dataUpdatedAt, answered.dataUpdatedAt));
   // The filter offers the runs of the questions on this page, by title.
   const runs = [...new Map(items.map((i) => [i.run, i.runTitle]))].map(([id, label]) => ({ id, label }));
   // An answered question leaves the list, and the next one takes its place: the inbox clears in one sitting.

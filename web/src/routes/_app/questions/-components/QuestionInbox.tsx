@@ -19,17 +19,20 @@ export function QuestionInbox({
   now: Date;
   onSelect: (key: string) => void;
 }) {
-  const move = (e: KeyboardEvent<HTMLUListElement>) => {
+  const move = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     e.preventDefault();
     const at = items.findIndex((q) => keyOf(q) === selected);
     const next = items[Math.min(items.length - 1, Math.max(0, at + (e.key === "ArrowDown" ? 1 : -1)))];
     if (!next) return;
     onSelect(keyOf(next));
-    e.currentTarget.querySelector<HTMLButtonElement>(`[data-key="${CSS.escape(keyOf(next))}"]`)?.focus();
+    e.currentTarget
+      .closest("ul")
+      ?.querySelector<HTMLButtonElement>(`[data-key="${CSS.escape(keyOf(next))}"]`)
+      ?.focus();
   };
   return (
-    <ul aria-label="Waiting questions" className="divide-separator divide-y" onKeyDown={move}>
+    <ul aria-label="Waiting questions" className="divide-separator divide-y">
       {items.map((q) => {
         const key = keyOf(q);
         const wait = waited(q.at, now);
@@ -41,6 +44,7 @@ export function QuestionInbox({
               data-key={key}
               aria-current={active ? "true" : undefined}
               onClick={() => onSelect(key)}
+              onKeyDown={move}
               className={cn(
                 "relative flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors outline-offset-[-2px]",
                 "focus-visible:outline-accent hover:bg-surface-secondary/70",
