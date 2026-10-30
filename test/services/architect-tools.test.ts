@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ArchitectTool } from "../../src/domain/role-tools.ts";
 import { callArchitectTool, type ToolCaller } from "../../src/services/architect-tools.ts";
 import { ledgerTasks } from "../../src/services/ledger-store.ts";
 import { appendEvent, readEvents, replayRun, withEventsLock } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
+import { claimRunTree } from "../../src/services/run-tree.ts";
 import { endDispatch, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { commitInClone, snapshotEnv } from "../helpers.ts";
 import { branchRun, fakeDeps, freshRun, insertEarlier, testView } from "./helpers.ts";
 
 afterEach(snapshotEnv());
@@ -23,6 +24,7 @@ async function architectRun(): Promise<Run> {
 
 const view = testView();
 view.roles.researcher = { enabled: true, access: "read-only", rungs: ["codex:gpt-6-luna#high"] };
+view.roles.verifier = { enabled: true, access: "read-only", rungs: ["codex:gpt-6-sol#high"] };
 const deps = fakeDeps({ view });
 
 const call = (run: Run, tool: ArchitectTool, args: unknown, caller: ToolCaller = ARCHITECT) =>
@@ -31,6 +33,27 @@ const call = (run: Run, tool: ArchitectTool, args: unknown, caller: ToolCaller =
 const last = (run: Run) => readEvents(run).at(-1);
 
 describe("the architect's tools (plan 47, spec D3 and D12)", () => {
+  it("gives the verifier catherd's record of the tests the run removed (plan 54, spec D9)", async () => {
+    const { run, origin } = branchRun();
+    commitInClone(origin, "seed", {
+      path: "test/pay.test.ts",
+      text: 'it("keeps the currency", () => {});\nit("rounds", () => {});\n',
+    });
+    const { tree } = await claimRunTree(deps, run);
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    const plain = (await call(run, "delegate_task", { role: "verifier", task: "Verify A1.", why: "v" })) as {
+      taskId: string;
+    };
+    expect(readFileSync(join(run.dir, "tasks", plain.taskId, "brief.md"), "utf8")).toBe("Verify A1.\n");
+    writeFileSync(join(tree, "test", "pay.test.ts"), 'it("rounds", () => {});\n');
+    const r = (await call(run, "delegate_task", { role: "verifier", task: "Verify A1.", why: "v" })) as {
+      taskId: string;
+    };
+    const brief = readFileSync(join(run.dir, "tasks", r.taskId, "brief.md"), "utf8");
+    expect(brief).toStartWith("Verify A1.\n\ncatherd's record of the tests this run changed");
+    expect(brief).toContain("- removed or renamed test/pay.test.ts: keeps the currency");
+  });
+
   it("delegate_task writes the brief, appends task.delegated with the why, and returns at once", async () => {
     const run = await architectRun();
     expect(
@@ -164,6 +187,69 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     expect(
       ((await call(run, "thread_read", { from: "architect-1" })) as { messages: unknown[] }).messages,
     ).toHaveLength(1);
+  });
+
+  it("delegate_task records a task's fast check, the profile's for a worker without one, and none for a reader (plan 53)", async () => {
+    const run = await architectRun();
+    const checkOf = async (args: object) => {
+      await call(run, "delegate_task", { task: "x", why: "w", ...args });
+      return (last(run) as { check?: string }).check;
+    };
+    view.fastCheck = "bun run lint";
+    try {
+      expect(await checkOf({ role: "worker", check: " bun test test/a.test.ts " })).toBe(
+        "bun test test/a.test.ts",
+      );
+      expect(await checkOf({ role: "worker" })).toBe("bun run lint");
+      expect(await checkOf({ role: "writer" })).toBeUndefined();
+      expect(await checkOf({ role: "writer", check: "bun run format:check" })).toBe("bun run format:check");
+      await expect(checkOf({ role: "researcher", check: "bun test" })).rejects.toMatchObject({
+        code: "E_INPUT_INVALID",
+      });
+    } finally {
+      delete view.fastCheck;
+    }
+    expect(replayRun(run).arch?.tasks.T1?.check).toBe("bun test test/a.test.ts");
+    expect(replayRun(run).arch?.tasks.T3?.check).toBeNull();
+    const log = makeLog();
+    endDispatch(log, startDispatch(log, { name: "T1", unit: "T1" }), {
+      name: "T1",
+      unit: "T1",
+      thread: "th-1",
+    });
+    for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    // a follow-up on a finished task's thread checks the same work
+    expect(
+      await call(run, "thread_send", { to: "T1", text: "and the refund path?", why: "w" }),
+    ).toMatchObject({
+      taskId: "T5",
+    });
+    expect(replayRun(run).arch?.tasks.T5?.check).toBe("bun test test/a.test.ts");
+    // a worker delegated with no fast check keeps none on its follow-up, though the profile gained one since
+    const { taskId } = (await call(run, "delegate_task", { role: "worker", task: "y", why: "w" })) as {
+      taskId: string;
+    };
+    expect(replayRun(run).arch?.tasks[taskId]?.check).toBeNull();
+    endDispatch(log, startDispatch(log, { name: taskId, unit: taskId }), {
+      name: taskId,
+      unit: taskId,
+      thread: "th-2",
+    });
+    for (const { v: _v, seq: _s, at: _a, ...e } of log.events.slice(-2)) await appendEvent(run, e as never);
+    view.fastCheck = "bun run lint";
+    let followUp: string;
+    try {
+      ({ taskId: followUp } = (await call(run, "thread_send", {
+        to: taskId,
+        text: "one more",
+        why: "w",
+      })) as {
+        taskId: string;
+      });
+    } finally {
+      delete view.fastCheck;
+    }
+    expect(replayRun(run).arch?.tasks[followUp]?.check).toBeNull();
   });
 
   it("thread_wait returns at a task's end and times out on a running one", async () => {

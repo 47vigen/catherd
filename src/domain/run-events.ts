@@ -157,6 +157,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     noVerdict: z.literal(true).optional(),
     /** plan 49: catherd lost the dispatch (a daemon restart, no adapter), so no rung is to blame and none climbs */
     lost: z.literal(true).optional(),
+    /** plan 54, spec D9: the oracle paths of its ledger task it changed, and the run file holding that diff */
+    oracle: z.object({ paths: strings, diff: z.string() }).optional(),
   }),
   /** `why`: the architect's reason for an ask_owner (plan 47); other parks have none */
   ev("question.parked", { unit: z.string(), question: z.string(), reason, why: z.string().optional() }),
@@ -193,8 +195,15 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     why: z.string(),
     /** plan 51, spec D8: a review on a rung of the author's own model family */
     sameFamily: z.literal(true).optional(),
-    /** plan 51: a review's snapshot of the tree it reviews (a commit no ref holds), the next review's base */
+    /**
+     * plan 51: a review's snapshot of the tree it reviews (a commit no ref holds), the next review's base; plan 54: the
+     * tree a writer of a ledger task with an oracle started from, the base its oracle diff is taken against
+     */
     snapshot: z.string().optional(),
+    /** plan 53, spec D6: the fast check catherd runs on the run's tree when the task ends complete */
+    check: z.string().optional(),
+    /** plan 54, R4: a worker's or writer's oracle paths at delegation, the set its dispatch is judged against */
+    oracle: z.array(z.string()).optional(),
   }),
   /** plan 51, spec D8: how the architect handled a review's findings, numbered as task_status lists them */
   ev("findings.handled", {
@@ -212,6 +221,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     by: z.string(),
     why: z.string(),
   }),
+  /** plan 54, spec D9: the architect accepted a task's oracle change, with its reason (the MR's oracle overrides) */
+  ev("oracle.accepted", { taskId: z.string(), by: z.string(), why: z.string() }),
   ev("task.cancelled", { taskId: z.string(), by: z.string(), why: z.string() }),
   /** the architect read a finished task with task_status: its digest line is delivered */
   ev("task.read", { taskId: z.string() }),
@@ -223,6 +234,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     fresh: z.boolean(),
     by: z.string(),
     why: z.string(),
+    /** plan 53, spec D6: the task whose end catherd ran this fast check for */
+    task: z.string().optional(),
   }),
   ev("check.done", {
     checkId: z.string(),
@@ -322,6 +335,8 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
       return `${e.by} handled ${e.taskId}'s findings (${e.handled.map((h) => `${h.n} ${h.as}`).join(", ")}): ${one(e.why)}`;
     case "review.missed":
       return `${e.by} logged a bug the review missed on ${e.ledgerTask}, caught by the ${e.caughtBy}: ${one(e.bug)}`;
+    case "oracle.accepted":
+      return `${e.by} accepted ${e.taskId}'s oracle change: ${one(e.why)}`;
     case "task.cancelled":
       return `${e.by} cancelled ${e.taskId}: ${one(e.why)}`;
     case "task.read":

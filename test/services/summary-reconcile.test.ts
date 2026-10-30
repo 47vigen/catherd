@@ -93,6 +93,46 @@ describe("reviving a daemon", () => {
     ]);
   });
 
+  it("keeps the latest full check as the last check and names the latest fast check and its task (plan 53)", async () => {
+    const { run } = freshRun("fast");
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    const row = {
+      ref: "worktree",
+      tree: null,
+      command: "bun test",
+      base: false,
+      minutes: 1,
+      cached: false,
+      at: new Date().toISOString(),
+    };
+    const ask = (checkId: string, scope: "fast" | "full", task?: string) =>
+      appendEvent(run, {
+        type: "check.requested",
+        checkId,
+        command: "bun test",
+        scope,
+        base: false,
+        fresh: false,
+        by: task ? "catherd" : "architect-1",
+        why: "w",
+        ...(task ? { task } : {}),
+      });
+    await ask("C1", "fast", "T1");
+    insertCheck(db(), run.id, { ...row, scope: "fast", checkId: "C1", exit: 0, failures: [] });
+    expect(summarizeRun(fakeDeps(), run).stateTail).toEqual([
+      "Last check: none yet",
+      "latest fast: C1 (T1) passed",
+    ]);
+    await ask("C2", "full");
+    insertCheck(db(), run.id, { ...row, scope: "full", checkId: "C2", exit: 0, failures: [] });
+    await ask("C3", "fast", "T2");
+    insertCheck(db(), run.id, { ...row, scope: "fast", checkId: "C3", exit: 1, failures: ["(fail) a"] });
+    expect(summarizeRun(fakeDeps(), run).stateTail).toEqual([
+      "Last check: C2 (full) passed",
+      "latest fast: C3 (T2) failed (exit 1): 1 failing line(s)",
+    ]);
+  });
+
   it("stops an ended run's clock: its wall minutes and minute budget end at run.ended", async () => {
     const { run } = freshRun("done");
     await appendEvent(run, { type: "run.started", ...startedFields });

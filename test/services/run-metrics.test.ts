@@ -67,6 +67,8 @@ describe("a run's metrics from its own rows (plan 51, spec D17)", () => {
     expect(m.rounds).toEqual({ perTask: { L1: 2 }, max: 2, total: 2 });
     expect(m.climbs).toBe(1);
     expect(m.checkShare).toBe(0.1);
+    // plan 53: no role ran beside it, and it was a full check
+    expect([m.fastCheckShare, m.checkWaitShare]).toEqual([0, 0.1]);
     const report = reviewerReport([run]);
     expect(report.rungs).toEqual([
       {

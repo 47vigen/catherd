@@ -7,6 +7,7 @@ import {
   crossFamilyRung,
   isStanding,
   ladderRung,
+  nextCheckId,
   unheldRung,
   REVIEW_ROUNDS,
   reviewRounds,
@@ -23,7 +24,7 @@ import { type ArchitectTool, DELEGATOR_TOOLS } from "../domain/role-tools.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { HANDLINGS, RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
 import type { RunState } from "../domain/run-state.ts";
-import { snapshotTree } from "../infra/git.ts";
+import { git, snapshotTree } from "../infra/git.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import { researchFile, taskBriefFile } from "./architect-run.ts";
 import { budgetOf } from "./budget.ts";
@@ -34,6 +35,8 @@ import { isEarlierRun, replayRun, withEventsLock } from "./run-events-store.ts";
 import { runProfile } from "./run-pin.ts";
 import { readRecords, type Run } from "./run-store.ts";
 import { MESSAGE_KINDS, teamRead, teamSend } from "./team.ts";
+import { oracleOf } from "./oracle.ts";
+import { testFacts } from "./test-changes.ts";
 import { runTree } from "./tree-path.ts";
 
 /**
@@ -61,6 +64,8 @@ const SUMMARY_CHARS = 2_000;
 export const STOP_CLASSES = ["production", "secrets", "irreversible", "stuck"] as const;
 /** The roles a task may be: every role but the architect itself. */
 const TASK_ROLES = ROLES.filter((r) => r !== "architect") as [Role, ...Role[]];
+/** The roles that read the work and change nothing: a fast check has nothing of theirs to check. */
+const READ_ROLES: readonly Role[] = ["reviewer", "verifier", "researcher"];
 
 const why = z
   .string()
@@ -111,7 +116,17 @@ const defaultOf = (rc: { rungs: string[]; defaultRung?: string }): string =>
 /** Starts one task: its brief file, then `task.delegated` with the next free id, under the events lock. */
 async function delegate(
   c: ToolContext,
-  i: { role: Role; task: string; rung?: string; ledgerTask?: string; thread?: string | null; why: string },
+  i: {
+    role: Role;
+    task: string;
+    rung?: string;
+    ledgerTask?: string;
+    thread?: string | null;
+    check?: string;
+    /** a thread_send follow-up's oracle set, inherited from the task it resumes */
+    oracle?: string[];
+    why: string;
+  },
 ): Promise<{
   taskId: string;
   rung: string;
@@ -127,7 +142,8 @@ async function delegate(
         fix: "ask the architect for anything else: team_send to architect",
       },
     );
-  const rc = runProfile(c.deps, c.run).roles[i.role];
+  const profile = runProfile(c.deps, c.run);
+  const rc = profile.roles[i.role];
   if (!rc?.enabled || rc.rungs.length === 0)
     throw invalid(`the ${i.role} role is off or has no rung`, "capabilities lists the roles you can use");
   const ladder = rc.rungs.map(headlessRung);
@@ -137,9 +153,24 @@ async function delegate(
     if (!ledgerTasks(c.run).some((t) => t.id === i.ledgerTask))
       throw invalid(`the ledger has no task ${i.ledgerTask}`, "add it with ledger first");
   }
+  if (i.check?.trim() && READ_ROLES.includes(i.role))
+    throw invalid(
+      `a ${i.role} writes nothing for a fast check to check`,
+      "give check to a task that changes code",
+    );
+  // spec D6: the task's own fast check, else the profile's for a worker
+  // a given check, even an empty one (a follow-up of a task that had none), is the task's own
+  const check =
+    i.check !== undefined ? i.check.trim() || null : i.role === "worker" ? (profile.fastCheck ?? null) : null;
   const review = i.role === "reviewer";
-  // plan 51: the tree a review reads, so the next review of the same ledger task reads only what changed since
-  const snapshot = review ? await reviewSnapshot(c.run) : null;
+  // plan 51: the tree a review reads, so the next review of the same ledger task reads only what changed since;
+  // plan 54: the tree a writer of a ledger task with an oracle starts from, its oracle diff's base
+  const writes = i.role === "worker" || i.role === "writer";
+  const oracle = writes ? (i.oracle ?? oracleOf(c.run, i.ledgerTask ?? null)) : null;
+  const oracled = oracle !== null && oracle.length > 0;
+  const snapshot = review || oracled ? await reviewSnapshot(c.run, oracled) : null;
+  // plan 54, spec D9: a test the run removed or rewrote reaches the verifier as catherd's fact, not the author's
+  const facts = i.role === "verifier" ? await testFacts(c.run) : [];
   let rung = "";
   let sameFamily = false;
   const id = await withEventsLock(c.run, (add) => {
@@ -180,7 +211,10 @@ async function delegate(
         );
     }
     const id = `T${Object.keys(s.arch?.tasks ?? {}).length + 1}`;
-    writeTextAtomic(join(c.run.dir, taskBriefFile(id)), `${i.task.trim()}\n`);
+    writeTextAtomic(
+      join(c.run.dir, taskBriefFile(id)),
+      `${i.task.trim()}\n${facts.length ? `\n${VERIFIER_FACTS}\n${facts.map((f) => `- ${f}`).join("\n")}\n` : ""}`,
+    );
     add(
       {
         type: "task.delegated",
@@ -193,6 +227,8 @@ async function delegate(
         why: i.why,
         ...(sameFamily ? { sameFamily: true as const } : {}),
         ...(snapshot ? { snapshot } : {}),
+        ...(check ? { check } : {}),
+        ...(oracle ? { oracle } : {}),
       },
       at(c),
     );
@@ -207,15 +243,22 @@ async function delegate(
   };
 }
 
+const VERIFIER_FACTS =
+  "catherd's record of the tests this run changed against its base (judge each: was the test wrong or obsolete, or does the change hide a bug?):";
+
 /** The tree a review reads, as a commit no ref holds; null before a base run's tree exists or on a git failure. */
-async function reviewSnapshot(run: Run): Promise<string | null> {
+async function reviewSnapshot(run: Run, weak = false): Promise<string | null> {
   let tree: string;
   try {
     tree = runTree(run);
   } catch {
     return null;
   }
-  return snapshotTree(tree);
+  const snapshot = await snapshotTree(tree);
+  if (snapshot || !weak) return snapshot;
+  // plan 54: a writer of an oracle whose tree cannot be snapshotted still gets a base, HEAD, so its change can be held
+  const head = await git(tree, ["rev-parse", "HEAD"]);
+  return head.kind === "ok" ? head.out.trim() || null : null;
 }
 
 /** Appends one event under the events lock. */
@@ -270,6 +313,12 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
       task: z.string().min(1),
       rung: z.string().optional(),
       ledgerTask: z.string().regex(ID_PATTERN).optional(),
+      check: z
+        .string()
+        .optional()
+        .describe(
+          "the task's fast check (type check, lint and the tests it touches; never the full suite): catherd runs it on the run's tree when the task ends complete and wakes you with the result. A worker without one gets the profile's fastCheck.",
+        ),
       why,
     },
     false,
@@ -303,6 +352,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
             .filter((p) => !extras.some((e) => e.path === p))
             .map((p) => ({ path: p, why: "" })),
         ],
+        ...(t.oracle?.accepted === null ? { oracle: `held (diff ${t.oracle.diff})` } : {}),
         stopReason:
           t.state === "ended" ? t.outcome : t.state === "queued" || t.state === "working" ? null : t.state,
         costUsd: record?.costUsd ?? null,
@@ -358,6 +408,8 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
           task: a.text,
           rung: t.rung,
           ...(t.ledgerTask ? { ledgerTask: t.ledgerTask } : {}),
+          check: t.check ?? "",
+          ...(t.delegatedOracle ? { oracle: t.delegatedOracle } : {}),
           thread,
           why: a.why,
         });
@@ -421,7 +473,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
     },
   ),
   check: spec(
-    "Run a check command on the run's tree as it stands (base: true, on the run's start commit) under the machine's heavy lock. It returns at once with the check id; the result wakes you. A pass on an unchanged tree is reused unless fresh: true; nothing is rerun on its own. A failing full check is compared with the same command on the base (catherd runs it, once per base commit): failures all inherited count as passing for the verifier and land final.",
+    "Run a check command on the run's tree as it stands (base: true, on the run's start commit) under the machine's heavy lock. It returns at once with the check id; the result wakes you. A pass on an unchanged tree is reused unless fresh: true; nothing is rerun on its own. A failing full check is compared with the same command on the base (catherd runs it, once per base commit): failures all inherited count as passing for the verifier and land final. A task's fast check streams by itself when the task ends complete (delegate_task's check): call check for the integrated product, scope full once before land final.",
     {
       command: z.string().min(1),
       scope: z.enum(["fast", "full"]).optional(),
@@ -432,7 +484,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
     false,
     async (c, a) => {
       const checkId = await withEventsLock(c.run, (add) => {
-        const id = `C${Object.keys(replayRun(c.run).arch?.checks ?? {}).length + 1}`;
+        const id = nextCheckId(replayRun(c.run).arch);
         add(
           {
             type: "check.requested",
@@ -534,6 +586,18 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
         });
       }
       return { logged: true };
+    },
+  ),
+  oracle_accept: spec(
+    "Accept a task's change to its ledger task's oracle, with the reason (the merge request lists it under Oracle overrides). The other way out of a hold is to send the task back to restore the oracle: land final needs one or the other.",
+    { taskId, why },
+    false,
+    async (c, a) => {
+      const t = taskOf(c, replayRun(c.run), a.taskId);
+      if (!t.oracle || t.oracle.accepted !== null)
+        throw invalid(`${t.taskId} holds no oracle change`, "the digest names a held task with HELD");
+      await append(c, { type: "oracle.accepted", taskId: t.taskId, by: c.caller.name, why: a.why });
+      return { accepted: t.taskId };
     },
   ),
   land: spec(

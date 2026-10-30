@@ -10,7 +10,7 @@ import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import { RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
 import { type Action, type DispatchAction, unitOf } from "../domain/run-machine.ts";
-import { rungHeld, taskAttempts } from "../domain/architect-state.ts";
+import { fastCheckFor, rungHeld, taskAttempts } from "../domain/architect-state.ts";
 import type { RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
 import type { LockWait } from "../infra/heavy-lock.ts";
@@ -28,12 +28,14 @@ import { runLand } from "./land.ts";
 import { claimRunTree } from "./run-tree.ts";
 import { writeArchitectReport } from "./architect-run.ts";
 import { renderLedger } from "./ledger-store.ts";
+import { writeTextAtomic } from "../infra/store.ts";
+import { oracleChange } from "./oracle.ts";
 import { renderBrief } from "./run-briefs.ts";
-import { appendEvent, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
+import { appendEvent, hasRunEnded, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { runProfile } from "./run-pin.ts";
 import { readRecords, type Run } from "./run-store.ts";
 import { refreshState } from "./state.ts";
-import { teamLast } from "./team.ts";
+import { teamLast, teamSend } from "./team.ts";
 
 /**
  * What carries the reducer's actions out. `run` appends the events the action produces (a long one when it is
@@ -62,7 +64,12 @@ const PASS_LINE = /^VERDICT: PASS\b/;
  * BLOCKER, BUG and NIT lines, a failing verifier's lines) and the verifier's verdict, the reason a blocked reply
  * names, and the HEAD a verifier checked.
  */
-export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventInput {
+export function endedEvent(
+  run: Run,
+  record: RunRecord,
+  unit: string,
+  oracle: { paths: string[]; diff: string } | null = null,
+): RunEventInput {
   const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
   let verdict: "pass" | "fail" | "blocked" | null = null;
   let probe: string | null = null;
@@ -114,6 +121,7 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     ...(record.error?.code === "E_LOST" || record.error?.code === "E_BACKEND_MISSING"
       ? { lost: true as const }
       : {}),
+    ...(oracle ? { oracle } : {}),
   };
 }
 
@@ -162,6 +170,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
     };
   };
   const watching = new Set<string>();
+  /** plan 53: stops catherd's own fast checks once the run is cancelling or finishing */
+  const stopChecks = new AbortController();
 
   const heldQuotas = (s: RunState): string[] =>
     Object.entries(s.holds)
@@ -176,10 +186,31 @@ export function realEffects(deps: Deps, run: Run): Effects {
     try {
       await waitForFinish(d, { pollMs: deps.pollMs, now: deps.now });
       const record = await finalizeDispatch(run, d);
+      // an oracle diff that cannot be taken never keeps the dispatch from ending
+      const oracle = await oracleChange(run, d.admit.name).catch(() => null);
       // under the lock: a settle of an earlier daemon in this process may still be running, and the second is a no-op
       const ended = await withEventsLock(run, (add) => {
-        if (replayRun(run).dispatches[id]?.ended) return false;
-        add(endedEvent(run, record, unit), at());
+        const s = replayRun(run);
+        if (s.dispatches[id]?.ended) return false;
+        // the diff file goes with the event, so a duplicate settle never overwrites it
+        if (oracle) writeTextAtomic(join(run.dir, oracle.diff), oracle.text);
+        add(endedEvent(run, record, unit, oracle && { paths: oracle.paths, diff: oracle.diff }), at());
+        // spec D6: a task that ended complete gets its fast check at once; nothing waits on it
+        const fast = fastCheckFor(s, record);
+        if (fast)
+          add(
+            {
+              type: "check.requested",
+              ...fast,
+              scope: "fast",
+              base: false,
+              fresh: false,
+              by: "catherd",
+              why: `${record.name} ended complete: its fast check`,
+              task: record.name,
+            },
+            at(),
+          );
         return true;
       });
       if (!ended) return;
@@ -339,12 +370,41 @@ export function realEffects(deps: Deps, run: Run): Effects {
       case "runCheck": {
         const c = s.arch.checks[a.checkId];
         if (!c) throw new Error(`no check ${a.checkId} was asked for`);
-        return void (await append(
-          await runArchitectCheck(deps, run, c, {
-            timeoutMs: effectLimits.checkMs,
-            onWait: waitingOnce(a.checkId),
-          }),
-        ));
+        // a fast check catherd asked for stops with the run; the architect's own checks run on
+        const signal = c.task ? stopChecks.signal : undefined;
+        const done = await runArchitectCheck(deps, run, c, {
+          timeoutMs: effectLimits.checkMs,
+          onWait: waitingOnce(a.checkId),
+          ...(signal ? { signal } : {}),
+        }).catch((e: unknown) => {
+          if (signal?.aborted) return null;
+          throw e;
+        });
+        if (!done) return;
+        if (!signal) {
+          await append(done);
+          return;
+        }
+        // under the events lock: a finish aborts first, so nothing of ours lands after its `run.ended`
+        const recorded = await withEventsLock(run, (add) => {
+          if (signal.aborted || hasRunEnded(run)) return false;
+          add(done, at());
+          return true;
+        });
+        if (!recorded || done.exit === 0) return;
+        // plan 53: a task's red fast check is news for every writer on the shared tree, unless the run is already
+        // stopping, or the base is red the same way (a timeout names no line and is news)
+        const now = replayRun(run);
+        if (now.phase === "ended" || now.cancelling || now.arch.finishing) return;
+        if (done.failures.length > 0 && done.failures.every((f) => done.preExisting.includes(f))) return;
+        await teamSend({
+          run: run.id,
+          from: "catherd",
+          to: "all",
+          mode: "queue",
+          text: `the fast check of ${c.task} (\`${c.command}\`) failed on the run's tree (exit ${done.exit ?? "timeout"}): ${done.failures.slice(0, 3).join("; ") || "no failing line read"}; log ${done.logPath}`,
+        }).catch((e) => log("warn", "daemon", { run: run.id, check: a.checkId, team: errorMessage(e) }));
+        return;
       }
       case "land": {
         const l = s.arch.lands[a.landId];
@@ -369,6 +429,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return settle(d, v.unit);
       }
       case "cancel": {
+        // a cancel for a stray task leaves the checks alone; the run's own stop ends them
+        if (s.cancelling || s.arch.finishing) stopChecks.abort();
         for (const id of a.dispatchIds) {
           const d = listDispatches(run).find((x) => x.admit.dispatchId === id);
           if (!d) continue;
@@ -410,6 +472,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return;
       }
       case "finish": {
+        stopChecks.abort();
         const reportPath = a.bare ? null : writeArchitectReport(run, s, readEvents(run));
         await append({ type: "run.ended", outcome: a.outcome, reportPath });
         await refreshState(run, { next: outcomeNext(a.outcome), parked: [] });

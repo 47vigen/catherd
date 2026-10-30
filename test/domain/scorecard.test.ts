@@ -220,7 +220,22 @@ describe("the stage comparison, per task (plan 51, spec D17)", () => {
       idlePct: 20,
       blockedMin: 4,
       rounds: 2,
+      // a stage-1 run recorded no check wait (plan 53)
+      checkWaitShare: null,
     });
+  });
+
+  it("takes the median check wait of runs that recorded one (plan 53)", () => {
+    const waited = twice("stage-2", () => [60, 60]);
+    for (const runs of Object.values(waited.runs ?? {}))
+      runs.forEach((r, i) => {
+        if (r.metrics) r.metrics = { ...r.metrics, checkWaitShare: [0.1, 0.3][i] ?? null };
+      });
+    const v = stageBar(
+      waited,
+      twice("stage-1", () => [60, 60]),
+    );
+    expect(v.rows[0]?.checkWaitShare).toBe(0.2);
   });
 
   it("fails a task with one run, an unfinished run, or a slower median, even when the total is better", () => {

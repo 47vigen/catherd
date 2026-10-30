@@ -29,10 +29,10 @@ runAdapterContract(
       expect: { status: "ok", thread: "670d1ec2-db2b-471f-a1a5-3cda1416c061", reply: "pong" },
     },
     {
-      name: "a real model error whose CLI exits 0",
+      name: "a real model error whose CLI exits 0 (a model the account cannot use)",
       fixture: fx("model-error.jsonl"),
       exitCode: 0,
-      expect: { status: "failed", thread: "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a" },
+      expect: { status: "limit", thread: "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a" },
     },
     {
       name: "a usage limit",

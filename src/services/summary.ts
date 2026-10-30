@@ -71,23 +71,18 @@ export interface RunSummary {
   warnings: string[];
 }
 
-/** Plan 52: an architect run's last check, from the checks table (its state.md is the 1.5 orchestrator's). */
-function lastCheckLine(run: Run): string {
-  const c = db()
-    .query(
-      "SELECT check_id, scope, base, exit, failures, verdict FROM checks WHERE run_id = ? ORDER BY id DESC LIMIT 1",
-    )
-    .get(run.id) as {
-    check_id: string;
-    scope: string;
-    base: number;
-    exit: number | null;
-    failures: string;
-    verdict: string | null;
-  } | null;
-  if (!c) return "Last check: none yet";
-  const what = `${c.check_id} (${c.scope}${c.base ? ", on the base" : ""})`;
-  if (c.exit === 0) return `Last check: ${what} passed`;
+interface CheckRow {
+  check_id: string;
+  scope: string;
+  base: number;
+  exit: number | null;
+  failures: string;
+  verdict: string | null;
+}
+
+/** How a check ended, in a few words: `passed`, or its exit and failing lines, and the base split of a full one. */
+function checkResult(c: CheckRow): string {
+  if (c.exit === 0) return "passed";
   const failing = (JSON.parse(c.failures) as string[]).length;
   const split =
     c.verdict === "inherited"
@@ -95,7 +90,29 @@ function lastCheckLine(run: Run): string {
       : c.verdict === "new"
         ? ", some new on this run"
         : "";
-  return `Last check: ${what} ${c.exit === null ? "timed out" : `failed (exit ${c.exit})`}: ${failing} failing line(s)${split}`;
+  return `${c.exit === null ? "timed out" : `failed (exit ${c.exit})`}: ${failing} failing line(s)${split}`;
+}
+
+/**
+ * Plan 52: an architect run's last full check, from the checks table (its state.md is the 1.5 orchestrator's).
+ * Plan 53: the latest fast check follows it, with the task catherd ran it for.
+ */
+function lastCheckLines(run: Run): string[] {
+  const latest = (where: string) =>
+    db()
+      .query(
+        `SELECT check_id, scope, base, exit, failures, verdict FROM checks WHERE run_id = ? AND ${where} ORDER BY id DESC LIMIT 1`,
+      )
+      .get(run.id) as CheckRow | null;
+  const full = latest("scope != 'fast'");
+  const fast = latest("scope = 'fast'");
+  const task = fast ? replayRun(run).arch.checks[fast.check_id]?.task : undefined;
+  return [
+    full
+      ? `Last check: ${full.check_id} (${full.scope}${full.base ? ", on the base" : ""}) ${checkResult(full)}`
+      : "Last check: none yet",
+    ...(fast ? [`latest fast: ${fast.check_id}${task ? ` (${task})` : ""} ${checkResult(fast)}`] : []),
+  ];
 }
 
 /** One run at a glance. Spec §3.4: reads are pure; nothing here finalizes a dispatch or writes a file. */
@@ -175,7 +192,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     ...sessionFacts(run),
     ended,
     stateTail: isDaemonRun(run)
-      ? [lastCheckLine(run)]
+      ? lastCheckLines(run)
       : nonBlankLines(runPaths(run.dir).state)
           .filter((l) => !ended || !/^(Next|Protocol next): /.test(l))
           .slice(-3),

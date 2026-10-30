@@ -51,6 +51,8 @@ export type RunView = {
             [key: string]: number;
         };
         checkShare: number | null;
+        fastCheckShare?: number | null;
+        checkWaitShare?: number | null;
         rounds: {
             perTask: {
                 [key: string]: number;
@@ -573,6 +575,7 @@ export type ProfilePatch = {
         heavy: number | 'cpus/2';
     };
     notify?: Array<'milestone' | 'finish' | 'blocked'>;
+    fastCheck?: string | null;
     limits?: {
         memory?: {
             reserveMb?: number | null;

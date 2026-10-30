@@ -1599,6 +1599,18 @@
                       "null"
                     ]
                   },
+                  "fastCheckShare": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "checkWaitShare": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
                   "rounds": {
                     "type": "object",
                     "properties": {
@@ -4599,6 +4611,17 @@
                 "blocked"
               ]
             }
+          },
+          "fastCheck": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "limits": {
             "type": "object",

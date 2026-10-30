@@ -647,6 +647,18 @@ describe("host-specific profiles", () => {
     expect(existsSync(claudeAgentsDir())).toBe(false);
   });
 
+  it("sets the profile's fast check, gives it to the view, and removes it with null (plan 53)", () => {
+    withHome();
+    const port = profileService(() => ({ host: "claude-code", session: null, conflict: null }));
+    expect(port.forRepo(null).fastCheck).toBeUndefined();
+    expect(port.set(undefined, { fastCheck: " bun run lint " }).saved).toBe(true);
+    expect(port.forRepo(null).fastCheck).toBe("bun run lint");
+    expect(port.set(undefined, { caps: { attempts: 3 } }).saved).toBe(true);
+    expect(port.forRepo(null).fastCheck).toBe("bun run lint");
+    expect(port.set(undefined, { fastCheck: null }).saved).toBe(true);
+    expect(port.forRepo(null).fastCheck).toBeUndefined();
+  });
+
   it("gives the view its memory limits, the defaults filled under the profile's own", () => {
     withHome();
     const port = profileService(() => ({ host: "claude-code", session: null, conflict: null }));

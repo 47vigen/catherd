@@ -23,6 +23,8 @@ export interface MetricInput {
   dispatches: readonly MetricDispatch[];
   /** minutes the run's checks ran (cached passes left out); null when the run kept no check rows */
   checkMinutes: number | null;
+  /** plan 53: when each check ran (cached passes left out), fast ones marked */
+  checkSpans?: readonly (Span & { fast: boolean })[];
   /** review rounds per ledger task (or per milestone, for an earlier run) */
   rounds: Readonly<Record<string, number>>;
   climbs: number;
@@ -42,6 +44,10 @@ export const RunMetricsSchema = z.object({
   blockedMin: z.record(z.string(), z.number()),
   /** check minutes as a share of the wall time; null without check rows */
   checkShare: z.number().nullable(),
+  /** plan 53, spec D6: fast-check minutes as a share of the wall time; null without check rows (absent before plan 53) */
+  fastCheckShare: z.number().nullable().optional(),
+  /** plan 53: the share of the wall time a check ran with no role running: what the run waited on checks */
+  checkWaitShare: z.number().nullable().optional(),
   rounds: z.object({ perTask: z.record(z.string(), z.number()), max: z.number(), total: z.number() }),
   climbs: z.number(),
   costUsd: z.number().nullable(),
@@ -82,6 +88,11 @@ export function runMetrics(i: MetricInput): RunMetrics {
     const why = lostReason(d);
     if (why) blockedMin[why] = round1((blockedMin[why] ?? 0) + (d.endedAt - d.startedAt) / 60_000);
   }
+  const checks = i.checkSpans ?? [];
+  const fastMs = checks.filter((c) => c.fast).reduce((n, c) => n + coveredMs(i.start, i.end, [c]), 0);
+  const waitMs = coveredMs(i.start, i.end, [...spans, ...i.pauses, ...checks]) - paused - busy;
+  const share = (ms: number): number | null =>
+    i.checkMinutes === null || wall === 0 ? null : round2(ms / wall);
   const priced = i.dispatches.filter((d) => d.costUsd !== null);
   const rounds = Object.values(i.rounds);
   return {
@@ -89,7 +100,9 @@ export function runMetrics(i: MetricInput): RunMetrics {
     idlePct: wall > 0 ? round1(100 * (1 - busy / wall)) : 0,
     concurrency: wall > 0 ? round2(roleMs / wall) : 0,
     blockedMin,
-    checkShare: i.checkMinutes === null || wall === 0 ? null : round2((i.checkMinutes * 60_000) / wall),
+    checkShare: share(i.checkMinutes === null ? 0 : i.checkMinutes * 60_000),
+    fastCheckShare: share(fastMs),
+    checkWaitShare: share(waitMs),
     rounds: {
       perTask: { ...i.rounds },
       max: rounds.length ? Math.max(...rounds) : 0,

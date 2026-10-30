@@ -57,7 +57,7 @@ function baseResult(run: Run, command: string): BaseResult | null {
 const PARTS_ENV = "CATHERD_PARTS_FILE";
 
 /** The commit a base check runs on: a base run's merge base with origin's base (plan 50), else its start commit. */
-async function baseSha(run: Run, tree: string): Promise<string | null> {
+export async function baseSha(run: Run, tree: string): Promise<string | null> {
   if (!run.meta.base) return run.meta.startHead ?? null;
   const r = await git(tree, ["merge-base", "HEAD", `origin/${run.meta.base}`]);
   return r.kind === "ok" ? r.out.trim() || null : null;
@@ -93,7 +93,7 @@ export async function runArchitectCheck(
   deps: Deps,
   run: Run,
   c: ArchCheck,
-  o: { timeoutMs: number; onWait?: (w: LockWait | null) => void },
+  o: { timeoutMs: number; onWait?: (w: LockWait | null) => void; signal?: AbortSignal },
 ): Promise<CheckDone> {
   return (await execute(deps, run, c, o)).done;
 }
@@ -115,7 +115,7 @@ async function execute(
   deps: Deps,
   run: Run,
   c: ArchCheck,
-  o: { timeoutMs: number; onWait?: (w: LockWait | null) => void },
+  o: { timeoutMs: number; onWait?: (w: LockWait | null) => void; signal?: AbortSignal },
 ): Promise<{ done: CheckDone; comparable: boolean }> {
   const logPath = `checks/${c.checkId}.log`;
   const repo = runTree(run);
@@ -167,18 +167,20 @@ async function execute(
           if (!c.base) before = await treeState(repo);
           const partsFile = join(tmp, "catherd-parts");
           writeFileSync(partsFile, "");
-          const done = await runCheck(cwd, script, o.timeoutMs, {
-            ...env,
-            TMPDIR: tmp,
-            GOTMPDIR: tmp,
-            [LOCK_HELD_ENV]: "1",
-            [PARTS_ENV]: partsFile,
-          });
+          const done = await runCheck(
+            cwd,
+            script,
+            o.timeoutMs,
+            { ...env, TMPDIR: tmp, GOTMPDIR: tmp, [LOCK_HELD_ENV]: "1", [PARTS_ENV]: partsFile },
+            o.signal,
+          );
           marks = readFileSync(partsFile).length;
           return done;
         },
-        o.onWait ? { onWait: o.onWait } : {},
+        { ...(o.onWait ? { onWait: o.onWait } : {}), ...(o.signal ? { signal: o.signal } : {}) },
       );
+      // a stopped check leaves no row: the run is over
+      o.signal?.throwIfAborted();
       minutes = (Date.now() - started) / 60_000;
       // a tree that changed while the check waited or ran is not the tree it passed on; the head is the one the
       // identity was taken with, never a later read

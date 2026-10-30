@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
@@ -29,6 +29,7 @@ const fixture = (name: string): string =>
   readFileSync(join(import.meta.dir, "../fixtures/briefs", name), "utf8");
 
 afterEach(snapshotEnv());
+afterEach(() => setSystemTime());
 
 const refusal = (fn: () => unknown) => {
   try {
@@ -44,8 +45,9 @@ const refusal = (fn: () => unknown) => {
 async function planRun(
   plan: string[],
   text: string | Record<string, string> = PLAN_TEXT,
+  sameHome = false,
 ): Promise<{ run: Run; repo: string; files: string[] }> {
-  const { run, repo } = freshRun();
+  const { run, repo } = freshRun("t", { sameHome });
   const files = plan.map((name) => {
     const f = join(repo, name);
     mkdirSync(join(f, ".."), { recursive: true });
@@ -272,8 +274,8 @@ describe("the unit context", () => {
     "spec.md": fixture("spec.md"),
     "credit.md": fixture("credit.md"),
   });
-  const briefRun = async (files: Record<string, string> = briefFiles()) => {
-    const { run } = await planRun(Object.keys(files), files);
+  const briefRun = async (files: Record<string, string> = briefFiles(), sameHome = false) => {
+    const { run } = await planRun(Object.keys(files), files, sameHome);
     writeLane(run, "M1.L1", ["src/ledger.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
     return run;
   };
@@ -331,10 +333,14 @@ describe("the unit context", () => {
   });
 
   it("the slim lane and the bloated lane render the same unit context", async () => {
+    // run ids carry the second they were made in: two runs of one test that straddle a second (a loaded machine)
+    // must still both read their events
+    setSystemTime(new Date("2026-10-30T10:00:00Z"));
     const slim = await briefRun();
     const files = briefFiles();
     files["spec.md"] += `\n## 12. Appendix\n\n${"unrelated appendix text ".repeat(4_200)}\n`;
-    const bloated = await briefRun(files);
+    setSystemTime(new Date("2026-10-30T10:00:05Z"));
+    const bloated = await briefRun(files, true);
     expect(unitContext(bloated, "worker", "M1.L1")).toEqual(unitContext(slim, "worker", "M1.L1"));
   });
 

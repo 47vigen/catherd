@@ -49,6 +49,21 @@ describe("a run's metrics (plan 51, spec D17)", () => {
     expect(m.costUsd).toBe(1.5);
   });
 
+  it("counts fast-check minutes apart, and the minutes a check ran with no role running and no pause (plan 53)", () => {
+    const c = (from: number, to: number, fast: boolean) => ({ from: min(from), to: min(to), fast });
+    const m = runMetrics({
+      ...base,
+      dispatches: [d(0, 40), d(40, 50)],
+      pauses: [{ from: min(60), to: min(80) }],
+      // 20–25 and 40–50 beside a role, 50–56 alone, 70–75 inside the pause
+      checkSpans: [c(20, 25, true), c(40, 50, false), c(50, 56, true), c(70, 75, true)],
+      checkMinutes: 26,
+    });
+    expect(m.fastCheckShare).toBe(0.2);
+    expect(m.checkWaitShare).toBe(0.08);
+    expect(runMetrics({ ...base }).checkWaitShare).toBeNull();
+  });
+
   it("sums review rounds per task, takes the median standing-role start, and reads no check rows as null", () => {
     const m = runMetrics({ ...base, rounds: { L1: 3, L2: 1 }, standingStartSec: [4, 30, 2] });
     expect(m.rounds).toEqual({ perTask: { L1: 3, L2: 1 }, max: 3, total: 4 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   applyLedgerPatch,
+  LedgerPatchSchema,
   type LedgerTask,
   ledgerView,
   PROGRESS_SHOWN,
@@ -67,5 +68,13 @@ describe("the architect's ledger (plan 47, spec D2)", () => {
     expect(archive).toContain("## t0\n\nstep 0\n");
     expect(archive).toContain("## t1\n");
     expect(archive).not.toContain("## t2\n");
+  });
+
+  it("refuses an oracle entry that is absolute or climbs out of the tree (plan 54)", () => {
+    const add = (oracle: string[]) => LedgerPatchSchema.safeParse({ add: [{ id: "L1", goal: "g", oracle }] });
+    expect(add(["test/a.test.ts", "test/acceptance/"]).success).toBe(true);
+    for (const bad of ["/etc/passwd", "../x.test.ts", "test/../../x", "a\\..\\b", "C:\\x"])
+      expect(add([bad]).success).toBe(false);
+    expect(LedgerPatchSchema.safeParse({ set: [{ id: "L1", oracle: ["../x"] }] }).success).toBe(false);
   });
 });
