@@ -5,7 +5,7 @@ import { runBranch } from "../domain/branch.ts";
 import type { RunEventInput } from "../domain/run-events.ts";
 import { errorMessage } from "../domain/errors.ts";
 import type { Regen } from "../domain/profile.ts";
-import { git, gitRun, snapshotTree } from "../infra/git.ts";
+import { conflictMarkers, git, gitRun, snapshotTree } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
 import { writeTextAtomic } from "../infra/store.ts";
@@ -98,7 +98,24 @@ export async function runMerge(
   // the writer's work, committed: the merge, the check and the fast-forward all read commits
   const status = await out(dir, ["status", "--porcelain"]);
   if (status === null) return end("refused", `git cannot read ${dir}`);
-  if (status.trim()) {
+  const midMerge = (await out(dir, ["rev-parse", "-q", "--verify", "MERGE_HEAD"])) !== null;
+  if (status.trim() || midMerge) {
+    // a merge a crash or the writer left unfinished, or markers a writer left: never committed, nothing is touched
+    const marks = await conflictMarkers(dir);
+    if (marks === null) return end("refused", `git cannot check ${dir} for conflict markers`);
+    if (marks.length) {
+      const files = [...new Set(marks.map((x) => x.slice(0, x.lastIndexOf(":"))))];
+      const where = marks.slice(0, 10).join(", ");
+      return end(
+        "conflict",
+        `its tree still holds conflict markers (${where}): catherd keeps it and sends it back to its writer`,
+        { files },
+        {
+          cause: "conflict",
+          text: `Your tree still holds conflict markers (${where})${midMerge ? " and a merge you have not concluded" : ""}. Resolve them (\`git status\` lists the files), leave the result uncommitted, and end complete: catherd commits and merges again.`,
+        },
+      );
+    }
     const added = await gitRun(dir, ["add", "-A"]);
     if (added.code !== 0)
       return end("refused", `git add failed in ${dir}: ${tail(`${added.out}${added.err}`)}`);

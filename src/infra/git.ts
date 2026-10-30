@@ -191,14 +191,19 @@ export interface GitOutput {
  * optional lock avoidance, since this one writes the index. It leads its own process group, so a timeout kills the
  * hooks it started too: one left running would go on changing the index while the caller retries.
  */
-export async function gitRun(repo: string, args: string[], timeoutMs = 300_000): Promise<GitOutput> {
+export async function gitRun(
+  repo: string,
+  args: string[],
+  timeoutMs = 300_000,
+  env: Record<string, string> = {},
+): Promise<GitOutput> {
   let p: Bun.Subprocess<"ignore", "pipe", "pipe">;
   try {
     p = Bun.spawn(["git", "-C", repo, ...args], {
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
-      env: { ...scrubSecrets(process.env), LC_ALL: "C" },
+      env: { ...scrubSecrets(process.env), LC_ALL: "C", ...env },
       detached: true,
     });
   } catch (e) {
@@ -278,21 +283,20 @@ export async function currentBranch(repo: string): Promise<string | null> {
 }
 
 /**
- * Spec D5's checkpoint recipe, used by plan 51's reviews: the tree as it is, committed or not, untracked files in, as a
- * commit on HEAD that no ref holds. A throwaway index keeps the owner's index and files untouched. Null on a failure.
+ * Runs `fn` against a throwaway copy of the tree's index with every file added (untracked ones in), so the real index
+ * and files stay untouched. A copy of the real index keeps git's stat cache, so only changed files are hashed again.
+ * Null when the copy or the add fails.
  */
-export async function snapshotTree(dir: string): Promise<string | null> {
+async function inScratchIndex<T>(
+  dir: string,
+  fn: (env: Record<string, string>) => Promise<T | null>,
+): Promise<T | null> {
   const index = join(
     tmpdir(),
     `catherd-snapshot-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   const env = { GIT_INDEX_FILE: index };
-  const step = async (args: string[]) => {
-    const r = await git(dir, args, 60_000, env);
-    return r.kind === "ok" ? r.out.trim() : null;
-  };
   try {
-    // a copy of the real index keeps git's stat cache, so only changed files are hashed again
     // without GIT_INDEX_FILE, which --git-path would echo back
     const r = await git(dir, ["rev-parse", "--git-path", "index"]);
     const real = r.kind === "ok" ? r.out.trim() : null;
@@ -300,14 +304,49 @@ export async function snapshotTree(dir: string): Promise<string | null> {
       if (!real) throw new Error("no index");
       copyFileSync(isAbsolute(real) ? real : join(dir, real), index);
     } catch {
-      if ((await step(["read-tree", "HEAD"])) === null) return null;
+      if ((await git(dir, ["read-tree", "HEAD"], 60_000, env)).kind !== "ok") return null;
     }
-    if ((await step(["add", "-A"])) === null) return null;
+    if ((await git(dir, ["add", "-A"], 60_000, env)).kind !== "ok") return null;
+    return await fn(env);
+  } finally {
+    rmSync(index, { force: true });
+  }
+}
+
+/**
+ * Spec D5's checkpoint recipe, used by plan 51's reviews: the tree as it is, committed or not, untracked files in, as a
+ * commit on HEAD that no ref holds. A throwaway index keeps the owner's index and files untouched. Null on a failure.
+ */
+export function snapshotTree(dir: string): Promise<string | null> {
+  return inScratchIndex(dir, async (env) => {
+    const step = async (args: string[]) => {
+      const r = await git(dir, args, 60_000, env);
+      return r.kind === "ok" ? r.out.trim() : null;
+    };
     const tree = await step(["write-tree"]);
     if (!tree) return null;
     const id = ["-c", "user.name=catherd", "-c", "user.email=catherd@catherd.invalid"];
     return (await step([...id, "commit-tree", tree, "-p", "HEAD", "-m", "catherd: review snapshot"])) || null;
-  } finally {
-    rmSync(index, { force: true });
-  }
+  });
+}
+
+/**
+ * The `path:line` of every leftover conflict marker the tree would commit if everything were added (an unmerged path
+ * included), read on a throwaway index; whitespace complaints of `diff --check` are not markers. Null when git cannot say.
+ */
+export function conflictMarkers(dir: string): Promise<string[] | null> {
+  return inScratchIndex(dir, async (env) => {
+    const r = await gitRun(
+      dir,
+      ["-c", "core.quotePath=false", "diff", "--cached", "--check", "HEAD"],
+      60_000,
+      env,
+    );
+    // exit 2 is "problems found"; anything else non-zero is git failing
+    if (r.code !== 0 && r.code !== 2) return null;
+    return r.out
+      .split("\n")
+      .filter((l) => l.includes(": leftover conflict marker"))
+      .map((l) => l.slice(0, l.indexOf(": leftover conflict marker")));
+  });
 }

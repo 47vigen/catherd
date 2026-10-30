@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ArchMerge } from "../../src/domain/architect-state.ts";
+import { runBranch } from "../../src/domain/branch.ts";
 import { db } from "../../src/infra/db.ts";
 import { writeLedger } from "../../src/services/ledger-store.ts";
 import { noticeMerged, runMerge } from "../../src/services/merge.ts";
@@ -21,6 +22,8 @@ afterEach(snapshotEnv());
 
 const RUNG = "codex:gpt-6-sol#high";
 const CHECK_MS = 60_000;
+
+const runBranchName = (run: Run): string => runBranch(run.meta.title);
 
 const git = (dir: string, ...args: string[]): string =>
   execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
@@ -265,6 +268,57 @@ describe("catherd's own commits and merges ignore the repository's hooks (plan 5
     const { done, back } = await runMerge(deps, run, merge("T1"), CHECK_MS);
     expect(done).toMatchObject({ outcome: "red", message: expect.stringContaining("regenerat") });
     expect(back?.cause).toBe("red");
+  });
+});
+
+describe("conflict markers are never committed (plan 55 review I2)", () => {
+  it("sends back a tree that ends complete with markers in it, and commits nothing", async () => {
+    const { run, deps, tree } = await treesRun({ path: "a.txt", text: "base\n" });
+    const dir = await worked(run, deps, "T1");
+    put(dir, "a.txt", "<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> wallet\n");
+    put(dir, "new.txt", "fine\n");
+    const head = git(tree, "rev-parse", "HEAD");
+    const own = git(dir, "rev-parse", "HEAD");
+    const { done, back } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done).toMatchObject({ outcome: "conflict", files: ["a.txt"] });
+    expect(back).toMatchObject({ cause: "conflict", text: expect.stringContaining("a.txt:1") });
+    expect(git(dir, "rev-parse", "HEAD")).toBe(own);
+    expect(git(tree, "rev-parse", "HEAD")).toBe(head);
+    // the writer's files, markers and all, and its index are as they were
+    expect(readFileSync(join(dir, "a.txt"), "utf8")).toContain("<<<<<<<");
+    expect(git(dir, "status", "--porcelain")).toBe("M a.txt\n?? new.txt");
+  });
+
+  it("sends back a tree a crash left in the middle of catherd's own merge, instead of concluding it", async () => {
+    const { run, deps, tree } = await treesRun({ path: "a.txt", text: "base\n" });
+    const dir = await worked(run, deps, "T1");
+    put(dir, "a.txt", "mine\n");
+    git(dir, "commit", "-q", "-am", "mine");
+    put(tree, "a.txt", "theirs\n");
+    git(tree, "commit", "-q", "-am", "theirs");
+    expect(() => git(dir, "merge", "--no-edit", runBranchName(run))).toThrow();
+    expect(existsSync(git(dir, "rev-parse", "--absolute-git-dir") + "/MERGE_HEAD")).toBe(true);
+    const own = git(dir, "rev-parse", "HEAD");
+    const { done, back } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done).toMatchObject({ outcome: "conflict", files: ["a.txt"] });
+    expect(back?.cause).toBe("conflict");
+    expect(git(dir, "rev-parse", "HEAD")).toBe(own);
+    expect(existsSync(git(dir, "rev-parse", "--absolute-git-dir") + "/MERGE_HEAD")).toBe(true);
+    expect(git(tree, "log", "-1", "--format=%s")).toBe("theirs");
+  });
+
+  it("concludes a merge the writer resolved, as the sent-back text tells it to", async () => {
+    const { run, deps, tree } = await treesRun({ path: "a.txt", text: "base\n" });
+    const dir = await worked(run, deps, "T1");
+    put(dir, "a.txt", "mine\n");
+    git(dir, "commit", "-q", "-am", "mine");
+    put(tree, "a.txt", "theirs\n");
+    git(tree, "commit", "-q", "-am", "theirs");
+    expect(() => git(dir, "merge", "--no-edit", runBranchName(run))).toThrow();
+    put(dir, "a.txt", "both\n");
+    const { done } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done).toMatchObject({ outcome: "merged" });
+    expect(readFileSync(join(tree, "a.txt"), "utf8")).toBe("both\n");
   });
 });
 
