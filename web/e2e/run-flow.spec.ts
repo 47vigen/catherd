@@ -119,14 +119,15 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(flow.locator('svg[aria-label="Flow rows"]').getByText(state, { exact: true })).toHaveCount(count);
 
     // The run's own figures, and the header counts the ledger rather than the graph's milestones.
-    await expect(flow.locator('dl[aria-label="Run statistics"]')).toContainText("45m 00s");
+    await expect(flow.locator('dl[aria-label="Run statistics"]')).toHaveCount(0);
+    await expect(page.getByText("Took", { exact: true }).locator("xpath=..")).toContainText("45m 00s");
     const tile = page.locator("section", {
       has: page.getByRole("heading", { level: 3, name: "Run flow", exact: true }),
     });
     await expect(tile).toHaveCount(1);
     await expect(tile.locator("header")).toContainText("of 9");
     await expect(tile.locator("header")).not.toContainText("failed of");
-    await expect(page.getByText("9 ledger tasks", { exact: true })).toBeVisible();
+    await expect(page.getByText("done of 9 ledger tasks", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Milestones" })).toHaveCount(0);
     await expect(page.getByText(/\bmilestones?\b/i)).toHaveCount(0);
 
