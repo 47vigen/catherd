@@ -5,7 +5,8 @@ import { appendEvent } from "../../src/services/run-events-store.ts";
 import { metricsOf, parsedOf, reviewerReport } from "../../src/services/run-metrics.ts";
 import { endDispatch, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { freshRun } from "./helpers.ts";
+import { appendRecord } from "../../src/services/run-store.ts";
+import { freshRun, makeRecord } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -99,6 +100,33 @@ describe("a run's metrics from its own rows (plan 51, spec D17)", () => {
     turn(3, "claude-code:claude-opus-5-5#high", "ok");
     for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
     expect(metricsOf(run, Date.parse(run.meta.createdAt) + 60_000).climbs).toBe(1);
+  });
+
+  it("names a sent-back task's dispatch rework by its cause, beside stage 1's blocked reasons (plan 55, spec D5)", async () => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    for (const [taskId, cause] of [
+      ["T1", null],
+      ["T2", "conflict"],
+    ] as const)
+      log.add("task.delegated", {
+        taskId,
+        role: "worker",
+        rung: "codex:gpt-6-sol#high",
+        thread: null,
+        ledgerTask: "L1",
+        by: cause ? "catherd" : "architect-1",
+        why: "w",
+        tree: "T1",
+        ...(cause ? { cause } : {}),
+      });
+    for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    const t0 = Date.parse(run.meta.createdAt);
+    const at = (min: number) => new Date(t0 + min * 60_000).toISOString();
+    await appendRecord(run, makeRecord({ name: "T1", dispatchId: "D1", startedAt: at(0), endedAt: at(10) }));
+    await appendRecord(run, makeRecord({ name: "T2", dispatchId: "D2", startedAt: at(10), endedAt: at(13) }));
+    expect(metricsOf(run, t0 + 20 * 60_000).blockedMin).toEqual({ merge_conflict: 3 });
   });
 
   it("does not replay a run its caller already replayed", async () => {

@@ -49,6 +49,18 @@ describe("a run's metrics (plan 51, spec D17)", () => {
     expect(m.costUsd).toBe(1.5);
   });
 
+  it("counts the minutes of a task a merge sent back as rework by what the merge found, however it ended (plan 55)", () => {
+    const m = runMetrics({
+      ...base,
+      dispatches: [
+        d(0, 10, { rework: "merge_conflict" }),
+        d(10, 14, { rework: "merge_red", replyStatus: "blocked", reason: "needs_user" }),
+        d(14, 20, { replyStatus: "blocked", reason: "check_broken" }),
+      ],
+    });
+    expect(m.blockedMin).toEqual({ merge_conflict: 10, merge_red: 4, check_broken: 6 });
+  });
+
   it("counts fast-check minutes apart, and the minutes a check ran with no role running and no pause (plan 53)", () => {
     const c = (from: number, to: number, fast: boolean) => ({ from: min(from), to: min(to), fast });
     const m = runMetrics({

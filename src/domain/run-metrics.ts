@@ -14,6 +14,11 @@ export interface MetricDispatch {
   /** the blocked reason a blocked or refused reply named, else null */
   reason: string | null;
   costUsd: number | null;
+  /**
+   * plan 55, spec D5: catherd sent the task back after its merge (`merge_conflict`, `merge_red`): its minutes are lost
+   * time however it ended, so isolation's own cost shows beside stage 1's blocked minutes
+   */
+  rework?: string;
 }
 
 export interface MetricInput {
@@ -40,7 +45,10 @@ export const RunMetricsSchema = z.object({
   idlePct: z.number(),
   /** role minutes per wall minute (baseline 0.7–0.94) */
   concurrency: z.number(),
-  /** minutes of dispatches that ended blocked, refused, failed, timed out or on a limit, by reason */
+  /**
+   * minutes of dispatches that ended blocked, refused, failed, timed out or on a limit, by reason; plan 55: and of the
+   * dispatches a merge sent back (`merge_conflict`, `merge_red`)
+   */
   blockedMin: z.record(z.string(), z.number()),
   /** check minutes as a share of the wall time; null without check rows */
   checkShare: z.number().nullable(),
@@ -71,6 +79,7 @@ export function median(xs: readonly number[]): number | null {
 
 /** Why a dispatch was lost time, or null when it ended complete. */
 function lostReason(d: MetricDispatch): string | null {
+  if (d.rework) return d.rework;
   if (d.replyStatus === "blocked" || d.replyStatus === "refused") return d.reason ?? d.replyStatus;
   if (d.status === "failed" || d.status === "timeout" || d.status === "limit") return d.status;
   return null;
