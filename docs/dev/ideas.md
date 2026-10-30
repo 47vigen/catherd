@@ -37,6 +37,20 @@ Left out of plan 55 on purpose:
 - **A merge is refused while the run's tree holds uncommitted edits in the same files** (the fast-forward cannot carry
   them). The architect commits or drops them and merges again.
 - **Two daemons on one run** could still claim its tree at once: the claim is serialized within one process only.
+- **A fast check that leaves untracked files in the task's tree makes its merge refuse** (the tree must be clean before
+  it is removed, review I5); gitignore the output, or let catherd commit or discard what the check leaves.
+- **A new line of `======= ` alone (a 7-character setext underline) reads as a conflict marker** in a writer's tree
+  (`git diff --check`); the merge sends the task back. Restrict the check to unmerged paths if it shows up.
+- **A merge in progress in a writer's tree is never aborted by catherd,** only sent back with its state intact (an abort
+  would drop a half-resolved merge); a writer that cannot finish it needs `git merge --abort` by hand.
+- **A nested regenerable file is regenerated only if the profile's command rebuilds it:** the attribute matches a bare
+  name at any depth, but the command runs at the tree's root (`cd web && bun install` belongs in the command).
+- **A merge recorded after a restart (its tree already removed) lists no files,** so the writers' completed-change
+  notice says "no file changed"; read the files from the `refs/catherd/<run>/<task>/merged` ref's diff if it matters.
+- **The native architect agent file keeps the writer-tree lines;** only the brief's role contract is gated on `trees`.
+- **A real submodule with uncommitted content in a writer tree has no test;** the `--ignore-submodules=none` status
+  check covers it by construction.
+- **The fast-forward and the tree's removal run under the events lock** (seconds): other event appends wait for them.
 
 ### From plan 53 (streaming fast checks)
 
