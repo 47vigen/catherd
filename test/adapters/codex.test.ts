@@ -269,14 +269,22 @@ describe("codex finalize", () => {
     expect(failed("The server is overloaded, please try again later.")).toBe("failed");
   });
 
-  it("classifies the ChatGPT-account message as cli-too-old", () => {
-    const o = codexAdapter.finalize(
+  it("takes a model the account cannot use for a rung that cannot run, never for an old CLI", () => {
+    const o = codexAdapter.finalize(finished(lines("model-not-found.jsonl"), { reply: "" }));
+    expect(o.status).toBe("limit");
+    expect(o.error).toMatchObject({
+      code: "model-unavailable",
+      message: expect.stringContaining("model not available to this account"),
+    });
+    // the same message on stderr alone, with no event stream
+    const err = codexAdapter.finalize(
       finished([], {
         stderr: "error: model not supported when using Codex with a ChatGPT account",
         reply: "",
       }),
     );
-    expect(o.status).toBe("cli-too-old");
+    expect(err.status).toBe("limit");
+    expect(err.error?.code).toBe("model-unavailable");
   });
 
   it("maps supervisor stops to timeout and cancelled, and a non-zero exit with no reply to failed", () => {

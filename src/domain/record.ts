@@ -6,6 +6,13 @@ export type Access = (typeof ACCESS)[number];
 export const RUN_STATUSES = ["ok", "failed", "limit", "cli-too-old", "timeout", "cancelled"] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
+/**
+ * plan 55: the `error.code` of a `limit` whose model the account cannot use. The rung cannot run, so its quota is
+ * held and the ladder climbs, as on a usage limit; the code and the words keep the two apart in the record.
+ */
+export const MODEL_UNAVAILABLE = "model-unavailable";
+export const MODEL_UNAVAILABLE_WHY = "model not available to this account";
+
 /** plan 23: `flaky`, a worker's word for a check that failed, then passed when run alone */
 export const REPLY_STATUSES = ["complete", "partial", "blocked", "refused", "flaky"] as const;
 export type ReplyStatus = (typeof REPLY_STATUSES)[number];

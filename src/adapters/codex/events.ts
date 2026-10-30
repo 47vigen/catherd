@@ -6,7 +6,8 @@ export interface CodexFold {
   turnFailed: boolean;
   failure: string | null;
   limit: boolean;
-  tooOld: boolean;
+  /** plan 55: the account cannot use the rung's model, so the rung cannot run */
+  modelUnavailable: boolean;
   lastEvent: string | null;
   /** plan 22: the agent message that ended each completed turn, in order */
   finals: string[];
@@ -22,7 +23,17 @@ export const CODEX_LIMIT = [
   /quota exceeded/i,
   /status: 429|too many requests/i,
 ];
-export const CODEX_TOO_OLD = [/not supported when using Codex with a ChatGPT account/i];
+/**
+ * plan 55: a model the account lost or never had reads "The 'X' model is not supported when using Codex with a
+ * ChatGPT account" with code `model_not_found`. It says nothing about the CLI's age (the probe checks that).
+ */
+export const CODEX_MODEL_UNAVAILABLE = [
+  /model_not_found/i,
+  /model is not supported/i,
+  /not supported when using Codex with a ChatGPT account/i,
+];
+/** Codex's own message never names an old CLI: the probe's version gate does. */
+export const CODEX_TOO_OLD: RegExp[] = [];
 
 type Event = Record<string, any>;
 
@@ -43,7 +54,7 @@ export function foldCodexEvents(lines: string[]): CodexFold {
     turnFailed: false,
     failure: null,
     limit: false,
-    tooOld: false,
+    modelUnavailable: false,
     lastEvent: null,
     finals: [],
   };
@@ -59,7 +70,7 @@ export function foldCodexEvents(lines: string[]): CodexFold {
     }
     f.lastEvent = e.item?.type ? `${e.type}/${e.item.type}` : e.type;
     const msg: string = e.message ?? e.error?.message ?? e.item?.message ?? "";
-    if (CODEX_TOO_OLD.some((r) => r.test(msg))) f.tooOld = true;
+    if (CODEX_MODEL_UNAVAILABLE.some((r) => r.test(msg))) f.modelUnavailable = true;
     if (e.type === "thread.started") f.thread = e.thread_id ?? null;
     else if (e.type === "turn.completed" && e.usage) {
       // plan 40: codex reports the thread's running total, so the last turn's usage is the whole of it

@@ -1,6 +1,11 @@
 import { CatherdError } from "../../domain/errors.ts";
 import type { Rung } from "../../domain/ids.ts";
-import type { Access, RunStatus } from "../../domain/record.ts";
+import {
+  type Access,
+  MODEL_UNAVAILABLE,
+  MODEL_UNAVAILABLE_WHY,
+  type RunStatus,
+} from "../../domain/record.ts";
 import {
   type AccessShell,
   type BackendAdapter,
@@ -308,6 +313,8 @@ function finalize(run: FinishedRun): Outcome {
   const res = f.result;
   const stopped = run.exit.reason;
   const failed = res === null || res.isError;
+  // plan 55: a model the account cannot use is a rung that cannot run, held and climbed as a usage limit is
+  const unavailable = failed && f.modelUnavailable && !f.limit;
   const status: RunStatus =
     stopped === "cancelled"
       ? "cancelled"
@@ -317,7 +324,7 @@ function finalize(run: FinishedRun): Outcome {
           ? "ok"
           : res === null && CLAUDE_TOO_OLD.some((r) => r.test(run.stderr))
             ? "cli-too-old"
-            : f.limit
+            : f.limit || unavailable
               ? "limit"
               : "failed";
   const lastErr = run.stderr.trim().split("\n").at(-1) ?? "";
@@ -331,7 +338,12 @@ function finalize(run: FinishedRun): Outcome {
     tokens: res?.tokens ?? claudeTokens(undefined),
     costUsd: res?.costUsd ?? null,
     images: [],
-    error: status === "ok" ? null : { code: status, message: message || status },
+    error:
+      status === "ok"
+        ? null
+        : unavailable
+          ? { code: MODEL_UNAVAILABLE, message: `${MODEL_UNAVAILABLE_WHY}: ${message}` }
+          : { code: status, message: message || status },
     ...(res && !res.isError ? { reply: res.text } : {}),
   };
 }

@@ -281,6 +281,19 @@ describe("claude-code finalize", () => {
     expect(root.error?.message).toContain("root/sudo");
   });
 
+  it("takes a model the account cannot use for a rung that cannot run, with its own error code", () => {
+    const o = claudeCodeAdapter.finalize(
+      finished(lines("model-error.jsonl"), {
+        exit: { code: 0, signal: null, reason: "exited", endedAt: "x" },
+      }),
+    );
+    expect(o.status).toBe("limit");
+    expect(o.error).toMatchObject({
+      code: "model-unavailable",
+      message: expect.stringContaining("model not available to this account"),
+    });
+  });
+
   it("does not call a rejected rate-limit event a limit when the run still succeeded", () => {
     const ok = lines("ok.jsonl").map((l) => l.replace('"status":"allowed_warning"', '"status":"rejected"'));
     expect(claudeCodeAdapter.finalize(finished(ok)).status).toBe("ok");
