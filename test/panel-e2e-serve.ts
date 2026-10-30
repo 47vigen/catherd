@@ -17,6 +17,7 @@ import { activeName, profileFile } from "../src/services/profile-store.ts";
 import { findRun, runPaths } from "../src/services/run-store.ts";
 import { seedFixtureRun } from "./services/fixture-run.ts";
 import { tempRepo, withHome } from "./helpers.ts";
+import { seedFlowRun } from "./panel-flow-fixture.ts";
 
 const state = process.env.CATHERD_E2E_STATE;
 if (!state) throw new Error("set CATHERD_E2E_STATE to the file the seeded paths are written to");
@@ -80,6 +81,7 @@ const b = await runStart(deps, { repo, title: "docs pass", aLines: ["A1 the docs
 await add(b.run, { type: "run.ended", outcome: "done", reportPath: null });
 
 const fixture = seedFixtureRun();
+const flow = await seedFlowRun(deps, repo);
 
 // "live split": T1 mid-way, with a question parked on T2
 const live = await runStart(deps, { repo, title: "live split", aLines: ["A1 the split holds"] });
@@ -107,6 +109,19 @@ await add(live.run, {
   unit: "T2",
   question: "Merge the split ids?",
   reason: "owner",
+});
+
+const flowLive = await runStart(deps, { repo, title: "flow live", aLines: ["A1 live flow"] });
+await delegated(flowLive.run);
+await add(flowLive.run, {
+  type: "dispatch.started",
+  dispatchId: "D0201",
+  name: "T1",
+  role: "worker",
+  unit: "T1",
+  lane: null,
+  rung: RUNG,
+  thread: null,
 });
 
 const panel = servePanel({
@@ -139,6 +154,8 @@ writeFileSync(
     a: { id: a.run, events: eventsUrl(a.run) },
     b: { id: b.run },
     fixture: { id: fixture.id },
+    flow,
+    flowLive: { id: flowLive.run, events: eventsUrl(flowLive.run) },
     live: { id: live.run, events: eventsUrl(live.run), stream: join(dir, "events.jsonl") },
     profile: profileFile(activeName(repo)),
     path: process.env.PATH,

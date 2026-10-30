@@ -15,7 +15,7 @@ export const TAB_LABEL: Record<Tab, string> = {
 /** The tabs that mean something for a step: a role has a prompt, a log and an output; a check has its logs. */
 export function tabsFor(n: RunNode): Tab[] {
   const tabs: Tab[] = ["overview"];
-  if (n.role) tabs.push("prompt", "log", "output");
+  if (n.role || n.attempts.some((a) => a.dispatchId)) tabs.push("prompt", "log", "output");
   if (n.kind === "lane" || n.kind === "commit" || n.kind === "land") tabs.push("changes");
   if (n.kind === "check") tabs.push("checks");
   return tabs;

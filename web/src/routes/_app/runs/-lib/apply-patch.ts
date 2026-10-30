@@ -23,6 +23,7 @@ export function applyPatch(model: RunModel, patch: RunModelPatch): RunModel {
   return {
     ...model,
     seq: patch.seq,
+    flow: patch.flow,
     phase: patch.phase,
     outcome: patch.outcome,
     nodes,

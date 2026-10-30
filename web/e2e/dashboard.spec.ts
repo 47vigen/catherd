@@ -21,6 +21,6 @@ test("the dashboard shows the live run, the waiting question and the KPIs, and o
   await running.getByRole("link", { name: "live split" }).click();
   await expect(page).toHaveURL(new RegExp(`/runs/${state().live.id}$`));
   await expect(page.getByRole("heading", { level: 1, name: "live split" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^T1 worker\. Running/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^T1 worker · running/ })).toBeVisible();
   expect(errors).toEqual([]);
 });

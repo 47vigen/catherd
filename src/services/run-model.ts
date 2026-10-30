@@ -5,6 +5,7 @@ import { CatherdError } from "../domain/errors.ts";
 import { deriveRunModel, nodeForUnit, recordAttempt, type RunModel } from "../domain/run-graph.ts";
 import { isDaemonRun, readEvents } from "./run-events-store.ts";
 import { replay } from "../domain/run-state.ts";
+import { flowOf } from "./run-flow.ts";
 import { findRun, readRecords } from "./run-store.ts";
 
 /** A reply is cut here when it is shown beside a question. */
@@ -18,6 +19,7 @@ export function runModel(runId: string): RunModel {
     return {
       run: run.id,
       engine: "1.5",
+      flow: null,
       seq: 0,
       phase: null,
       outcome: null,
@@ -26,7 +28,10 @@ export function runModel(runId: string): RunModel {
       dispatches: records.map(recordAttempt).sort((a, b) => b.at.localeCompare(a.at)),
     };
   const events = readEvents(run);
-  return deriveRunModel({ run: run.id, state: replay(events, run.id), events, records });
+  return {
+    ...deriveRunModel({ run: run.id, state: replay(events, run.id), events, records }),
+    flow: flowOf(run, events, records, Date.now()),
+  };
 }
 
 export const QuestionContextSchema = z.object({

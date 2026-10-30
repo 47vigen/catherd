@@ -120,6 +120,126 @@ export type RunCard = {
     }>;
 };
 
+export type RunFlow = {
+    startedAt: string;
+    endedAt: string | null;
+    asOf: string;
+    architect: Array<FlowTurn>;
+    tasks: Array<FlowTask>;
+    dispatches: Array<FlowDispatch>;
+    checks: Array<FlowCheck>;
+    causes: Array<FlowCause>;
+    ownerWaits: Array<FlowOwnerWait>;
+    quotaHolds: Array<FlowQuotaHold>;
+    idle: Array<FlowIdle>;
+};
+
+export type FlowSelection = {
+    nodeId: string;
+    attemptId: string | null;
+};
+
+export type FlowInterval = {
+    startedAt: string;
+    endedAt: string | null;
+};
+
+export type FlowCause = {
+    seq: number;
+    at: string;
+    by: string;
+    why: string;
+    type: 'ledger.changed' | 'task.delegated' | 'check.requested';
+    turnDispatchId: string | null;
+};
+
+export type FlowDispatch = {
+    startedAt: string;
+    endedAt: string | null;
+    dispatchId: string;
+    name: string;
+    role: string;
+    taskId: string | null;
+    ledgerTask: string | null;
+    rung: string;
+    status: 'ok' | 'failed' | 'limit' | 'cli-too-old' | 'timeout' | 'cancelled' | 'running';
+    replyStatus: 'complete' | 'partial' | 'blocked' | 'refused' | 'flaky' | null;
+    why: string | null;
+    costUsd: number | null;
+    climbFrom: string | null;
+    selection: FlowSelection;
+};
+
+export type FlowTurn = {
+    startedAt: string;
+    endedAt: string | null;
+    dispatchId: string;
+    name: string;
+    role: string;
+    taskId: string | null;
+    ledgerTask: string | null;
+    rung: string;
+    status: 'ok' | 'failed' | 'limit' | 'cli-too-old' | 'timeout' | 'cancelled' | 'running';
+    replyStatus: 'complete' | 'partial' | 'blocked' | 'refused' | 'flaky' | null;
+    why: string | null;
+    costUsd: number | null;
+    climbFrom: string | null;
+    selection: FlowSelection;
+    causeSeqs: Array<number>;
+};
+
+export type FlowCheck = {
+    checkId: string;
+    scope: string;
+    base: boolean;
+    command: string;
+    startedAt: string | null;
+    endedAt: string | null;
+    exit: number | null;
+    failureCount: number | null;
+    verdict: 'pass' | 'inherited' | 'new' | 'unknown' | null;
+    newFailures: number | null;
+    inheritedFailures: number | null;
+    failures: Array<string>;
+    preExisting: Array<string>;
+    cached: boolean;
+    logPath: string | null;
+    why: string | null;
+    selection: FlowSelection;
+};
+
+export type FlowTask = {
+    id: string;
+    goal: string;
+    state: 'todo' | 'running' | 'review' | 'done' | 'blocked' | 'impossible';
+    depends: Array<string>;
+    dispatchIds: Array<string>;
+};
+
+export type FlowOwnerWait = {
+    startedAt: string;
+    endedAt: string | null;
+    unit: string;
+    question: string | null;
+    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push' | 'decision' | 'owner' | 'paused';
+    evidenceSeqs: Array<number>;
+};
+
+export type FlowQuotaHold = {
+    startedAt: string;
+    endedAt: string | null;
+    quota: string;
+    until: string;
+    evidenceSeqs: Array<number>;
+};
+
+export type FlowIdle = {
+    startedAt: string;
+    endedAt: string | null;
+    reason: 'owner' | 'quota' | 'check' | 'gap';
+    evidenceSeqs: Array<number>;
+};
+
 export type RunModel = {
     run: string;
     engine: '2.0' | '1.5';
@@ -129,6 +249,7 @@ export type RunModel = {
     nodes: Array<RunNode>;
     edges: Array<Edge>;
     dispatches: Array<Attempt>;
+    flow: RunFlow | null;
 };
 
 export type RunModelPatch = {
@@ -138,6 +259,7 @@ export type RunModelPatch = {
     nodes: Array<RunNode>;
     removed: Array<string>;
     edges: Array<Edge> | null;
+    flow: RunFlow | null;
 };
 
 export type RunNode = {

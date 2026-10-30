@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RunFlowSchema } from "./run-flow.ts";
 import { tryParseRung } from "./ids.ts";
 import type { RunRecord } from "./record.ts";
 import { ROLES } from "./roles.ts";
@@ -98,6 +99,7 @@ export const RunModelSchema = z.object({
   edges: z.array(EdgeSchema),
   /** every dispatch attempt, newest first (the 1.5 page's table) */
   dispatches: z.array(AttemptSchema),
+  flow: RunFlowSchema.nullable(),
 });
 export type RunModel = z.infer<typeof RunModelSchema>;
 
@@ -108,6 +110,7 @@ export const RunModelPatchSchema = z.object({
   nodes: z.array(RunNodeSchema),
   removed: z.array(z.string()),
   edges: z.array(EdgeSchema).nullable(),
+  flow: RunFlowSchema.nullable(),
 });
 export type RunModelPatch = z.infer<typeof RunModelPatchSchema>;
 
@@ -370,6 +373,7 @@ export function deriveRunModel(i: {
     nodes,
     edges,
     dispatches: all.reverse(),
+    flow: null,
   };
 }
 
@@ -412,6 +416,7 @@ export function diffRunModel(a: RunModel, b: RunModel): RunModelPatch {
   const now = new Set(b.nodes.map((n) => n.id));
   return {
     seq: b.seq,
+    flow: b.flow,
     phase: b.phase,
     outcome: b.outcome,
     nodes: b.nodes.filter((n) => before.get(n.id) !== JSON.stringify(n)),

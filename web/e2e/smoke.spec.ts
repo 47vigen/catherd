@@ -52,7 +52,9 @@ test("no page logs a console error", async ({ page }) => {
     // a run report may open with the same h1
     await expect(page.getByRole("heading", { level: 1, name: heading }).first()).toBeVisible();
     // a run page lays its graph out after the model loads: wait for the drawn graph
-    if (path.startsWith("/runs/")) await expect(page.getByRole("button", { name: /^Run\. Done/ })).toBeVisible();
+    if (path === `/runs/${state().a.id}`) await expect(page.getByRole("region", { name: "Run flow" })).toBeVisible();
+    if (path === `/runs/${state().fixture.id}`)
+      await expect(page.getByRole("button", { name: /^Run\. Done/ })).toBeVisible();
   }
   expect(errors).toEqual([]);
 });

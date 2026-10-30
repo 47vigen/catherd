@@ -180,3 +180,22 @@ describe("diffRunModel", () => {
     expect(diffRunModel(b, c).edges).toEqual(c.edges);
   });
 });
+
+it("includes the complete flow in a patch from a graph-only snapshot", () => {
+  const before = model(started());
+  const flow = {
+    startedAt: "2026-01-01T00:00:00.000Z",
+    endedAt: null,
+    asOf: "2026-01-01T00:00:01.000Z",
+    architect: [],
+    tasks: [],
+    dispatches: [],
+    checks: [],
+    causes: [],
+    ownerWaits: [],
+    quotaHolds: [],
+    idle: [],
+  };
+  expect(diffRunModel(before, { ...before, flow }).flow).toEqual(flow);
+  expect(diffRunModel({ ...before, flow }, before).flow).toBeNull();
+});

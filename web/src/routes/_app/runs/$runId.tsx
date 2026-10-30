@@ -1,9 +1,9 @@
-import { Alert, cn, Modal, Spinner } from "@heroui/react";
+import { Alert, Button, cn, Modal, Spinner } from "@heroui/react";
 import { keepPreviousData, replaceEqualDeep, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { RunModel, TimelineEntry } from "../../../client";
+import type { FlowSelection, RunModel, TimelineEntry } from "../../../client";
 import {
   getRunModelOptions,
   getRunModelQueryKey,
@@ -18,16 +18,20 @@ import { errorFix, errorMessage } from "../../../lib/api";
 import { type ListSearch, parseListSearch, stripListDefaults } from "../../../lib/list-search";
 import { DispatchTable } from "./-components/DispatchTable";
 import { NodeDrawer } from "./-components/drawer/NodeDrawer";
+import { RunFlowView } from "./-components/flow/RunFlowView";
 import { RunGraph } from "./-components/graph/RunGraph";
 import { NodeList } from "./-components/NodeList";
 import { RunDocs } from "./-components/RunDocs";
 import { RunHeader } from "./-components/RunHeader";
 import { Metrics, Milestones, Models } from "./-components/RunSide";
 import { Timeline, TimelineFilter } from "./-components/Timeline";
+import { useQuotaBoundary } from "./-hooks/useFlowFollow";
 import { useIsDesktop } from "./-hooks/useIsDesktop";
 import { type LiveFrame, useLiveRun } from "./-hooks/useLiveRun";
 import { useTicker } from "./-hooks/useTicker";
 import { applyPatch } from "./-lib/apply-patch";
+import { drawerModel } from "./-lib/flow-view";
+import { ledgerSummary } from "./-lib/ledger";
 import { type LiveLog, LiveLogContext } from "./-lib/live-log";
 import { parseTab, type Tab } from "./-lib/tabs";
 import { matchesTypes } from "./-lib/timeline-filters";
@@ -154,15 +158,35 @@ function RunDetail({ runId }: { runId: string }) {
   const entries = page === 1 ? [...arrivedEntries, ...fetched] : fetched;
   const arrived = new Set(arrivedEntries.map((e) => e.seq));
   const [full, setFull] = useState(false);
+  const flow = model.data?.flow;
+  // Flow and graph runs share one full-screen dialog: its accessible name is what Escape and focus restore look for.
+  const fullLabel = flow ? "Run flow" : "Steps of the run";
   // The drawer sits outside the dialog's DOM: when it closes, focus is lost, and Escape would no longer reach the dialog.
   useEffect(() => {
-    if (full && !node) document.querySelector<HTMLElement>('[role="dialog"][aria-label="Steps of the run"]')?.focus();
-  }, [full, node]);
-  const tick = useTicker(live === true);
+    if (full && !node) document.querySelector<HTMLElement>(`[role="dialog"][aria-label="${fullLabel}"]`)?.focus();
+  }, [full, node, fullLabel]);
+  const flowLive = live === true && model.data?.phase !== "ended" && flow != null && flow.endedAt === null;
+  useQuotaBoundary(runId, flow?.quotaHolds ?? [], flowLive, () => {
+    void queryClient.invalidateQueries({ queryKey: modelKey });
+  });
+  const tick = useTicker(live === true && model.data?.phase !== "ended");
   const now = new Date(Math.max(run.dataUpdatedAt, timeline.dataUpdatedAt, model.dataUpdatedAt, tick));
 
   const open = useCallback(
     (id: string) => void navigate({ search: (prev) => ({ ...prev, node: id, tab: "overview", attempt: undefined }) }),
+    [navigate],
+  );
+
+  const openFlow = useCallback(
+    (selection: FlowSelection) =>
+      void navigate({
+        search: (prev) => ({
+          ...prev,
+          node: selection.nodeId,
+          attempt: selection.attemptId ?? undefined,
+          tab: "overview",
+        }),
+      }),
     [navigate],
   );
 
@@ -176,16 +200,31 @@ function RunDetail({ runId }: { runId: string }) {
   const r = run.data;
 
   const steps = model.data?.nodes ?? [];
+  // A flow run's header counts its ledger tasks; the graph's nodes (checks, ends) are not tasks.
+  const nodeCounts =
+    steps.length > 0
+      ? `${steps.filter((n) => n.status === "done").length} done · ${steps.filter((n) => n.status === "skipped").length} skipped · ${steps.filter((n) => n.status === "failed").length} failed of ${steps.length}`
+      : null;
+  const summary = flow ? ledgerSummary(flow.tasks) : nodeCounts;
+  // Below `sm` a phone cannot hold the breakdown on one line, so it counts the tasks (or steps) and keeps the title.
+  const compact = flow
+    ? `${flow.tasks.length} ${flow.tasks.length === 1 ? "task" : "tasks"}`
+    : steps.length > 0
+      ? `${steps.length} steps`
+      : null;
   const stepsAside = (
-    <span className="flex items-center gap-4">
-      {steps.length > 0 ? (
-        <span className="text-muted font-mono text-xs tabular-nums">
-          {steps.filter((n) => n.status === "done").length} done · {steps.filter((n) => n.status === "skipped").length}{" "}
-          skipped · {steps.filter((n) => n.status === "failed").length} failed of {steps.length}
-        </span>
+    <span className="flex min-w-0 items-center gap-3 sm:gap-4">
+      {summary && compact ? (
+        <>
+          <span className="text-muted min-w-0 truncate font-mono text-xs tabular-nums max-sm:hidden">{summary}</span>
+          <span className="text-muted min-w-0 truncate font-mono text-xs tabular-nums sm:hidden">{compact}</span>
+        </>
       ) : null}
       {live ? (
-        <output data-connected={isConnected} className="text-muted flex items-center gap-1.5 font-mono text-xs">
+        <output
+          data-connected={isConnected}
+          className="text-muted flex shrink-0 items-center gap-1.5 font-mono text-xs"
+        >
           <span
             aria-hidden="true"
             className={cn("size-1.5 rounded-full", isConnected ? "bg-success motion-safe:animate-pulse" : "bg-muted")}
@@ -202,7 +241,7 @@ function RunDetail({ runId }: { runId: string }) {
         <NodeDrawer
           runId={runId}
           run={r}
-          model={model.data}
+          model={drawerModel(model.data)}
           nodeId={node}
           attemptId={attempt}
           tab={tab ?? "overview"}
@@ -220,11 +259,11 @@ function RunDetail({ runId }: { runId: string }) {
     ) : null;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex max-w-full min-w-0 flex-col gap-4">
       <RunHeader run={r} model={model.data} live={live === true} now={now} />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         {is2 ? (
-          <Tile title="Steps" aside={stepsAside} className="lg:col-span-12">
+          <Tile title={flow ? "Run flow" : "Steps"} aside={stepsAside} className="min-w-0 lg:col-span-12">
             {model.isPending ? (
               <div className="flex h-60 items-center justify-center">
                 <Spinner size="sm" />
@@ -233,6 +272,19 @@ function RunDetail({ runId }: { runId: string }) {
               <div className="p-4">
                 <LoadError title="Could not load the graph of this run" error={model.error} />
               </div>
+            ) : flow ? (
+              full ? (
+                <p className="text-muted px-4 py-6 text-sm">The flow is open in full screen.</p>
+              ) : (
+                <RunFlowView
+                  flow={flow}
+                  run={r}
+                  now={now.getTime()}
+                  selected={node}
+                  onOpen={openFlow}
+                  onExpand={() => setFull(true)}
+                />
+              )
             ) : isDesktop ? (
               full ? (
                 <p className="text-muted px-4 py-6 text-sm">The graph is open in full screen.</p>
@@ -249,6 +301,17 @@ function RunDetail({ runId }: { runId: string }) {
             ) : (
               <NodeList nodes={model.data.nodes} selected={node} now={now.getTime()} onOpen={open} />
             )}
+            {flow && model.data?.nodes.some((n) => n.question) ? (
+              <div className="flex flex-wrap gap-2 px-4 pb-3">
+                {model.data.nodes
+                  .filter((n) => n.question)
+                  .map((n) => (
+                    <Button key={n.id} size="sm" variant="tertiary" className="text-warning" onPress={() => open(n.id)}>
+                      Answer {n.title}
+                    </Button>
+                  ))}
+              </div>
+            ) : null}
           </Tile>
         ) : (
           <>
@@ -281,7 +344,8 @@ function RunDetail({ runId }: { runId: string }) {
         />
         {is2 ? (
           <div className="flex min-w-0 flex-col gap-4 lg:col-span-4">
-            <Milestones milestones={r.milestones} />
+            {/* The flow already lists every ledger task; the milestone card only belongs to a run drawn as a graph. */}
+            {model.data && !flow ? <Milestones milestones={r.milestones} /> : null}
             <Models dispatches={model.data?.dispatches ?? []} />
             {r.metrics ? <Metrics metrics={r.metrics} /> : null}
           </div>
@@ -328,24 +392,35 @@ function RunDetail({ runId }: { runId: string }) {
         </Tile>
       </div>
       {is2 && model.data ? (
-        <Modal.Backdrop isOpen={full} onOpenChange={setFull}>
+        // Flow full screen opens at once: no entrance to wait out (the graph keeps its own).
+        <Modal.Backdrop isOpen={full} onOpenChange={setFull} className={flow ? "flow-fullscreen" : undefined}>
           <Modal.Container size="full">
-            {/* The graph takes the whole dialog; the title and the close button float over its corners. */}
-            <Modal.Dialog aria-label="Steps of the run" className="relative overflow-hidden p-0!">
-              <Modal.Header className="border-border bg-surface/90 pointer-events-none absolute top-3 left-3 z-10 flex-row! items-center gap-4 rounded-lg border px-3 py-1.5 shadow-sm backdrop-blur">
-                <Modal.Heading className="text-sm!">Steps</Modal.Heading>
+            {/* The flow or graph takes the whole dialog; the title and the close button float over its corners. */}
+            <Modal.Dialog aria-label={fullLabel} className="relative overflow-hidden p-0!">
+              <Modal.Header
+                className={cn(
+                  "border-border bg-surface/90 pointer-events-none absolute top-3 left-3 z-10 flex-row! items-center gap-4 rounded-lg border px-3 py-1.5 shadow-sm backdrop-blur",
+                  // Flow runs carry a ledger count in this pill: keep it off the close button, and let it drop a line on a phone.
+                  flow && "max-w-[calc(100%-5rem)] flex-wrap",
+                )}
+              >
+                <Modal.Heading className="text-sm!">{flow ? "Run flow" : "Steps"}</Modal.Heading>
                 {stepsAside}
               </Modal.Header>
               <Modal.CloseTrigger className="border-border bg-surface/90 top-3! right-3! z-10 size-8.5! rounded-lg! border shadow-sm backdrop-blur" />
               <Modal.Body className="m-0! flex min-h-0 flex-1 flex-col p-0!">
-                <RunGraph
-                  model={model.data}
-                  milestones={r.milestones}
-                  selected={node}
-                  now={now.getTime()}
-                  onOpen={open}
-                  fill
-                />
+                {flow ? (
+                  <RunFlowView flow={flow} run={r} now={now.getTime()} selected={node} onOpen={openFlow} fill />
+                ) : (
+                  <RunGraph
+                    model={model.data}
+                    milestones={r.milestones}
+                    selected={node}
+                    now={now.getTime()}
+                    onOpen={open}
+                    fill
+                  />
+                )}
               </Modal.Body>
               {full ? drawer : null}
             </Modal.Dialog>

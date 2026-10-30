@@ -14,3 +14,7 @@ test("each step gets the tabs that mean something for it", () => {
 test("no step has a Decision tab (plan 49: there is no decision model)", () => {
   for (const n of model.nodes) expect(tabsFor(n)).not.toContain("decision" as never);
 });
+
+test("an unknown stored role retains dispatch details", () => {
+  expect(tabsFor({ ...node("M1/lane/M1.L1"), role: null })).toEqual(["overview", "prompt", "log", "output", "changes"]);
+});

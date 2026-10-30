@@ -4,13 +4,13 @@ import { expect, test } from "@playwright/test";
 
 import { appendEvent, consoleErrors, signIn, state } from "./helpers";
 
-test("the graph advances live", async ({ page }) => {
+test("the flow advances live", async ({ page }) => {
   const errors = consoleErrors(page);
   await signIn(page);
   const { live } = state();
   await page.goto(`/runs/${live.id}`);
-  const lane = page.getByRole("button", { name: /^T1 worker\. / });
-  await expect(lane).toHaveAccessibleName(/^T1 worker\. Running/);
+  const lane = page.getByRole("button", { name: /^T1 worker · / });
+  await expect(lane).toHaveAccessibleName(/^T1 worker · running/);
   // the socket's start is fixed once it is open: append after that
   await expect(page.locator('output[data-connected="true"]')).toBeVisible();
 
@@ -47,7 +47,7 @@ test("the graph advances live", async ({ page }) => {
     findings: [],
     replyPath: "roles/T1/D0101/reply.md",
   });
-  await expect(lane).toHaveAccessibleName(/^T1 worker\. Done/);
+  await expect(lane).toHaveAccessibleName(/^T1 worker · complete/);
   expect(errors).toEqual([]);
 });
 
