@@ -2,12 +2,12 @@ import { expect, test } from "@playwright/test";
 
 import { consoleErrors, lastEvent, signIn, state, tile } from "./helpers";
 
-test("a question answered from the graph node clears it", async ({ page }) => {
+test("a question answered from the run clears it", async ({ page }) => {
   const errors = consoleErrors(page);
   await signIn(page);
   const { live } = state();
   await page.goto(`/runs/${live.id}`);
-  await page.getByRole("button", { name: /^T2 worker\. Waiting for you/ }).click();
+  await page.getByRole("button", { name: "Answer T2 worker" }).click();
   const question = page.getByRole("dialog").getByRole("region", { name: "Question" });
   await expect(question).toContainText("Merge the split ids?");
   await question.getByRole("textbox", { name: "Your answer" }).fill("merge them");

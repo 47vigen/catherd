@@ -1,0 +1,92 @@
+import type { FlowDispatch, RunFlow } from "../../../../client";
+
+export const at = (seconds: number) => new Date(Date.UTC(2026, 9, 29) + seconds * 1000).toISOString();
+export const dispatch = (over: Partial<FlowDispatch> = {}): FlowDispatch => ({
+  dispatchId: "D1",
+  name: "T1",
+  role: "worker",
+  taskId: "T1",
+  ledgerTask: "L1",
+  rung: "codex:model#high",
+  startedAt: at(10),
+  endedAt: at(30),
+  status: "ok",
+  replyStatus: "complete",
+  why: "Build the flow",
+  costUsd: 1,
+  climbFrom: null,
+  selection: { nodeId: "task/T1", attemptId: "D1" },
+  ...over,
+});
+export const flowFixture = (): RunFlow => ({
+  startedAt: at(0),
+  endedAt: at(120),
+  asOf: at(120),
+  architect: [
+    {
+      ...dispatch({
+        dispatchId: "DA",
+        name: "architect-1",
+        role: "architect",
+        ledgerTask: null,
+        startedAt: at(0),
+        endedAt: at(8),
+        selection: { nodeId: "architect", attemptId: "DA" },
+      }),
+      causeSeqs: [1],
+    },
+  ],
+  tasks: Array.from({ length: 8 }, (_, i) => ({
+    id: `L${i + 1}`,
+    goal: `Task goal ${i + 1}`,
+    state: "todo",
+    depends: i ? ["L1"] : [],
+    dispatchIds: i ? [] : ["D1", "D2", "D3"],
+  })),
+  dispatches: [
+    dispatch(),
+    dispatch({
+      dispatchId: "D2",
+      name: "T2",
+      role: "reviewer",
+      status: "cancelled",
+      climbFrom: "codex:old#low",
+      selection: { nodeId: "task/T2", attemptId: "D2" },
+    }),
+    dispatch({ dispatchId: "D3", name: "T3", status: "limit", selection: { nodeId: "task/T3", attemptId: "D3" } }),
+    dispatch({
+      dispatchId: "DU",
+      name: "orphan",
+      role: "artist",
+      ledgerTask: "removed",
+      selection: { nodeId: "task/orphan", attemptId: "DU" },
+    }),
+  ],
+  checks: [
+    {
+      checkId: "C1",
+      scope: "full",
+      base: false,
+      command: "bun test",
+      startedAt: at(40),
+      endedAt: at(50),
+      exit: 1,
+      failureCount: 2,
+      verdict: "new",
+      newFailures: 1,
+      inheritedFailures: 1,
+      failures: ["new failure"],
+      preExisting: ["inherited failure"],
+      cached: false,
+      logPath: "scratch/check.log",
+      why: "Verify flow",
+      selection: { nodeId: "check/C1", attemptId: "check:9" },
+    },
+  ],
+  causes: [
+    { seq: 1, at: at(1), by: "architect-1", why: "Plan the flow tasks", type: "ledger.changed", turnDispatchId: "DA" },
+  ],
+  ownerWaits: [],
+  quotaHolds: [],
+  idle: [{ startedAt: at(60), endedAt: at(120), reason: "gap", evidenceSeqs: [] }],
+});

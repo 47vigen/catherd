@@ -1,4 +1,17 @@
 import { z } from "zod";
+import {
+  RunFlowSchema,
+  FlowSelectionSchema,
+  FlowIntervalSchema,
+  FlowCauseSchema,
+  FlowDispatchSchema,
+  FlowTurnSchema,
+  FlowCheckSchema,
+  FlowTaskSchema,
+  FlowOwnerWaitSchema,
+  FlowQuotaHoldSchema,
+  FlowIdleSchema,
+} from "../../domain/run-flow.ts";
 import { ProfilePatchSchema } from "../../domain/profile.ts";
 import {
   AttemptSchema,
@@ -311,6 +324,17 @@ export const OPERATIONS: readonly Operation[] = [
 const SCHEMAS: Record<string, z.ZodType> = {
   RunView: RunViewSchema,
   RunCard: RunCardSchema,
+  RunFlow: RunFlowSchema,
+  FlowSelection: FlowSelectionSchema,
+  FlowInterval: FlowIntervalSchema,
+  FlowCause: FlowCauseSchema,
+  FlowDispatch: FlowDispatchSchema,
+  FlowTurn: FlowTurnSchema,
+  FlowCheck: FlowCheckSchema,
+  FlowTask: FlowTaskSchema,
+  FlowOwnerWait: FlowOwnerWaitSchema,
+  FlowQuotaHold: FlowQuotaHoldSchema,
+  FlowIdle: FlowIdleSchema,
   RunModel: RunModelSchema,
   RunModelPatch: RunModelPatchSchema,
   RunNode: RunNodeSchema,

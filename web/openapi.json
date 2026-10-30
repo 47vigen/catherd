@@ -1971,6 +1971,675 @@
         ],
         "additionalProperties": false
       },
+      "RunFlow": {
+        "type": "object",
+        "properties": {
+          "startedAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "asOf": {
+            "type": "string"
+          },
+          "architect": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FlowTurn"
+            }
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FlowTask"
+            }
+          },
+          "dispatches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FlowDispatch"
+            }
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FlowCheck"
+            }
+          },
+          "causes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FlowCause"
+            }
+          },
+          "ownerWaits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FlowOwnerWait"
+            }
+          },
+          "quotaHolds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FlowQuotaHold"
+            }
+          },
+          "idle": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FlowIdle"
+            }
+          }
+        },
+        "required": [
+          "startedAt",
+          "endedAt",
+          "asOf",
+          "architect",
+          "tasks",
+          "dispatches",
+          "checks",
+          "causes",
+          "ownerWaits",
+          "quotaHolds",
+          "idle"
+        ],
+        "additionalProperties": false
+      },
+      "FlowSelection": {
+        "type": "object",
+        "properties": {
+          "nodeId": {
+            "type": "string"
+          },
+          "attemptId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "nodeId",
+          "attemptId"
+        ],
+        "additionalProperties": false
+      },
+      "FlowInterval": {
+        "type": "object",
+        "properties": {
+          "startedAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "startedAt",
+          "endedAt"
+        ],
+        "additionalProperties": false
+      },
+      "FlowCause": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "number"
+          },
+          "at": {
+            "type": "string"
+          },
+          "by": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "ledger.changed",
+              "task.delegated",
+              "check.requested"
+            ]
+          },
+          "turnDispatchId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "seq",
+          "at",
+          "by",
+          "why",
+          "type",
+          "turnDispatchId"
+        ],
+        "additionalProperties": false
+      },
+      "FlowDispatch": {
+        "type": "object",
+        "properties": {
+          "startedAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dispatchId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ledgerTask": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rung": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "failed",
+              "limit",
+              "cli-too-old",
+              "timeout",
+              "cancelled",
+              "running"
+            ]
+          },
+          "replyStatus": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "partial",
+                  "blocked",
+                  "refused",
+                  "flaky"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "why": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "costUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "climbFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "selection": {
+            "$ref": "#/components/schemas/FlowSelection"
+          }
+        },
+        "required": [
+          "startedAt",
+          "endedAt",
+          "dispatchId",
+          "name",
+          "role",
+          "taskId",
+          "ledgerTask",
+          "rung",
+          "status",
+          "replyStatus",
+          "why",
+          "costUsd",
+          "climbFrom",
+          "selection"
+        ],
+        "additionalProperties": false
+      },
+      "FlowTurn": {
+        "type": "object",
+        "properties": {
+          "startedAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dispatchId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ledgerTask": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rung": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "failed",
+              "limit",
+              "cli-too-old",
+              "timeout",
+              "cancelled",
+              "running"
+            ]
+          },
+          "replyStatus": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "partial",
+                  "blocked",
+                  "refused",
+                  "flaky"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "why": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "costUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "climbFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "selection": {
+            "$ref": "#/components/schemas/FlowSelection"
+          },
+          "causeSeqs": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "startedAt",
+          "endedAt",
+          "dispatchId",
+          "name",
+          "role",
+          "taskId",
+          "ledgerTask",
+          "rung",
+          "status",
+          "replyStatus",
+          "why",
+          "costUsd",
+          "climbFrom",
+          "selection",
+          "causeSeqs"
+        ],
+        "additionalProperties": false
+      },
+      "FlowCheck": {
+        "type": "object",
+        "properties": {
+          "checkId": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "base": {
+            "type": "boolean"
+          },
+          "command": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "failureCount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pass",
+                  "inherited",
+                  "new",
+                  "unknown"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "newFailures": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "inheritedFailures": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "failures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "preExisting": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cached": {
+            "type": "boolean"
+          },
+          "logPath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "why": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "selection": {
+            "$ref": "#/components/schemas/FlowSelection"
+          }
+        },
+        "required": [
+          "checkId",
+          "scope",
+          "base",
+          "command",
+          "startedAt",
+          "endedAt",
+          "exit",
+          "failureCount",
+          "verdict",
+          "newFailures",
+          "inheritedFailures",
+          "failures",
+          "preExisting",
+          "cached",
+          "logPath",
+          "why",
+          "selection"
+        ],
+        "additionalProperties": false
+      },
+      "FlowTask": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "todo",
+              "running",
+              "review",
+              "done",
+              "blocked",
+              "impossible"
+            ]
+          },
+          "depends": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dispatchIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "goal",
+          "state",
+          "depends",
+          "dispatchIds"
+        ],
+        "additionalProperties": false
+      },
+      "FlowOwnerWait": {
+        "type": "object",
+        "properties": {
+          "startedAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": "string"
+          },
+          "question": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "needs_user",
+              "too_hard",
+              "provider_error",
+              "no_access",
+              "check_broken",
+              "out_of_scope",
+              "environment",
+              "preflight",
+              "confirm",
+              "approval",
+              "blocker",
+              "verifier",
+              "commit",
+              "land",
+              "budget",
+              "judge",
+              "effect",
+              "push",
+              "decision",
+              "owner",
+              "paused"
+            ]
+          },
+          "evidenceSeqs": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "startedAt",
+          "endedAt",
+          "unit",
+          "question",
+          "reason",
+          "evidenceSeqs"
+        ],
+        "additionalProperties": false
+      },
+      "FlowQuotaHold": {
+        "type": "object",
+        "properties": {
+          "startedAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quota": {
+            "type": "string"
+          },
+          "until": {
+            "type": "string"
+          },
+          "evidenceSeqs": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "startedAt",
+          "endedAt",
+          "quota",
+          "until",
+          "evidenceSeqs"
+        ],
+        "additionalProperties": false
+      },
+      "FlowIdle": {
+        "type": "object",
+        "properties": {
+          "startedAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "quota",
+              "check",
+              "gap"
+            ]
+          },
+          "evidenceSeqs": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "startedAt",
+          "endedAt",
+          "reason",
+          "evidenceSeqs"
+        ],
+        "additionalProperties": false
+      },
       "RunModel": {
         "type": "object",
         "properties": {
@@ -2037,6 +2706,16 @@
             "items": {
               "$ref": "#/components/schemas/Attempt"
             }
+          },
+          "flow": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunFlow"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2047,7 +2726,8 @@
           "outcome",
           "nodes",
           "edges",
-          "dispatches"
+          "dispatches",
+          "flow"
         ],
         "additionalProperties": false
       },
@@ -2114,6 +2794,16 @@
                 "type": "null"
               }
             ]
+          },
+          "flow": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunFlow"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2122,7 +2812,8 @@
           "outcome",
           "nodes",
           "removed",
-          "edges"
+          "edges",
+          "flow"
         ],
         "additionalProperties": false
       },

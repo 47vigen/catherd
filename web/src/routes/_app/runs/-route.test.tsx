@@ -8,6 +8,7 @@ import { configureClient } from "../../../lib/api";
 import { getSocket, stopWebSocket } from "../../../lib/live-socket";
 import { describeRequest, renderRoute } from "../../../test/render-route";
 import { CASE_HELPERS } from "./-lib/case-helpers.fixture";
+import { at, dispatch as flowDispatch, flowFixture } from "./-lib/flow.fixture";
 import { nowLine, STATUS_LABEL } from "./-lib/node-view";
 
 class FakeSocket {
@@ -818,6 +819,7 @@ test("a 1.5 run shows its dispatches, report and timeline and no graph", async (
   model = {
     run: "r1",
     engine: "1.5",
+    flow: null,
     seq: 0,
     phase: null,
     outcome: null,
@@ -943,4 +945,121 @@ test("the header does not count an active dispatch as unpriced", async () => {
   await screen.findByText("1 role run");
   expect(screen.queryByText(/\d+ unpriced/)).not.toBeInTheDocument();
   expect(screen.getByText("Cost").nextElementSibling).toHaveTextContent("—");
+});
+
+test("flow opens the exact record-only dispatch through the existing drawer and keeps selection after a patch", async () => {
+  const user = userEvent.setup();
+  model = { ...model, flow: { ...flowFixture(), endedAt: null }, nodes: [] };
+  const { router, queryClient } = renderRoute("/runs/r1", api);
+  await user.click(await screen.findByRole("button", { name: /orphan artist/ }));
+  expect(router.state.location.search).toMatchObject({ node: "task/orphan", attempt: "DU", tab: "overview" });
+  const drawer = await screen.findByRole("dialog");
+  expect(within(drawer).getByRole("heading", { name: "orphan" })).toBeVisible();
+  expect(within(drawer).getByText(/Ledger task: removed/)).toBeVisible();
+  const ws = await openSocket();
+  const replacement = { ...flowFixture(), endedAt: null };
+  replacement.tasks[0] = { ...replacement.tasks[0]!, state: "done" };
+  replacement.idle = [{ startedAt: at(130), endedAt: null, reason: "owner", evidenceSeqs: [100] }];
+  replacement.dispatches.push(
+    flowDispatch({
+      dispatchId: "new",
+      name: "T-new",
+      ledgerTask: null,
+      selection: { nodeId: "task/T-new", attemptId: "new" },
+    }),
+  );
+  act(() =>
+    ws.frame({
+      ...entry(model.seq + 1, "dispatch.started", "New role"),
+      patch: {
+        seq: model.seq + 1,
+        phase: "running",
+        outcome: null,
+        nodes: [],
+        removed: [],
+        edges: null,
+        flow: replacement,
+      },
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      queryClient.getQueryData<RunModel>(getRunModelQueryKey({ path: { id: "r1" } }))?.flow?.dispatches,
+    ).toHaveLength(5),
+  );
+  expect(router.state.location.search).toMatchObject({ node: "task/orphan", attempt: "DU" });
+  await user.keyboard("{Escape}");
+  expect(await screen.findByRole("button", { name: /T-new worker/ })).toBeVisible();
+  const view = screen.getByRole("region", { name: "Run flow" });
+  expect(within(view).getByText("Owner")).toBeVisible();
+  expect(within(view).getByText("done")).toBeVisible();
+  expect(
+    queryClient.getQueryData<RunModel>(getRunModelQueryKey({ path: { id: "r1" } }))?.flow?.dispatches,
+  ).toHaveLength(5);
+});
+
+test("flow check opens evidence and the Checks tab without a lane log request", async () => {
+  const user = userEvent.setup();
+  model = { ...model, flow: flowFixture(), nodes: [] };
+  const requests: string[] = [];
+  const { router } = renderRoute("/runs/r1", (req, url) => {
+    requests.push(url.pathname);
+    return api(req, url);
+  });
+  await user.click(await screen.findByRole("button", { name: /C1 check/ }));
+  expect(router.state.location.search).toMatchObject({ node: "check/C1", attempt: "check:9", tab: "overview" });
+  const drawer = await screen.findByRole("dialog");
+  const evidence = within(drawer).getByRole("region", { name: "Check details" });
+  expect(evidence).toHaveTextContent("bun test");
+  expect(evidence).toHaveTextContent("1 new failures · 1 inherited failures");
+  expect(evidence).toHaveTextContent("scratch/check.log");
+  expect(evidence).toHaveTextContent(at(40));
+  expect(evidence).toHaveTextContent(at(50));
+  await user.click(within(drawer).getByRole("tab", { name: "Checks" }));
+  expect(within(drawer).getByRole("region", { name: "Check details" })).toHaveTextContent("new failure");
+  expect(requests.filter((p) => p.includes("/checks/"))).toEqual([]);
+});
+
+test("requested check with no Attempt opens unknown split evidence", async () => {
+  const user = userEvent.setup();
+  const flow = flowFixture();
+  flow.checks[0] = {
+    ...flow.checks[0]!,
+    endedAt: null,
+    newFailures: null,
+    inheritedFailures: null,
+    selection: { nodeId: "check/C1", attemptId: null },
+  };
+  model = { ...model, flow, nodes: [] };
+  const { router } = renderRoute("/runs/r1", api);
+  await user.click(await screen.findByRole("button", { name: /C1 check/ }));
+  expect(router.state.location.search.attempt).toBeUndefined();
+  expect(await screen.findByText("Failure split unavailable")).toBeVisible();
+  expect(within(screen.getByRole("region", { name: "Check details" })).getByText("Running")).toBeVisible();
+});
+
+test("architect turn shows summary, exact caused whys and the existing Output tab", async () => {
+  const user = userEvent.setup();
+  model = { ...model, flow: flowFixture(), nodes: [] };
+  renderRoute("/runs/r1", api);
+  await user.click(await screen.findByRole("button", { name: /architect-1 architect/ }));
+  const drawer = await screen.findByRole("dialog");
+  expect(within(drawer).getByRole("region", { name: "Architect turn" })).toHaveTextContent("Build the flow");
+  expect(within(drawer).getByText("Plan the flow tasks")).toBeVisible();
+  await user.click(within(drawer).getByRole("tab", { name: "Output" }));
+  expect(await screen.findByText("All three files moved.")).toBeVisible();
+});
+
+test("eligible phone flow, full screen and queued question access share the existing controls", async () => {
+  screenIs(false);
+  const user = userEvent.setup();
+  model = { ...model, flow: flowFixture(), nodes: model.nodes.filter((n) => n.question) };
+  renderRoute("/runs/r1", api);
+  expect(await screen.findByRole("region", { name: "Run flow" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /^Answer / }));
+  expect(await screen.findByText(QUESTION.question)).toBeVisible();
+  await user.keyboard("{Escape}");
+  await user.click(screen.getByRole("button", { name: "Full screen" }));
+  const full = await screen.findByRole("dialog", { name: "Steps of the run" });
+  expect(within(full).getByRole("region", { name: "Run flow" })).toBeVisible();
 });

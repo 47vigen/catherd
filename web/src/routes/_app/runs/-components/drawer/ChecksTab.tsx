@@ -2,9 +2,11 @@ import { Chip } from "@heroui/react";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
+import type { FlowCheck } from "../../../../../client";
 import { getCheckLogsOptions } from "../../../../../client/@tanstack/react-query.gen";
 import { CodeBlock } from "../../../../../components/code-block/CodeBlock";
 import { Term } from "../../../../../components/term/Term";
+import { FlowCheckDetails } from "./FlowCheckDetails";
 import { Empty, Loading, QueryError } from "./parts";
 
 const TAIL = 200;
@@ -28,8 +30,12 @@ function Log({ title, text, none }: { title: ReactNode; text: string | null; non
 }
 
 /** The logs of a lane's checks and the exit code of the last run. */
-export function ChecksTab({ runId, lane }: { runId: string; lane: string | null }) {
-  const logs = useQuery({ ...getCheckLogsOptions({ path: { id: runId, lane: lane ?? "" } }), enabled: lane !== null });
+export function ChecksTab({ runId, lane, check }: { runId: string; lane: string | null; check?: FlowCheck }) {
+  const logs = useQuery({
+    ...getCheckLogsOptions({ path: { id: runId, lane: lane ?? "" } }),
+    enabled: lane !== null && !check,
+  });
+  if (check) return <FlowCheckDetails check={check} />;
   if (lane === null) return <Empty>No check log yet.</Empty>;
   if (logs.isPending) return <Loading />;
   if (logs.isError) return <QueryError error={logs.error} title="Could not load the check logs" />;

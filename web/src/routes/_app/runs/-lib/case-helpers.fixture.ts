@@ -5,6 +5,7 @@ export const CASE_HELPERS = {
   run: "20261022-192138-case-helpers",
   engine: "2.0",
   seq: 29,
+  flow: null,
   phase: "ended",
   outcome: "done",
   nodes: [

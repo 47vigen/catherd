@@ -9,6 +9,8 @@ export interface E2eState {
   a: { id: string; events: string };
   b: { id: string };
   fixture: { id: string };
+  flow: { id: string };
+  flowLive: { id: string; events: string };
   live: { id: string; events: string; stream: string };
   profile: string;
   /** the server's PATH */

@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { brotliCompressSync } from "node:zlib";
 import { dirname, join } from "node:path";
-import { RunModelSchema } from "../../src/domain/run-graph.ts";
+import { RunModelPatchSchema, RunModelSchema } from "../../src/domain/run-graph.ts";
 import type { RunEventInput } from "../../src/domain/run-events.ts";
 import { TranscriptPageSchema } from "../../src/domain/transcript.ts";
 import { defaultDeps } from "../../src/entry/deps.ts";
@@ -691,6 +691,8 @@ describe("the panel's v2 operations", () => {
   it("the socket sends each event with its model patch, and a watched dispatch's transcript", async () => {
     const cookie = await signIn();
     const run = await liveRun("wallet split");
+    const model = RunModelSchema.parse(await getJson(cookie, `/api/runs/${run.id}/model`));
+    expect(model.flow).not.toBeNull();
     const frames: Record<string, any>[] = [];
     const ws = new WebSocket(`${base.replace("http", "ws")}/api/runs/${run.id}/live`, {
       headers: { cookie },
@@ -707,6 +709,7 @@ describe("the panel's v2 operations", () => {
     });
     expect(ev.patch.nodes.map((n: { id: string }) => n.id)).toContain("task/worker-M1.L1");
     expect(ev.patch.seq).toBe(e.seq);
+    expect(RunModelPatchSchema.parse(ev.patch).flow).not.toBeNull();
 
     const dir = dispatchDir(run, D1);
     mkdirSync(dir, { recursive: true });

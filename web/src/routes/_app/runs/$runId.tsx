@@ -1,9 +1,9 @@
-import { Alert, cn, Modal, Spinner } from "@heroui/react";
+import { Alert, Button, cn, Modal, Spinner } from "@heroui/react";
 import { keepPreviousData, replaceEqualDeep, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { RunModel, TimelineEntry } from "../../../client";
+import type { FlowSelection, RunModel, TimelineEntry } from "../../../client";
 import {
   getRunModelOptions,
   getRunModelQueryKey,
@@ -18,16 +18,19 @@ import { errorFix, errorMessage } from "../../../lib/api";
 import { type ListSearch, parseListSearch, stripListDefaults } from "../../../lib/list-search";
 import { DispatchTable } from "./-components/DispatchTable";
 import { NodeDrawer } from "./-components/drawer/NodeDrawer";
+import { RunFlowView } from "./-components/flow/RunFlowView";
 import { RunGraph } from "./-components/graph/RunGraph";
 import { NodeList } from "./-components/NodeList";
 import { RunDocs } from "./-components/RunDocs";
 import { RunHeader } from "./-components/RunHeader";
 import { Metrics, Milestones, Models } from "./-components/RunSide";
 import { Timeline, TimelineFilter } from "./-components/Timeline";
+import { useQuotaBoundary } from "./-hooks/useFlowFollow";
 import { useIsDesktop } from "./-hooks/useIsDesktop";
 import { type LiveFrame, useLiveRun } from "./-hooks/useLiveRun";
 import { useTicker } from "./-hooks/useTicker";
 import { applyPatch } from "./-lib/apply-patch";
+import { drawerModel } from "./-lib/flow-view";
 import { type LiveLog, LiveLogContext } from "./-lib/live-log";
 import { parseTab, type Tab } from "./-lib/tabs";
 import { matchesTypes } from "./-lib/timeline-filters";
@@ -158,11 +161,29 @@ function RunDetail({ runId }: { runId: string }) {
   useEffect(() => {
     if (full && !node) document.querySelector<HTMLElement>('[role="dialog"][aria-label="Steps of the run"]')?.focus();
   }, [full, node]);
-  const tick = useTicker(live === true);
+  const flow = model.data?.flow;
+  const flowLive = live === true && model.data?.phase !== "ended" && flow != null && flow.endedAt === null;
+  useQuotaBoundary(runId, flow?.quotaHolds ?? [], flowLive, () => {
+    void queryClient.invalidateQueries({ queryKey: modelKey });
+  });
+  const tick = useTicker(live === true && model.data?.phase !== "ended");
   const now = new Date(Math.max(run.dataUpdatedAt, timeline.dataUpdatedAt, model.dataUpdatedAt, tick));
 
   const open = useCallback(
     (id: string) => void navigate({ search: (prev) => ({ ...prev, node: id, tab: "overview", attempt: undefined }) }),
+    [navigate],
+  );
+
+  const openFlow = useCallback(
+    (selection: FlowSelection) =>
+      void navigate({
+        search: (prev) => ({
+          ...prev,
+          node: selection.nodeId,
+          attempt: selection.attemptId ?? undefined,
+          tab: "overview",
+        }),
+      }),
     [navigate],
   );
 
@@ -202,7 +223,7 @@ function RunDetail({ runId }: { runId: string }) {
         <NodeDrawer
           runId={runId}
           run={r}
-          model={model.data}
+          model={drawerModel(model.data)}
           nodeId={node}
           attemptId={attempt}
           tab={tab ?? "overview"}
@@ -220,11 +241,11 @@ function RunDetail({ runId }: { runId: string }) {
     ) : null;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex max-w-full min-w-0 flex-col gap-4">
       <RunHeader run={r} model={model.data} live={live === true} now={now} />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         {is2 ? (
-          <Tile title="Steps" aside={stepsAside} className="lg:col-span-12">
+          <Tile title={flow ? "Run flow" : "Steps"} aside={stepsAside} className="min-w-0 lg:col-span-12">
             {model.isPending ? (
               <div className="flex h-60 items-center justify-center">
                 <Spinner size="sm" />
@@ -233,6 +254,19 @@ function RunDetail({ runId }: { runId: string }) {
               <div className="p-4">
                 <LoadError title="Could not load the graph of this run" error={model.error} />
               </div>
+            ) : flow ? (
+              full ? (
+                <p className="text-muted px-4 py-6 text-sm">The flow is open in full screen.</p>
+              ) : (
+                <RunFlowView
+                  flow={flow}
+                  run={r}
+                  now={now.getTime()}
+                  selected={node}
+                  onOpen={openFlow}
+                  onExpand={() => setFull(true)}
+                />
+              )
             ) : isDesktop ? (
               full ? (
                 <p className="text-muted px-4 py-6 text-sm">The graph is open in full screen.</p>
@@ -249,6 +283,17 @@ function RunDetail({ runId }: { runId: string }) {
             ) : (
               <NodeList nodes={model.data.nodes} selected={node} now={now.getTime()} onOpen={open} />
             )}
+            {flow && model.data?.nodes.some((n) => n.question) ? (
+              <div className="flex flex-wrap gap-2 px-4 pb-3">
+                {model.data.nodes
+                  .filter((n) => n.question)
+                  .map((n) => (
+                    <Button key={n.id} size="sm" variant="tertiary" className="text-warning" onPress={() => open(n.id)}>
+                      Answer {n.title}
+                    </Button>
+                  ))}
+              </div>
+            ) : null}
           </Tile>
         ) : (
           <>
@@ -338,14 +383,18 @@ function RunDetail({ runId }: { runId: string }) {
               </Modal.Header>
               <Modal.CloseTrigger className="border-border bg-surface/90 top-3! right-3! z-10 size-8.5! rounded-lg! border shadow-sm backdrop-blur" />
               <Modal.Body className="m-0! flex min-h-0 flex-1 flex-col p-0!">
-                <RunGraph
-                  model={model.data}
-                  milestones={r.milestones}
-                  selected={node}
-                  now={now.getTime()}
-                  onOpen={open}
-                  fill
-                />
+                {flow ? (
+                  <RunFlowView flow={flow} run={r} now={now.getTime()} selected={node} onOpen={openFlow} fill />
+                ) : (
+                  <RunGraph
+                    model={model.data}
+                    milestones={r.milestones}
+                    selected={node}
+                    now={now.getTime()}
+                    onOpen={open}
+                    fill
+                  />
+                )}
               </Modal.Body>
               {full ? drawer : null}
             </Modal.Dialog>

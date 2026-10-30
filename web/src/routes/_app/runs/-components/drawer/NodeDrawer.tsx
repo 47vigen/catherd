@@ -15,6 +15,7 @@ import { REASON_TEXT } from "../../../../../lib/park-reasons";
 import { invalidateOps } from "../../../../../lib/query";
 import { ChangesTab } from "./ChangesTab";
 import { ChecksTab } from "./ChecksTab";
+import { FlowCheckDetails } from "./FlowCheckDetails";
 import { LogTab } from "./LogTab";
 import { OutputTab } from "./OutputTab";
 import { OverviewTab } from "./OverviewTab";
@@ -125,6 +126,9 @@ export function NodeDrawer({
   // The newest attempt that ran a role, else the newest of any kind.
   const attempt =
     node?.attempts.find((a) => a.id === attemptId) ?? node?.attempts.find((a) => a.dispatchId) ?? node?.attempts[0];
+  const flowCheck = model.flow?.checks.find((c) => c.selection.nodeId === nodeId);
+  const flowTurn = model.flow?.architect.find((t) => t.dispatchId === attempt?.dispatchId);
+  const flowDispatch = model.flow?.dispatches.find((d) => d.dispatchId === attempt?.dispatchId);
   const dispatchId = attempt?.dispatchId ?? null;
   const running = attempt?.status === "running";
   const dispatch = useQuery({
@@ -207,12 +211,38 @@ export function NodeDrawer({
                       </Tabs.List>
                     </Tabs.ListContainer>
                     <Tabs.Panel id="overview" className="px-0 pt-4 pb-0">
-                      <OverviewTab
-                        node={node}
-                        attempt={attempt}
-                        now={now}
-                        onAttempt={(id) => onChange({ attempt: id })}
-                      />
+                      {flowCheck ? <FlowCheckDetails check={flowCheck} /> : null}
+                      {flowTurn ? (
+                        <section aria-label="Architect turn" className="mb-4 flex flex-col gap-3">
+                          <h3 className="label-caps text-muted">Summary</h3>
+                          <p className="text-sm whitespace-pre-wrap">{flowTurn.why ?? "No summary recorded."}</p>
+                          {model.flow?.causes
+                            .filter((c) => c.turnDispatchId === flowTurn.dispatchId)
+                            .map((c) => (
+                              <div key={c.seq}>
+                                <h4 className="text-muted font-mono text-xs">{c.type}</h4>
+                                <p className="text-sm whitespace-pre-wrap">{c.why}</p>
+                              </div>
+                            ))}
+                        </section>
+                      ) : null}
+                      {flowDispatch ? (
+                        <section aria-label="Dispatch reason" className="mb-4 text-sm">
+                          <p className="whitespace-pre-wrap">{flowDispatch.why ?? "No reason recorded."}</p>
+                          <p className="text-muted mt-2 font-mono text-xs">
+                            Status: {flowDispatch.status} · Reply: {flowDispatch.replyStatus ?? "Unknown"}
+                            {flowDispatch.ledgerTask ? ` · Ledger task: ${flowDispatch.ledgerTask}` : ""}
+                          </p>
+                        </section>
+                      ) : null}
+                      {flowCheck ? null : (
+                        <OverviewTab
+                          node={node}
+                          attempt={attempt}
+                          now={now}
+                          onAttempt={(id) => onChange({ attempt: id })}
+                        />
+                      )}
                     </Tabs.Panel>
                     <Tabs.Panel id="prompt" className="px-0 pt-4 pb-0">
                       <PromptTab dispatch={dq} />
@@ -227,7 +257,7 @@ export function NodeDrawer({
                       <ChangesTab runId={runId} model={model} node={node} attempt={attempt} />
                     </Tabs.Panel>
                     <Tabs.Panel id="checks" className="px-0 pt-4 pb-0">
-                      <ChecksTab runId={runId} lane={node.lane} />
+                      <ChecksTab runId={runId} lane={node.lane} check={flowCheck} />
                     </Tabs.Panel>
                   </Tabs>
                 </Drawer.Body>

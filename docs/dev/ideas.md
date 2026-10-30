@@ -16,6 +16,37 @@ judge on the role's exact brief (plan 44). Since 2.0 the daemon runs all of it (
 
 ## 2.0 follow-ups
 
+### From plan 53 (run flow view)
+
+Deferred from the review of plan 53 (the run flow view): its two important findings (check-label contrast,
+idle-reason colors) went into the fix wave. These four minor ones stay open; T8 found them in the seeded and live
+runs it drove and in the code below.
+
+- **A hold that expires while its snapshot is in flight is never refreshed.** In
+  `web/src/routes/_app/runs/-hooks/useFlowFollow.ts:46`, an open hold (`endedAt: null`) whose response arrives after
+  its `until` is skipped by the `delay <= 0` guard, so `useQuotaBoundary` schedules no timer. The daemon's normal
+  tick (`src/services/daemon.ts:210`) usually supplies a later event that corrects the view; with a stopped or
+  delayed daemon the flow keeps a stale Quota tail until some other event arrives. T8's targeted hook test for a
+  deadline that passes between render and response saw zero refreshes instead of one. Fix: drop the guard and let
+  `schedule` deliver the elapsed boundary once; the `fired` set already guards repeats.
+- **A check known only from its row shows no verdict.** `src/domain/run-flow.ts:218` takes the verdict from the
+  `check.done` event alone, although `src/services/run-flow.ts:37` passes the stored row's `verdict`. A run with a
+  `checks` row and no `check.done` event therefore reads Unknown in the check drawer
+  (`web/src/routes/_app/runs/-components/drawer/FlowCheckDetails.tsx:13`) for a result the database holds. Fix: fall
+  back to a validated `row.verdict` while leaving `newFailures` and `inheritedFailures` null, since the split needs
+  comparison evidence.
+- **Selecting one architect turn marks them all as pressed.**
+  `web/src/routes/_app/runs/-components/flow/RunFlowView.tsx:251` (the bars' `aria-pressed`) compares only
+  `bar.selection.nodeId` with the URL's `node`, and every architect turn shares the node ID `architect`
+  (`src/domain/run-flow.ts:160`); opening
+  `node=architect&attempt=D001` leaves `aria-pressed=true` on architect-1 and architect-2 while the drawer shows the
+  exact attempt (`web/src/routes/_app/runs/$runId.tsx:183`, `:228`). A screen reader hears every architect turn as
+  selected. Fix: pass the selected attempt and compare it as well as the node ID.
+- **The phone header cuts off the flow title.** At 390x844 the flow tile's header
+  (`web/src/routes/_app/runs/$runId.tsx:248`) shares its width with the graph step counters, and with the seeded
+  eight-task run the longer title shrinks to "RUN FL…". Fix: collapse or move the counters below the title at phone
+  width.
+
 ### From plan 52 (stage-1 fixes)
 
 Left out of plan 52 on purpose:
