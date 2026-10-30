@@ -121,10 +121,11 @@ export async function runMerge(
       `${tree}'s tree is ${onBranch ? `on ${onBranch}` : "on a detached HEAD"}, not on ${taskBranch(run, tree)}: catherd keeps it; switch it back (git switch ${taskBranch(run, tree)}) and merge again`,
     );
   const lock = (await out(dir, ["rev-parse", "--path-format=absolute", "--git-path", "index.lock"]))?.trim();
-  if (lock && existsSync(lock))
+  const lockMtime = lock ? mtimeOf(lock) : null;
+  if (lock && lockMtime !== null)
     return end(
       "refused",
-      `${lock} exists${statSync(lock).mtimeMs < Date.now() - process.uptime() * 1000 ? ", older than this daemon: a git that died left it" : ""}: catherd keeps the tree and does not delete it; remove the file if no git runs in ${dir}, then merge again`,
+      `${lock} exists${lockMtime < Date.now() - process.uptime() * 1000 ? ", older than this daemon: a git that died left it" : ""}: catherd keeps the tree and does not delete it; remove the file if no git runs in ${dir}, then merge again`,
     );
   // the writer's work, committed: the merge, the check and the fast-forward all read commits
   const status = await out(dir, ["status", "--porcelain"]);
@@ -519,6 +520,15 @@ async function heldOracle(
   writeTextAtomic(join(run.dir, file), diff || "git could not diff\n");
   return { paths, diff: file };
 }
+
+/** A file's mtime, or null when it is not there (a git's lock can vanish between a look and a stat). */
+const mtimeOf = (path: string): number | null => {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return null;
+  }
+};
 
 const readDiff = (run: Run, file: string): string | null => {
   try {
