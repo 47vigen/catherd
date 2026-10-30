@@ -1,5 +1,5 @@
 import type { CatalogEntry } from "../../../../client";
-import { logTicks, seriesOf, shadesOf } from "./series";
+import { frontierOf, logTicks, seriesOf, shadesOf, standouts } from "./series";
 
 const pt = (effort: string, usd: number | null, intelligence = 50) => ({
   effort,
@@ -81,4 +81,50 @@ describe("logTicks", () => {
   it("spans at least one decade when the costs sit on one boundary", () => {
     expect(logTicks(1, 1)).toEqual([1, 10]);
   });
+});
+
+test("the frontier keeps only points nothing beats for less money", () => {
+  const s = (name: string, points: [number, number][]) => ({
+    id: name,
+    name,
+    brand: "openai" as const,
+    color: "",
+    points: points.map(([usd, intelligence], i) => ({ effort: `e${i}`, usd, intelligence, measured: true })),
+  });
+  const f = frontierOf([
+    s("a", [
+      [0.1, 30],
+      [1, 50],
+    ]),
+    s("b", [
+      [0.5, 20],
+      [0.6, 55],
+      [2, 54],
+    ]),
+  ]);
+  expect(f.map((p) => [p.model, p.usd])).toEqual([
+    ["a", 0.1],
+    ["b", 0.6],
+  ]);
+});
+
+test("the best value is the cheapest current point within 90% of the strongest", () => {
+  const m = (id: string, points: [number | null, number][], superseded = false) => ({
+    id,
+    name: id,
+    lab: "openai",
+    backends: [],
+    superseded,
+    points: points.map(([usd, intelligence], i) => ({ effort: `e${i}`, rung: "", usd, intelligence, measured: true })),
+  });
+  const { top, value } = standouts([
+    m("big", [[5, 60]]),
+    m("mid", [
+      [0.8, 55],
+      [0.3, 40],
+    ]),
+    m("old", [[0.1, 59]], true),
+  ]);
+  expect(top?.model).toBe("big");
+  expect([value?.model, value?.usd]).toEqual(["mid", 0.8]);
 });

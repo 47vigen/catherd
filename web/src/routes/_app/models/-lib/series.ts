@@ -66,3 +66,46 @@ export function logTicks(min: number, max: number): number[] {
   const hi = Math.max(Math.ceil(Math.log10(max)), lo + 1);
   return Array.from({ length: hi - lo + 1 }, (_, i) => 10 ** (lo + i));
 }
+
+export interface FrontierPoint {
+  usd: number;
+  intelligence: number;
+  model: string;
+  effort: string;
+}
+
+/** The points nothing beats on both counts: no other point is as smart for less money. Cheapest first. */
+export function frontierOf(series: Series[]): FrontierPoint[] {
+  const all = series
+    .flatMap((s) =>
+      s.points.map((p) => ({ usd: p.usd, intelligence: p.intelligence, model: s.name, effort: p.effort })),
+    )
+    .sort((a, b) => a.usd - b.usd || b.intelligence - a.intelligence);
+  const out: FrontierPoint[] = [];
+  for (const p of all) if (p.intelligence > (out.at(-1)?.intelligence ?? -Infinity)) out.push(p);
+  return out;
+}
+
+/** The current models' strongest point, and the cheapest point within `share` of it: the one worth the money. */
+export function standouts(models: CatalogEntry[], share = 0.9) {
+  const points = models
+    .filter((m) => !m.superseded)
+    .flatMap((m) => m.points.map((p) => ({ model: nameOfModel(m), ...p })));
+  const top = points.toSorted((a, b) => b.intelligence - a.intelligence)[0];
+  const value = top
+    ? points
+        .filter((p) => p.usd !== null && p.intelligence >= top.intelligence * share)
+        .toSorted((a, b) => a.usd! - b.usd!)[0]
+    : undefined;
+  return { top, value };
+}
+
+/** The efforts the catalog uses, in their natural order. */
+export const EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "default"] as const;
+export const effortsOf = (models: CatalogEntry[]) => {
+  const used = new Set(models.flatMap((m) => m.points.map((p) => p.effort)));
+  return [
+    ...EFFORTS.filter((e) => used.has(e)),
+    ...[...used].filter((e) => !(EFFORTS as readonly string[]).includes(e)),
+  ];
+};

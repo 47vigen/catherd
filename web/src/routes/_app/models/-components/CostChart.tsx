@@ -11,7 +11,7 @@ import {
   YAxis,
 } from "recharts";
 
-import { logTicks, type Series } from "../-lib/series";
+import { type FrontierPoint, logTicks, type Series } from "../-lib/series";
 import { AXIS_TICK, ChartTooltip, GRID_STROKE } from "../../../../components/charts/ChartTooltip";
 import { BRAND_BG } from "../../../../lib/brand";
 
@@ -25,10 +25,13 @@ const money = (v: number) => (v >= 100 ? `$${Math.round(v)}` : `$${Number(v.toPr
 export function CostChart({
   series,
   scale,
+  frontier = [],
   className = "h-96 min-h-72 w-full p-4 max-sm:h-80",
 }: {
   series: Series[];
   scale: "log" | "linear";
+  /** the points nothing beats for less money, drawn as one dashed line under the models */
+  frontier?: FrontierPoint[];
   className?: string;
 }) {
   const costs = series.flatMap((s) => s.points.map((p) => p.usd));
@@ -85,6 +88,22 @@ export function CostChart({
               );
             }}
           />
+          {frontier.length > 1 ? (
+            <Line
+              data={frontier}
+              name="Frontier"
+              dataKey="intelligence"
+              stroke="var(--accent)"
+              strokeOpacity={0.3}
+              strokeWidth={5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              dot={false}
+              activeDot={false}
+              isAnimationActive={false}
+              className="pointer-events-none"
+            />
+          ) : null}
           {series.map((s) => (
             <Line
               key={s.id}
