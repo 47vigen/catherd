@@ -358,6 +358,18 @@ describe("after a merge (plan 55, spec D5)", () => {
     expect(git(tree, "log", "-1", "--format=%s")).toBe("catherd: regenerate bun.lock");
   });
 
+  it("regenerates a nested lockfile the profile's bare name matches, the way the merge driver matched it (plan 55 review I4)", async () => {
+    const { run, deps, tree } = await treesRun({ path: "web/bun.lock", text: "v1\n" });
+    deps.view.regen = { paths: ["bun.lock"], command: "printf 'regenerated\\n' > web/bun.lock" };
+    const dir = await worked(run, deps, "T1");
+    put(dir, "web/bun.lock", "mine\n");
+    put(tree, "web/bun.lock", "theirs\n");
+    git(tree, "commit", "-q", "-am", "theirs");
+    const { done } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done).toMatchObject({ outcome: "merged", files: ["web/bun.lock"] });
+    expect(readFileSync(join(tree, "web/bun.lock"), "utf8")).toBe("regenerated\n");
+  });
+
   it("sends the task back when the regenerate command fails", async () => {
     const { run, deps, tree } = await treesRun({ path: "bun.lock", text: "v1\n" });
     deps.view.regen = { paths: ["bun.lock"], command: "echo 'registry down'; exit 7" };

@@ -259,12 +259,13 @@ export async function runMerge(
  * Spec D5: a regenerable path never conflicts. Its `merge=regen` attribute's driver keeps the run's side (`cp %B %A`),
  * set for this one merge through `-c`, so neither the repository's config nor its attributes change.
  */
+const regenAttributes = (run: Run): string => join(run.dir, "trees", "regen.attributes");
+
 function regenConfig(run: Run, paths: string[]): string[] {
-  const file = join(run.dir, "trees", "regen.attributes");
-  writeTextAtomic(file, `${paths.map((p) => `${p} merge=regen`).join("\n")}\n`);
+  writeTextAtomic(regenAttributes(run), `${paths.map((p) => `${p} merge=regen`).join("\n")}\n`);
   return [
     "-c",
-    `core.attributesFile=${file}`,
+    `core.attributesFile=${regenAttributes(run)}`,
     "-c",
     "merge.regen.name=catherd: keep the run's side, then regenerate",
     "-c",
@@ -287,9 +288,27 @@ async function regenerate(
   const base = (await out(dir, ["merge-base", pre, branch]))?.trim();
   if (!base) return null;
   const changed = async (to: string) =>
-    lines((await out(dir, ["diff", "--name-only", base, to, "--", ...regen.paths])) ?? "");
+    (await out(dir, ["-c", "core.quotePath=false", "diff", "--name-only", "-z", base, to]))
+      ?.split("\0")
+      .filter(Boolean) ?? [];
   const theirs = new Set(await changed(branch));
-  const both = (await changed(pre)).filter((p) => theirs.has(p));
+  const mutual = (await changed(pre)).filter((p) => theirs.has(p));
+  // the attribute decides, as it did for the merge driver: a bare name matches at any depth, a pathspec would not
+  const attr =
+    mutual.length === 0
+      ? ""
+      : ((await out(dir, [
+          "-c",
+          `core.attributesFile=${regenAttributes(run)}`,
+          "check-attr",
+          "-z",
+          "merge",
+          "--",
+          ...mutual,
+        ])) ?? "");
+  const f = attr.split("\0");
+  const both = [];
+  for (let i = 0; i + 2 < f.length; i += 3) if (f[i + 2] === "regen") both.push(f[i] as string);
   if (both.length === 0) return null;
   const env = await checkEnvFor(run.meta.repo);
   const r = await withHeavySlot(heavySlots(runProfile(deps, run).heavy), (_slot, tmp) =>
