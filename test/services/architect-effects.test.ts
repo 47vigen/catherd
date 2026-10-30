@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { daemonLimits, runDaemon } from "../../src/services/daemon.ts";
 import { watchersSettled } from "../../src/services/dispatch-service.ts";
@@ -12,7 +12,9 @@ import { startedFields } from "../domain/run-fixtures.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { withClaudeScenario } from "../sim/sim-scenarios.ts";
-import { fakeDeps, freshRun, testView } from "./helpers.ts";
+import { branchRun, fakeDeps, freshRun, testView } from "./helpers.ts";
+import { taskTreeDir } from "../../src/services/tree-path.ts";
+import { db } from "../../src/infra/db.ts";
 
 afterEach(snapshotEnv());
 afterEach(() => watchersSettled());
@@ -83,6 +85,43 @@ describe("an architect run on the real effects (plan 47, spec D1–D3)", () => {
     expect(report).toContain("Verdict: stopped — idle");
     expect(report).toContain("the wallet first");
     expect(readFileSync(join(run.dir, "ledger", "progress.md"), "utf8")).toStartWith("# Progress");
+  });
+
+  it("merges a task in its own tree the moment it ends complete, its fast check run there (plan 55, spec D5)", async () => {
+    const { run, repo } = branchRun("wallet");
+    process.env.PATH = simPath();
+    Object.assign(process.env, withScenario({ reply: "Done.\nSTATUS: complete — ok" }).env);
+    const view = testView();
+    view.roles.architect = { enabled: true, access: "workspace-write", rungs: [SOL] };
+    await appendEvent(run, { type: "run.started", ...startedFields, repo, base: "main", trees: "writer" });
+    writeTextAtomic(join(run.dir, taskBriefFile("T1")), "Write src/wallet.ts.");
+    await appendEvent(run, {
+      type: "task.delegated",
+      taskId: "T1",
+      role: "worker",
+      rung: SOL,
+      thread: null,
+      ledgerTask: null,
+      by: "architect",
+      why: "w",
+      check: "test -d .git || test -f .git",
+      tree: "T1",
+    });
+    const clock = { now: Date.now, sleep: () => new Promise<void>((r) => setImmediate(r)) };
+    expect(await runDaemon(fakeDeps({ view }), run.id, { clock })).toBe("ended");
+    const events = readEvents(run);
+    const ended = events.find((e) => e.type === "dispatch.ended" && e.name === "T1");
+    const asked = events.find((e) => e.type === "merge.requested");
+    expect(asked).toMatchObject({ mergeId: "M1", taskId: "T1", by: "catherd" });
+    expect(asked?.seq).toBe((ended?.seq ?? 0) + 1);
+    // no fast check on the run's tree: the merge ran it in the task's
+    expect(events.some((e) => e.type === "check.requested")).toBe(false);
+    expect(events.find((e) => e.type === "merge.done")).toMatchObject({ outcome: "merged", taskId: "T1" });
+    expect(db().query("SELECT scope, exit FROM checks WHERE check_id = 'M1-fast'").get()).toEqual({
+      scope: "fast",
+      exit: 0,
+    });
+    expect(existsSync(taskTreeDir(run, "T1"))).toBe(false);
   });
 
   it("runs each task's fast check the moment it ends complete, wakes the architect with it, and posts a red one to the team (plan 53)", async () => {

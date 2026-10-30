@@ -514,6 +514,28 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     });
     expect(await ask("T1")).toEqual({ checkId: "C2", ref: "T1" });
   });
+  it("merge asks for a task's tree to merge, once, and only when nothing works in it (plan 55, spec D5)", async () => {
+    const { run } = branchRun();
+    await appendEvent(run, { type: "run.started", ...startedFields, base: "main", trees: "writer" });
+    await call(run, "delegate_task", { role: "worker", task: "x", why: "w" });
+    await call(run, "delegate_task", { role: "worker", task: "y", worktree: "integration", why: "w" });
+    const merge = (taskId: string) => call(run, "merge", { taskId, why: "w" });
+    const refused = (taskId: string) =>
+      expect(merge(taskId)).rejects.toMatchObject({ code: "E_INPUT_INVALID" });
+    await refused("T1");
+    const log = makeLog();
+    endDispatch(log, startDispatch(log, { name: "T1", unit: "T1" }), { name: "T1", unit: "T1" });
+    for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    await refused("T2");
+    expect(await merge("T1")).toEqual({ mergeId: "M1" });
+    expect(last(run)).toMatchObject({
+      type: "merge.requested",
+      mergeId: "M1",
+      taskId: "T1",
+      by: "architect-1",
+    });
+    await refused("T1");
+  });
 });
 
 describe("land (plan 50, spec D11)", () => {

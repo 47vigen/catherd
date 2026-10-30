@@ -15,6 +15,7 @@ export const ARCHITECT_TOOLS = [
   "thread_read",
   "thread_wait",
   "check",
+  "merge",
   "ledger",
   "findings",
   "oracle_accept",

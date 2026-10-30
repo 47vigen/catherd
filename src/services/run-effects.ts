@@ -10,7 +10,7 @@ import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import { RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
 import { type Action, type DispatchAction, unitOf } from "../domain/run-machine.ts";
-import { fastCheckFor, rungHeld, taskAttempts } from "../domain/architect-state.ts";
+import { fastCheckFor, mergeFor, rungHeld, taskAttempts } from "../domain/architect-state.ts";
 import type { RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
 import type { LockWait } from "../infra/heavy-lock.ts";
@@ -27,6 +27,8 @@ import { runArchitectCheck } from "./architect-check.ts";
 import { runLand } from "./land.ts";
 import { claimRunTree } from "./run-tree.ts";
 import { checkpointTree, claimTaskTree } from "./writer-tree.ts";
+import { runMerge } from "./merge.ts";
+import { sendBack } from "./architect-tools.ts";
 import { writeArchitectReport } from "./architect-run.ts";
 import { renderLedger } from "./ledger-store.ts";
 import { writeTextAtomic } from "../infra/store.ts";
@@ -222,6 +224,19 @@ export function realEffects(deps: Deps, run: Run): Effects {
             },
             at(),
           );
+        // plan 55, spec D5: a task in its own tree that ended complete is merged at once; its fast check runs there
+        const merge = mergeFor(s, record);
+        if (merge)
+          add(
+            {
+              type: "merge.requested",
+              ...merge,
+              taskId: record.name,
+              by: "catherd",
+              why: `${record.name} ended complete: its merge`,
+            },
+            at(),
+          );
         return true;
       });
       if (!ended) return;
@@ -376,7 +391,10 @@ export function realEffects(deps: Deps, run: Run): Effects {
 
   async function perform(a: Action, s: RunState): Promise<void> {
     // spec D5, stage 1: a base run works in its own tree, made before the first thing that needs it
-    if (run.meta.base && (a.type === "dispatch" || a.type === "runCheck" || a.type === "land"))
+    if (
+      run.meta.base &&
+      (a.type === "dispatch" || a.type === "runCheck" || a.type === "land" || a.type === "merge")
+    )
       await claimRunTree(deps, run);
     switch (a.type) {
       case "dispatch":
@@ -434,6 +452,23 @@ export function realEffects(deps: Deps, run: Run): Effects {
             reason: "land",
             why: l.why,
           });
+        return;
+      }
+      case "merge": {
+        const m = s.arch.merges[a.mergeId];
+        if (!m) throw new Error(`no merge ${a.mergeId} was asked for`);
+        const r = await runMerge(deps, run, m, effectLimits.checkMs);
+        let done = r.done;
+        const now = replayRun(run);
+        // spec D5: a conflict or a red check goes back to the same writer, unless the run is stopping
+        if (r.back && !(now.phase === "ended" || now.cancelling || now.arch.finishing)) {
+          const sent = await sendBack(deps, run, m.taskId, r.back).then(
+            (id) => `: catherd sent it back as ${id}`,
+            (e: unknown) => `; catherd could not send it back (${errorMessage(e)}): send it back or replan`,
+          );
+          done = { ...done, message: done.message.replace(/: catherd sends it back to its writer$/, sent) };
+        }
+        await append(done);
         return;
       }
       case "watch": {

@@ -9,6 +9,7 @@ import {
   isStanding,
   ladderRung,
   nextCheckId,
+  nextMergeId,
   unheldRung,
   REVIEW_ROUNDS,
   reviewRounds,
@@ -335,6 +336,40 @@ async function checkRef(c: ToolContext, ref: string, base: boolean): Promise<str
   return sha;
 }
 
+/**
+ * Plan 55, spec D5: catherd sends a task whose merge conflicted or went red back to its writer: the same tree, rung,
+ * check and thread (a fresh thread reads the task's first brief again), as a new task with `cause`. Its id.
+ */
+export async function sendBack(
+  deps: Deps,
+  run: Run,
+  taskId: string,
+  back: { cause: "conflict" | "red"; text: string },
+): Promise<string> {
+  const c: ToolContext = { deps, run, caller: { name: "catherd", role: "architect" } };
+  const s = replayRun(run);
+  const t = taskOf(c, s, taskId);
+  const thread = t.dispatchId ? (s.dispatches[t.dispatchId]?.thread ?? null) : null;
+  const first = thread ? "" : read(join(run.dir, taskBriefFile(firstOfTree(s, t)))).trim();
+  const r = await delegate(c, {
+    role: t.role,
+    task: first ? `${back.text}\n\nThe task you work on:\n${first}` : back.text,
+    rung: t.rung,
+    ...(t.ledgerTask ? { ledgerTask: t.ledgerTask } : {}),
+    check: t.check ?? "",
+    ...(t.delegatedOracle ? { oracle: t.delegatedOracle } : {}),
+    worktree: `task:${t.taskId}`,
+    thread,
+    cause: back.cause,
+    why: `${taskId}'s merge ${back.cause === "conflict" ? "conflicted" : "went red"}`,
+  });
+  return r.taskId;
+}
+
+/** The task that made `t`'s tree: its brief is the work's own. */
+const firstOfTree = (s: RunState, t: ArchTask): string =>
+  t.tree && s.arch.tasks[t.tree] ? t.tree : t.taskId;
+
 /** Appends one event under the events lock. */
 const append = (c: ToolContext, e: RunEventInput): Promise<unknown> =>
   withEventsLock(c.run, (add) => add(e, at(c)));
@@ -596,6 +631,37 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
         return id;
       });
       return { checkId, ...(ref ? { ref } : {}) };
+    },
+  ),
+  merge: spec(
+    "Merge a task's own tree into the run's branch: catherd commits what the tree holds, merges the run's branch into it, runs the task's fast check there, and fast-forwards the run's branch. A task that ends complete is merged by itself; call merge for one that ended partial, after an oracle_accept, or after you fixed its tree. A conflict or a red fast check goes back to the task's writer; the result wakes you.",
+    { taskId, why },
+    false,
+    async (c, a) => {
+      const mergeId = await withEventsLock(c.run, (add) => {
+        const s = replayRun(c.run);
+        const t = taskOf(c, s, a.taskId);
+        if (!t.tree || t.merged)
+          throw invalid(
+            `${t.taskId} has no unmerged tree of its own`,
+            "a task on the run's tree is in it already",
+          );
+        if (treeBusy(s.arch, t.tree))
+          throw invalid(
+            `a task still works in ${t.tree}'s tree`,
+            "merge it when the task ends; its end wakes you",
+          );
+        if (
+          Object.values(s.arch.merges).some(
+            (m) => m.state === "queued" && s.arch.tasks[m.taskId]?.tree === t.tree,
+          )
+        )
+          throw invalid(`${t.tree}'s tree is already waiting to merge`, "its result wakes you");
+        const id = nextMergeId(s.arch);
+        add({ type: "merge.requested", mergeId: id, taskId: t.taskId, by: c.caller.name, why: a.why }, at(c));
+        return id;
+      });
+      return { mergeId };
     },
   ),
   ledger: spec(
