@@ -66,6 +66,8 @@ export async function runMerge(
   run: Run,
   m: ArchMerge,
   checkMs: number,
+  /** The tree's removal; a seam so a test can watch the events lock while it runs. */
+  remove: (run: Run, tree: string) => Promise<void> = removeTaskTree,
 ): Promise<{ done: MergeDone; back: SendBack | null }> {
   const a = replayRun(run).arch;
   const t = a.tasks[m.taskId];
@@ -177,8 +179,28 @@ export async function runMerge(
   for (let attempt = 1; ; attempt++) {
     const early = await mergeIn(deps, run, m, t, dir, branch, checkMs, attempt, end);
     if (early) return early;
+    // nothing the writer has may be lost with the tree: edits, untracked files, a submodule's own changes
+    const dirty = lines(
+      (await out(dir, ["status", "--porcelain", "--ignore-submodules=none"])) ?? "?? git cannot read it",
+    );
+    if (dirty.length)
+      return (
+        // a task that joined the tree is the likelier reason for what it holds
+        lateRefusal(replayRun(run)) ??
+        end(
+          "refused",
+          `${tree}'s tree is not clean after the check (${dirty.slice(0, 5).join(", ")}${dirty.length > 5 ? ", …" : ""}): catherd keeps it; commit or remove those, or send the task back`,
+        )
+      );
     const moved = await advance();
-    if (moved !== "moved") return moved;
+    if (moved !== "moved") {
+      // the merge is queued still, so no delegate joins the tree: the removal needs no lock
+      if (moved.done.outcome === "merged")
+        await remove(run, tree).catch((e) =>
+          log("warn", "daemon", { run: run.id, merge: m.mergeId, remove: errorMessage(e) }),
+        );
+      return moved;
+    }
     if (attempt === 2)
       return end(
         "refused",
@@ -186,33 +208,33 @@ export async function runMerge(
       );
   }
 
-  /** Under the events lock, so no delegate can join the tree between the last look and the removal. */
+  function lateRefusal(now: RunState): ReturnType<typeof end> | null {
+    const late = Object.values(now.arch.tasks).filter(
+      (x) => x.tree === tree && x.delegatedSeq > m.seq && x.state !== "refused" && x.state !== "cancelled",
+    );
+    return late.length
+      ? end(
+          "refused",
+          `${late.map((x) => x.taskId).join(", ")} was delegated into ${tree}'s tree after this merge was asked for: catherd keeps the tree. Merge it again when that task ends`,
+        )
+      : null;
+  }
+
+  /**
+   * Under the events lock, so no delegate can join the tree between the last look and the fast-forward; the lock is
+   * held for git calls that take milliseconds, never for the tree's removal (tens of seconds with node_modules).
+   */
   function advance(): Promise<ReturnType<typeof end> | "moved"> {
     return withEventsLock(run, async () => {
       const now = replayRun(run);
       if (stopping(now)) return end("refused", STOPPING(tree));
-      const late = Object.values(now.arch.tasks).filter(
-        (x) => x.tree === tree && x.delegatedSeq > m.seq && x.state !== "refused" && x.state !== "cancelled",
-      );
-      if (late.length)
-        return end(
-          "refused",
-          `${late.map((x) => x.taskId).join(", ")} was delegated into ${tree}'s tree after this merge was asked for: catherd keeps the tree. Merge it again when that task ends`,
-        );
+      const late = lateRefusal(now);
+      if (late) return late;
       const runOn = (await out(integration, ["symbolic-ref", "-q", "HEAD"]))?.trim();
       if (runOn !== `refs/heads/${branch}`)
         return end(
           "refused",
           `the run's tree is ${runOn ? `on ${runOn}` : "on a detached HEAD"}, not on refs/heads/${branch}: put it back, then merge again`,
-        );
-      // nothing the writer has may be lost with the tree: edits, untracked files, a submodule's own changes
-      const dirty = lines(
-        (await out(dir, ["status", "--porcelain", "--ignore-submodules=none"])) ?? "?? git cannot read it",
-      );
-      if (dirty.length)
-        return end(
-          "refused",
-          `${tree}'s tree is not clean after the check (${dirty.slice(0, 5).join(", ")}${dirty.length > 5 ? ", …" : ""}): catherd keeps it; commit or remove those, or send the task back`,
         );
       const head = (await out(dir, ["rev-parse", "HEAD"]))?.trim();
       if (!head) return end("refused", `git cannot read ${tree}'s HEAD`);
@@ -228,7 +250,6 @@ export async function runMerge(
       const sha = (await out(integration, ["rev-parse", "HEAD"]))?.trim() ?? null;
       const files =
         sha && before ? lines((await out(integration, ["diff", "--name-only", before, sha])) ?? "") : [];
-      await removeTaskTree(run, tree);
       return end(
         "merged",
         `${branch} is at ${sha?.slice(0, 12)}: ${files.length} file(s) from ${m.taskId}${files.length ? ` (${files.slice(0, 10).join(", ")}${files.length > 10 ? ", …" : ""})` : ""}`,

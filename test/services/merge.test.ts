@@ -4,16 +4,17 @@ import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import type { ArchMerge } from "../../src/domain/architect-state.ts";
 import { runBranch } from "../../src/domain/branch.ts";
+import { withFileLock } from "../../src/infra/filelock.ts";
 import { db } from "../../src/infra/db.ts";
 import { writeLedger } from "../../src/services/ledger-store.ts";
 import { noticeMerged, runMerge } from "../../src/services/merge.ts";
 import { teamMessages } from "../../src/services/team.ts";
 import { realEffects } from "../../src/services/run-effects.ts";
-import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
+import { appendEvent, eventsFile, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
 import { claimRunTree } from "../../src/services/run-tree.ts";
 import { taskBranch, taskTreeDir } from "../../src/services/tree-path.ts";
-import { claimTaskTree } from "../../src/services/writer-tree.ts";
+import { claimTaskTree, removeTaskTree } from "../../src/services/writer-tree.ts";
 import { endDispatch, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { commitInClone, snapshotEnv } from "../helpers.ts";
 import { branchRun, fakeDeps } from "./helpers.ts";
@@ -232,6 +233,24 @@ describe("a merge never takes a tree a later task joined (plan 55 review C1)", (
     expect(git(tree, "rev-parse", "HEAD")).toBe(head);
     expect(existsSync(join(dir, "late.txt"))).toBe(true);
     expect(git(run.meta.repo, "branch", "--list", taskBranch(run, "T1"))).not.toBe("");
+  });
+});
+
+describe("the tree's removal is slow work done outside the events lock (plan 55 re-review)", () => {
+  it("fast-forwards under the lock, then removes the tree after releasing it", async () => {
+    const { run, deps, tree } = await treesRun();
+    const dir = await worked(run, deps, "T1");
+    put(dir, "w.txt", "work\n");
+    let lockFree = false;
+    const { done } = await runMerge(deps, run, merge("T1"), CHECK_MS, async (r, owner) => {
+      // a caller that needs the events lock (a tool call, a settle) must get it while the removal runs
+      lockFree = await withFileLock(eventsFile(r), () => true, { timeoutMs: 500 }).catch(() => false);
+      await removeTaskTree(r, owner);
+    });
+    expect(lockFree).toBe(true);
+    expect(done).toMatchObject({ outcome: "merged", files: ["w.txt"] });
+    expect(readFileSync(join(tree, "w.txt"), "utf8")).toBe("work\n");
+    expect(existsSync(dir)).toBe(false);
   });
 });
 
