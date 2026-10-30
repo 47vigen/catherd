@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   type ArchTask,
   authorRung,
+  continuedTree,
   crossFamilyRung,
   isStanding,
   ladderRung,
@@ -14,6 +15,7 @@ import {
   STANDING_CAP,
   stalled,
   taskAttempts,
+  treeBusy,
   WRITER_CAP,
   workAttempts,
 } from "../domain/architect-state.ts";
@@ -37,7 +39,7 @@ import { readRecords, type Run } from "./run-store.ts";
 import { MESSAGE_KINDS, teamRead, teamSend } from "./team.ts";
 import { oracleOf } from "./oracle.ts";
 import { testFacts } from "./test-changes.ts";
-import { runTree } from "./tree-path.ts";
+import { runTree, taskBranch } from "./tree-path.ts";
 
 /**
  * Plan 47, spec D3 and D12: the architect's tools on the architect engine. Each one only reads the run or appends the
@@ -66,6 +68,13 @@ export const STOP_CLASSES = ["production", "secrets", "irreversible", "stuck"] a
 const TASK_ROLES = ROLES.filter((r) => r !== "architect") as [Role, ...Role[]];
 /** The roles that read the work and change nothing: a fast check has nothing of theirs to check. */
 const READ_ROLES: readonly Role[] = ["reviewer", "verifier", "researcher"];
+/** Plan 55: where a task works: a new worktree of its own, another task's (task:T3), or the run's tree. */
+const WORKTREE = z
+  .string()
+  .regex(/^(new|integration|task:T\d+)$/, "new, integration, or task:<id>")
+  .describe(
+    "where it works, in a run with a base: new (its own worktree from the run's branch), task:<id> (that task's tree, not yet merged), or integration (the run's tree). A writing task gets new by default, or its ledger task's last unmerged tree, which continues that attempt's work; a reader always reads the run's tree.",
+  );
 
 const why = z
   .string()
@@ -125,6 +134,10 @@ async function delegate(
     check?: string;
     /** a thread_send follow-up's oracle set, inherited from the task it resumes */
     oracle?: string[];
+    worktree?: string;
+    from?: "clean";
+    /** plan 55: catherd sends a task back after its merge */
+    cause?: "conflict" | "red";
     why: string;
   },
 ): Promise<{
@@ -167,7 +180,19 @@ async function delegate(
   // plan 54: the tree a writer of a ledger task with an oracle starts from, its oracle diff's base
   const writes = i.role === "worker" || i.role === "writer";
   const oracle = writes ? (i.oracle ?? oracleOf(c.run, i.ledgerTask ?? null)) : null;
-  const oracled = oracle !== null && oracle.length > 0;
+  // plan 55: a writer in its own tree is judged on its oracle at its merge, against the run's branch
+  const isolated = replayRun(c.run).trees === "writer" && !!c.run.meta.base;
+  const ownTree = isolated && (writes || i.role === "artist") && i.worktree !== "integration";
+  if (!isolated && (i.from || (i.worktree && i.worktree !== "integration")))
+    throw invalid(
+      "this run's writers share one tree (profile trees: shared, or a run without a base)",
+      "omit worktree and from",
+    );
+  if (READ_ROLES.includes(i.role) && (i.from || (i.worktree && i.worktree !== "integration")))
+    throw invalid(`a ${i.role} reads the run's tree and gets no tree of its own`, "omit worktree and from");
+  if (i.from && i.worktree && i.worktree !== "new")
+    throw invalid("from: clean starts a new tree", "omit worktree, or use worktree new");
+  const oracled = !ownTree && oracle !== null && oracle.length > 0;
   const snapshot = review || oracled ? await reviewSnapshot(c.run, oracled) : null;
   // plan 54, spec D9: a test the run removed or rewrote reaches the verifier as catherd's fact, not the author's
   const facts = i.role === "verifier" ? await testFacts(c.run) : [];
@@ -211,6 +236,7 @@ async function delegate(
         );
     }
     const id = `T${Object.keys(s.arch?.tasks ?? {}).length + 1}`;
+    const tree = ownTree ? treeOf(s, i, id) : null;
     writeTextAtomic(
       join(c.run.dir, taskBriefFile(id)),
       `${i.task.trim()}\n${facts.length ? `\n${VERIFIER_FACTS}\n${facts.map((f) => `- ${f}`).join("\n")}\n` : ""}`,
@@ -229,6 +255,8 @@ async function delegate(
         ...(snapshot ? { snapshot } : {}),
         ...(check ? { check } : {}),
         ...(oracle ? { oracle } : {}),
+        ...(tree ? { tree } : {}),
+        ...(i.cause ? { cause: i.cause } : {}),
       },
       at(c),
     );
@@ -241,6 +269,31 @@ async function delegate(
     thread: i.thread ?? null,
     reportPath: i.role === "researcher" ? researchFile(id) : null,
   };
+}
+
+/**
+ * Plan 55, spec D5: the tree a writing task works in: `task:<id>`'s tree, or by default its ledger task's last unmerged
+ * tree (the retry continues that work) unless `from: clean`; else a new one, named by the task itself.
+ */
+function treeOf(
+  s: RunState,
+  i: { worktree?: string; from?: "clean"; ledgerTask?: string },
+  id: string,
+): string {
+  if (i.worktree?.startsWith("task:")) {
+    const other = s.arch.tasks[i.worktree.slice("task:".length)];
+    if (!other?.tree || other.merged)
+      throw invalid(
+        `${i.worktree} has no unmerged tree`,
+        "use worktree new, or a task whose tree is not merged",
+      );
+    if (treeBusy(s.arch, other.tree))
+      throw invalid(`${other.tree}'s tree has a task queued or working`, "wait for it, or use worktree new");
+    return other.tree;
+  }
+  if (i.worktree === "new" || i.from === "clean") return id;
+  const last = continuedTree(s.arch, i.ledgerTask ?? null);
+  return last && !treeBusy(s.arch, last) ? last : id;
 }
 
 const VERIFIER_FACTS =
@@ -299,6 +352,7 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
           }),
         ),
         holds: s.holds,
+        trees: s.trees,
         writers: { running: working.length - standing, cap: WRITER_CAP },
         standing: { running: standing, cap: STANDING_CAP },
         queued: Object.values(s.arch?.tasks ?? {}).filter((t) => t.state === "queued").length,
@@ -317,8 +371,13 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
         .string()
         .optional()
         .describe(
-          "the task's fast check (type check, lint and the tests it touches; never the full suite): catherd runs it on the run's tree when the task ends complete and wakes you with the result. A worker without one gets the profile's fastCheck.",
+          "the task's fast check (type check, lint and the tests it touches; never the full suite): catherd runs it when the task ends complete (in a task's own tree, at its merge) and wakes you with the result. A worker without one gets the profile's fastCheck.",
         ),
+      worktree: WORKTREE.optional(),
+      from: z
+        .literal("clean")
+        .optional()
+        .describe("clean: a new tree from the run's branch, not the last attempt's work"),
       why,
     },
     false,
@@ -353,6 +412,10 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
             .map((p) => ({ path: p, why: "" })),
         ],
         ...(t.oracle?.accepted === null ? { oracle: `held (diff ${t.oracle.diff})` } : {}),
+        tree:
+          t.tree === null
+            ? null
+            : { branch: taskBranch(c.run, t.tree), merged: t.merged, checkpoint: t.checkpoint },
         stopReason:
           t.state === "ended" ? t.outcome : t.state === "queued" || t.state === "working" ? null : t.state,
         costUsd: record?.costUsd ?? null,
@@ -410,6 +473,8 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
           ...(t.ledgerTask ? { ledgerTask: t.ledgerTask } : {}),
           check: t.check ?? "",
           ...(t.delegatedOracle ? { oracle: t.delegatedOracle } : {}),
+          // plan 55: a follow-up works on the same tree, or on a new one from the run's branch once it is merged
+          worktree: t.tree === null ? "integration" : t.merged ? "new" : `task:${t.taskId}`,
           thread,
           why: a.why,
         });

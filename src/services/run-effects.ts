@@ -26,6 +26,7 @@ import type { Deps } from "./ports.ts";
 import { runArchitectCheck } from "./architect-check.ts";
 import { runLand } from "./land.ts";
 import { claimRunTree } from "./run-tree.ts";
+import { checkpointTree, claimTaskTree } from "./writer-tree.ts";
 import { writeArchitectReport } from "./architect-run.ts";
 import { renderLedger } from "./ledger-store.ts";
 import { writeTextAtomic } from "../infra/store.ts";
@@ -69,6 +70,7 @@ export function endedEvent(
   record: RunRecord,
   unit: string,
   oracle: { paths: string[]; diff: string } | null = null,
+  checkpoint: string | null = null,
 ): RunEventInput {
   const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
   let verdict: "pass" | "fail" | "blocked" | null = null;
@@ -122,6 +124,7 @@ export function endedEvent(
       ? { lost: true as const }
       : {}),
     ...(oracle ? { oracle } : {}),
+    ...(checkpoint ? { checkpoint } : {}),
   };
 }
 
@@ -188,13 +191,21 @@ export function realEffects(deps: Deps, run: Run): Effects {
       const record = await finalizeDispatch(run, d);
       // an oracle diff that cannot be taken never keeps the dispatch from ending
       const oracle = await oracleChange(run, d.admit.name).catch(() => null);
+      // spec D5: a writer's tree as the dispatch left it, the n-th of that tree; a failed snapshot ends it all the same
+      const before = replayRun(run).arch;
+      const tree = before.tasks[d.admit.name]?.tree ?? null;
+      const n = Object.values(before.tasks).filter((t) => t.tree === tree && t.endedSeq !== null).length + 1;
+      const checkpoint = tree ? await checkpointTree(run, tree, n).catch(() => null) : null;
       // under the lock: a settle of an earlier daemon in this process may still be running, and the second is a no-op
       const ended = await withEventsLock(run, (add) => {
         const s = replayRun(run);
         if (s.dispatches[id]?.ended) return false;
         // the diff file goes with the event, so a duplicate settle never overwrites it
         if (oracle) writeTextAtomic(join(run.dir, oracle.diff), oracle.text);
-        add(endedEvent(run, record, unit, oracle && { paths: oracle.paths, diff: oracle.diff }), at());
+        add(
+          endedEvent(run, record, unit, oracle && { paths: oracle.paths, diff: oracle.diff }, checkpoint),
+          at(),
+        );
         // spec D6: a task that ended complete gets its fast check at once; nothing waits on it
         const fast = fastCheckFor(s, record);
         if (fast)
@@ -274,6 +285,9 @@ export function realEffects(deps: Deps, run: Run): Effects {
     if (parsed !== null && heldQuotas(s).includes(quotaOf(parsed)))
       return void (await refuse("E_RUNG_HELD", `the quota of ${rung} is held`));
     const resumed = a.thread === null ? full : await render(true);
+    // plan 55, spec D5: a writer works in its own tree, made the first time a task of it starts
+    const tree = s.arch.tasks[a.name]?.tree ?? null;
+    const cwd = tree ? await claimTaskTree(deps, run, tree) : undefined;
     let admitted: Awaited<ReturnType<typeof admit>>;
     try {
       admitted = await admit(deps, run, {
@@ -286,6 +300,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
         thread: a.thread,
         lane: a.lane,
         failoverFrom: a.failoverFrom,
+        ...(cwd ? { cwd } : {}),
       });
     } catch (e) {
       if (!isCatherdError(e)) throw e;

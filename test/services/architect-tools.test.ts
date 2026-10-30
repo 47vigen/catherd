@@ -189,6 +189,57 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     ).toHaveLength(1);
   });
 
+  it("delegate_task puts a writing task in its own tree, continues a retry in it, and gives readers none (plan 55, spec D5)", async () => {
+    const { run } = branchRun();
+    await appendEvent(run, {
+      type: "run.started",
+      ...startedFields,
+      base: "main",
+      trees: "writer",
+      caps: { wallMin: 720, attempts: 9 },
+    });
+    await call(run, "ledger", { tasks: { add: [{ id: "L1", goal: "the wallet" }] }, why: "w" });
+    const treeOf = async (args: object) => {
+      await call(run, "delegate_task", { task: "x", why: "w", ...args });
+      return (last(run) as { tree?: string }).tree;
+    };
+    const refused = (args: object) =>
+      expect(call(run, "delegate_task", { task: "x", why: "w", ...args })).rejects.toMatchObject({
+        code: "E_INPUT_INVALID",
+      });
+    expect(await treeOf({ role: "worker", ledgerTask: "L1" })).toBe("T1");
+    expect(await treeOf({ role: "worker", worktree: "integration" })).toBeUndefined();
+    expect(await treeOf({ role: "reviewer" })).toBeUndefined();
+    await refused({ role: "reviewer", worktree: "new" });
+    await refused({ role: "worker", worktree: "task:T9" });
+    // T1 is still queued in its tree: a second task may not join it, and a retry gets a tree of its own
+    await refused({ role: "worker", worktree: "task:T1" });
+    expect(await treeOf({ role: "worker", ledgerTask: "L1" })).toBe("T4");
+    const log = makeLog();
+    for (const name of ["T1", "T4"])
+      endDispatch(log, startDispatch(log, { name, unit: name }), { name, unit: name, thread: `th-${name}` });
+    for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    // the next attempt continues in the last attempt's tree, unless from: clean
+    expect(await treeOf({ role: "worker", ledgerTask: "L1" })).toBe("T4");
+    // a follow-up on a finished task's thread works in the same tree
+    expect(await call(run, "thread_send", { to: "T1", text: "and the refund?", why: "w" })).toMatchObject({
+      taskId: "T6",
+    });
+    expect(replayRun(run).arch.tasks.T6?.tree).toBe("T1");
+    expect(await treeOf({ role: "writer", ledgerTask: "L1", from: "clean" })).toBe("T7");
+    await refused({ role: "worker", worktree: "task:T4", from: "clean" });
+    expect(await call(run, "capabilities", {})).toMatchObject({ trees: "writer" });
+  });
+
+  it("delegate_task refuses a tree of its own on a run whose writers share one (plan 55)", async () => {
+    const run = await architectRun();
+    await expect(
+      call(run, "delegate_task", { role: "worker", task: "x", worktree: "new", why: "w" }),
+    ).rejects.toMatchObject({ code: "E_INPUT_INVALID" });
+    await call(run, "delegate_task", { role: "worker", task: "x", why: "w" });
+    expect(last(run)).not.toHaveProperty("tree");
+  });
+
   it("delegate_task records a task's fast check, the profile's for a worker without one, and none for a reader (plan 53)", async () => {
     const run = await architectRun();
     const checkOf = async (args: object) => {
