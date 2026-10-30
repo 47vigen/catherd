@@ -55,6 +55,10 @@ const out = async (dir: string, args: string[]): Promise<string | null> => {
   return r.kind === "ok" ? r.out : null;
 };
 
+/** The untracked, not ignored files of a tree. */
+const untracked = async (dir: string): Promise<string[]> =>
+  ((await out(dir, ["ls-files", "--others", "--exclude-standard", "-z"])) ?? "").split("\0").filter(Boolean);
+
 /**
  * Plan 55, spec D5 and D9: merges a task's own tree into the run's branch, one merge at a time. catherd commits what
  * the tree holds, holds the merge when the writer changed its ledger task's oracle (until the architect accepts it),
@@ -188,22 +192,16 @@ export async function runMerge(
     );
   // the architect may commit on the run's branch while the check runs: then the branch is merged in once more
   for (let attempt = 1; ; attempt++) {
+    const before = new Set(await untracked(dir));
     const early = await mergeIn(deps, run, m, t, dir, branch, checkMs, attempt, end);
     if (early) return early;
-    // nothing the writer has may be lost with the tree: edits, untracked files, a submodule's own changes
+    // R18: the files the check left; nothing the writer has may be lost with the tree, and nothing the check left may
+    // be committed by a later merge
+    const left = (await untracked(dir)).filter((p) => !before.has(p));
     const dirty = lines(
       (await out(dir, ["status", "--porcelain", "--ignore-submodules=none"])) ?? "?? git cannot read it",
     );
-    if (dirty.length)
-      return (
-        // a task that joined the tree is the likelier reason for what it holds
-        lateRefusal(replayRun(run)) ??
-        end(
-          "refused",
-          `${tree}'s tree is not clean after the check (${dirty.slice(0, 5).join(", ")}${dirty.length > 5 ? ", …" : ""}): catherd keeps it; commit or remove those, or send the task back`,
-        )
-      );
-    const moved = await advance();
+    const moved = await advance(left, dirty);
     if (moved !== "moved") {
       // the merge is queued still, so no delegate joins the tree: the removal needs no lock
       if (moved.done.outcome === "merged")
@@ -235,7 +233,7 @@ export async function runMerge(
    * Under the events lock, so no delegate can join the tree between the last look and the fast-forward; the lock is
    * held for git calls that take milliseconds, never for the tree's removal (tens of seconds with node_modules).
    */
-  function advance(): Promise<ReturnType<typeof end> | "moved"> {
+  function advance(left: string[], dirty: string[]): Promise<ReturnType<typeof end> | "moved"> {
     return withEventsLock(run, async () => {
       const now = replayRun(run);
       if (stopping(now)) return end("refused", STOPPING(tree));
@@ -247,6 +245,14 @@ export async function runMerge(
           "refused",
           `the run's tree is ${runOn ? `on ${runOn}` : "on a detached HEAD"}, not on refs/heads/${branch}: put it back, then merge again`,
         );
+      if (left.length || dirty.length) {
+        // only now, with no task delegated into the tree, are the check's own leftovers its to remove
+        if (left.length) await gitRun(dir, ["--literal-pathspecs", "clean", "-f", "-q", "--", ...left]);
+        return end(
+          "refused",
+          `${tree}'s tree is not clean after the check (${dirty.slice(0, 5).join(", ")}${dirty.length > 5 ? ", …" : ""})${left.length ? `; catherd removed the ${left.length} untracked file(s) the check left, so that no merge commits them (ignore them in the repository, or have the check clean up)` : ""}: catherd keeps the tree; commit or remove what is left, or send the task back`,
+        );
+      }
       const head = (await out(dir, ["rev-parse", "HEAD"]))?.trim();
       if (!head) return end("refused", `git cannot read ${tree}'s HEAD`);
       if ((await isAncestor(integration, "HEAD", head)) === false) return "moved";

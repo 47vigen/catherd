@@ -141,6 +141,15 @@ this branch, one per task, in task order. Full gate and the panel's gate green o
   the fast-forward and refuses, keeping the tree, when a task was delegated into it after `merge.requested`; `merge.done`
   marks merged only the tasks delegated before that seq. — A follow-up resumed in a new tree would lack the thread's
   own work. — Cost if wrong: one wait for a merge result.
+- **R18 — a merge never commits what its own check left (re-review).** The fast check runs in a clean tree (everything
+  was committed and the run's branch merged in), so any untracked file after it is the check's. `runMerge` records the
+  untracked files before the merge-in and the check; when the check leaves new ones, or leaves the tree otherwise
+  unclean, the merge is refused (the tree is kept), and under the events lock, once no task was delegated into the tree,
+  `git clean -f` removes exactly those files, so "merge again" cannot commit them with `add -A`. A check that always
+  leaves files therefore never merges until they are ignored or the check cleans up: the digest says so. Tracked files
+  a check changed stay as the writer's to commit or restore. The lock is never held for the tree's removal: the
+  fast-forward is under it, the removal after it (the merge is queued still, so no delegate joins). — Cost if wrong: a
+  project whose check builds into an untracked directory needs a `.gitignore` line.
 
 ## Review Focus
 

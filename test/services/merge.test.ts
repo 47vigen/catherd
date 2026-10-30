@@ -419,7 +419,16 @@ describe("a merge moves what the tree holds and nothing else (plan 55 review I5 
     const { done } = await runMerge(deps, run, merge("T1"), CHECK_MS);
     expect(done).toMatchObject({ outcome: "refused", message: expect.stringContaining("artifact.out") });
     expect(git(tree, "rev-parse", "HEAD")).toBe(head);
-    expect(readFileSync(join(dir, "artifact.out"), "utf8")).toBe("built\n");
+    // R18: what the check left is removed, and "merge again" must not commit it
+    expect(existsSync(join(dir, "artifact.out"))).toBe(false);
+    expect(readFileSync(join(dir, "w.txt"), "utf8")).toBe("work\n");
+    const again = await runMerge(deps, run, merge("T1", "M2"), CHECK_MS);
+    expect(again.done).toMatchObject({
+      outcome: "refused",
+      message: expect.stringContaining("artifact.out"),
+    });
+    expect(git(dir, "log", "--format=%H", "--", "artifact.out")).toBe("");
+    expect(git(tree, "rev-parse", "HEAD")).toBe(head);
   });
 
   it("refuses when the run's tree is not on the run's branch", async () => {
