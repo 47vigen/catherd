@@ -232,6 +232,42 @@ describe("a merge never takes a tree a later task joined (plan 55 review C1)", (
   });
 });
 
+describe("catherd's own commits and merges ignore the repository's hooks (plan 55 review I1)", () => {
+  it("commits, merges the run's branch in and commits the regenerated lockfile past hooks that reject everything", async () => {
+    const { run, deps, tree } = await treesRun({ path: "bun.lock", text: "v1\n" });
+    deps.view.regen = { paths: ["bun.lock"], command: "printf 'regenerated\\n' > bun.lock" };
+    const dir = await worked(run, deps, "T1");
+    put(dir, "bun.lock", "mine\n");
+    put(tree, "bun.lock", "theirs\n");
+    git(tree, "commit", "-q", "-am", "theirs");
+    const hooks = join(run.meta.repo, ".git", "hooks");
+    mkdirSync(hooks, { recursive: true });
+    for (const name of ["pre-commit", "commit-msg", "pre-merge-commit", "post-merge", "post-commit"]) {
+      writeFileSync(join(hooks, name), "#!/bin/sh\necho 'hook says no' >&2\nexit 1\n", { mode: 0o755 });
+    }
+    const { done } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done).toMatchObject({ outcome: "merged", files: ["bun.lock"] });
+    expect(readFileSync(join(tree, "bun.lock"), "utf8")).toBe("regenerated\n");
+    expect(git(tree, "log", "-1", "--format=%s")).toBe("catherd: regenerate bun.lock");
+  });
+
+  it("sends the task back as red when the regenerated lockfile cannot be committed, never dropping it silently", async () => {
+    const { run, deps, tree } = await treesRun({ path: "bun.lock", text: "v1\n" });
+    // the command leaves a lock file behind that makes the commit fail
+    deps.view.regen = {
+      paths: ["bun.lock"],
+      command: "printf 'regenerated\\n' > bun.lock; touch \"$(git rev-parse --git-path index.lock)\"",
+    };
+    const dir = await worked(run, deps, "T1");
+    put(dir, "bun.lock", "mine\n");
+    put(tree, "bun.lock", "theirs\n");
+    git(tree, "commit", "-q", "-am", "theirs");
+    const { done, back } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done).toMatchObject({ outcome: "red", message: expect.stringContaining("regenerat") });
+    expect(back?.cause).toBe("red");
+  });
+});
+
 describe("after a merge (plan 55, spec D5)", () => {
   it("keeps the run's side of a regenerable path both sides changed, then regenerates it in the task's tree", async () => {
     const { run, deps, tree } = await treesRun({ path: "bun.lock", text: "v1\n" });

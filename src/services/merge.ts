@@ -37,6 +37,18 @@ const lines = (s: string): string[] =>
 
 const tail = (s: string): string => s.trim().slice(-600);
 
+/** catherd's own commits and merges: its identity, no signing, and none of the repository's hooks (commitlint, lefthook). */
+const own = [
+  "-c",
+  "user.name=catherd",
+  "-c",
+  "user.email=catherd@catherd.invalid",
+  "-c",
+  "commit.gpgsign=false",
+  "-c",
+  "core.hooksPath=/dev/null",
+];
+
 const out = async (dir: string, args: string[]): Promise<string | null> => {
   const r = await git(dir, args, 60_000);
   return r.kind === "ok" ? r.out : null;
@@ -87,10 +99,14 @@ export async function runMerge(
   const status = await out(dir, ["status", "--porcelain"]);
   if (status === null) return end("refused", `git cannot read ${dir}`);
   if (status.trim()) {
-    await gitRun(dir, ["add", "-A"]);
+    const added = await gitRun(dir, ["add", "-A"]);
+    if (added.code !== 0)
+      return end("refused", `git add failed in ${dir}: ${tail(`${added.out}${added.err}`)}`);
     const c = await gitRun(dir, [
+      ...own,
       "commit",
       "-q",
+      "--no-verify",
       "-m",
       `catherd: ${m.taskId}${t.ledgerTask ? ` (${t.ledgerTask})` : ""}`,
     ]);
@@ -106,15 +122,22 @@ export async function runMerge(
   const regen = runProfile(deps, run).regen;
   const pre = (await out(dir, ["rev-parse", "HEAD"]))?.trim() ?? "";
   const merged = await gitRun(dir, [
+    ...own,
     ...(regen ? regenConfig(run, regen.paths) : []),
     "merge",
     "--no-edit",
+    "--no-verify",
     "-q",
     branch,
   ]);
   if (merged.code !== 0) {
     const files = lines((await out(dir, ["diff", "--name-only", "--diff-filter=U"])) ?? "");
-    await gitRun(dir, ["merge", "--abort"]);
+    const aborted = await gitRun(dir, ["merge", "--abort"]);
+    if (aborted.code !== 0)
+      return end(
+        "refused",
+        `the run's branch conflicts with ${m.taskId} in ${files.join(", ") || "its tree"} and git could not abort the merge in ${dir} (${tail(`${aborted.out}${aborted.err}`)}): catherd keeps the tree; finish or abort that merge by hand`,
+      );
     const where = files.length ? files.join(", ") : tail(`${merged.out}${merged.err}`);
     return end(
       "conflict",
@@ -182,7 +205,14 @@ export async function runMerge(
         `${late.map((x) => x.taskId).join(", ")} was delegated into ${tree}'s tree after this merge was asked for: catherd keeps the tree. Merge it again when that task ends`,
       );
     const before = (await out(integration, ["rev-parse", "HEAD"]))?.trim() ?? "";
-    const ff = await gitRun(integration, ["merge", "--ff-only", "-q", taskBranch(run, tree)]);
+    const ff = await gitRun(integration, [
+      ...own,
+      "merge",
+      "--ff-only",
+      "--no-verify",
+      "-q",
+      taskBranch(run, tree),
+    ]);
     if (ff.code !== 0)
       return end(
         "refused",
@@ -243,8 +273,19 @@ async function regenerate(
   if (r.timedOut || r.code !== 0)
     return `the regenerate command \`${regen.command}\` for ${both.join(", ")} ${r.timedOut ? "timed out" : `exited ${r.code}`}: ${tail(r.tail.join("\n"))}`;
   if ((await out(dir, ["status", "--porcelain"]))?.trim()) {
-    await gitRun(dir, ["add", "-A"]);
-    await gitRun(dir, ["commit", "-q", "-m", `catherd: regenerate ${both.join(", ")}`.slice(0, 100)]);
+    const added = await gitRun(dir, ["add", "-A"]);
+    if (added.code !== 0)
+      return `git add of the regenerated ${both.join(", ")} failed: ${tail(`${added.out}${added.err}`)}`;
+    const c = await gitRun(dir, [
+      ...own,
+      "commit",
+      "-q",
+      "--no-verify",
+      "-m",
+      `catherd: regenerate ${both.join(", ")}`.slice(0, 100),
+    ]);
+    if (c.code !== 0)
+      return `the commit of the regenerated ${both.join(", ")} failed: ${tail(`${c.out}${c.err}`)}`;
   }
   return null;
 }
