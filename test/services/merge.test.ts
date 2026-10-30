@@ -507,6 +507,21 @@ describe("conflict markers are never committed (plan 55 review I2)", () => {
     expect(git(dir, "status", "--porcelain")).toBe("M a.txt\n?? new.txt");
   });
 
+  it("sends back markers the writer committed itself, since the check reads from where the tree left the run's branch", async () => {
+    const { run, deps, tree } = await treesRun({ path: "a.txt", text: "base\n" });
+    const dir = await worked(run, deps, "T1");
+    put(dir, "a.txt", "<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> wallet\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "committed with markers");
+    const head = git(tree, "rev-parse", "HEAD");
+    const own = git(dir, "rev-parse", "HEAD");
+    const { done, back } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done).toMatchObject({ outcome: "conflict", files: ["a.txt"] });
+    expect(back).toMatchObject({ cause: "conflict", text: expect.stringContaining("a.txt:1") });
+    expect(git(dir, "rev-parse", "HEAD")).toBe(own);
+    expect(git(tree, "rev-parse", "HEAD")).toBe(head);
+  });
+
   it("sends back a tree a crash left in the middle of catherd's own merge, instead of concluding it", async () => {
     const { run, deps, tree } = await treesRun({ path: "a.txt", text: "base\n" });
     const dir = await worked(run, deps, "T1");

@@ -332,13 +332,15 @@ export function snapshotTree(dir: string): Promise<string | null> {
 
 /**
  * The `path:line` of every leftover conflict marker the tree would commit if everything were added (an unmerged path
- * included), read on a throwaway index; whitespace complaints of `diff --check` are not markers. Null when git cannot say.
+ * included), read on a throwaway index against `base` (HEAD by default; a writer's tree passes where it left the run's
+ * branch, so its own commits are read too); whitespace complaints of `diff --check` are not markers. Null when git
+ * cannot say.
  */
-export function conflictMarkers(dir: string): Promise<string[] | null> {
+export function conflictMarkers(dir: string, base = "HEAD"): Promise<string[] | null> {
   return inScratchIndex(dir, async (env) => {
     const r = await gitRun(
       dir,
-      ["-c", "core.quotePath=false", "diff", "--cached", "--check", "HEAD"],
+      ["-c", "core.quotePath=false", "diff", "--cached", "--check", base],
       60_000,
       env,
     );
