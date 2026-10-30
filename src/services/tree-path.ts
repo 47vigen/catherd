@@ -19,6 +19,9 @@ export const taskBranch = (run: Run, owner: string): string => `catherd/${run.id
 export const checkpointRef = (run: Run, owner: string, n: number): string =>
   `refs/catherd/${run.id}/${owner}/${n}`;
 
+/** Written just before a merge fast-forwards the run's branch to a writer's tree: a restart that finds the tree gone can tell. */
+export const mergedRef = (run: Run, owner: string): string => `refs/catherd/${run.id}/${owner}/merged`;
+
 /** The marker beside the tree, never inside it, that Setup: finished. */
 export const readyFile = (run: Run): string => join(run.dir, "trees", "run.ready");
 

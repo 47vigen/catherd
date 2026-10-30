@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ArchMerge } from "../../src/domain/architect-state.ts";
 import { runBranch } from "../../src/domain/branch.ts";
@@ -290,6 +290,126 @@ describe("the oracle of every task in a tree is held at its merge (plan 55 revie
     const { done } = await runMerge(deps, run, merge("T2"), CHECK_MS);
     expect(done).toMatchObject({ outcome: "held", oracle: { paths: ["test/pay.test.ts"] } });
     expect(git(tree, "rev-parse", "HEAD")).toBe(head);
+  });
+});
+
+describe("a merge moves what the tree holds and nothing else (plan 55 review I5 and minors)", () => {
+  it("refuses, keeping the tree, a writer that left its branch (switched or detached)", async () => {
+    const { run, deps, tree } = await treesRun();
+    const dir = await worked(run, deps, "T1");
+    git(dir, "switch", "-q", "-c", "elsewhere");
+    put(dir, "w.txt", "work\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "on another branch");
+    const head = git(tree, "rev-parse", "HEAD");
+    const first = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(first.done).toMatchObject({ outcome: "refused", message: expect.stringContaining("elsewhere") });
+    git(dir, "switch", "-q", "--detach");
+    const second = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(second.done).toMatchObject({ outcome: "refused", message: expect.stringContaining("detached") });
+    expect(git(tree, "rev-parse", "HEAD")).toBe(head);
+    expect(readFileSync(join(dir, "w.txt"), "utf8")).toBe("work\n");
+  });
+
+  it("fast-forwards to what the task tree's HEAD is, and keeps a tree that is not clean after the check", async () => {
+    const { run, deps, tree } = await treesRun();
+    const dir = await worked(run, deps, "T1", { check: "echo built > artifact.out" });
+    put(dir, "w.txt", "work\n");
+    const head = git(tree, "rev-parse", "HEAD");
+    const { done } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done).toMatchObject({ outcome: "refused", message: expect.stringContaining("artifact.out") });
+    expect(git(tree, "rev-parse", "HEAD")).toBe(head);
+    expect(readFileSync(join(dir, "artifact.out"), "utf8")).toBe("built\n");
+  });
+
+  it("refuses when the run's tree is not on the run's branch", async () => {
+    const { run, deps, tree } = await treesRun();
+    const dir = await worked(run, deps, "T1");
+    put(dir, "w.txt", "work\n");
+    git(tree, "switch", "-q", "--detach");
+    const { done } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done).toMatchObject({ outcome: "refused", message: expect.stringContaining("refs/heads/wallet") });
+    expect(existsSync(dir)).toBe(true);
+  });
+
+  it("stops without moving anything once the run is finishing", async () => {
+    const { run, deps, tree } = await treesRun();
+    const dir = await worked(run, deps, "T1");
+    put(dir, "w.txt", "work\n");
+    await appendEvent(run, { type: "run.finishing", verdict: "stopped", by: "architect-1", why: "w" });
+    const head = git(tree, "rev-parse", "HEAD");
+    const { done } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done).toMatchObject({ outcome: "refused", message: expect.stringContaining("finishing") });
+    expect(git(tree, "rev-parse", "HEAD")).toBe(head);
+    expect(existsSync(join(dir, "w.txt"))).toBe(true);
+  });
+
+  it("stops at the fast-forward when the run began finishing during the check", async () => {
+    const { run, deps, tree } = await treesRun();
+    const dir = await worked(run, deps, "T1", {
+      check: "touch ../started; until [ -f ../go ]; do sleep 0.02; done",
+    });
+    put(dir, "w.txt", "work\n");
+    const head = git(tree, "rev-parse", "HEAD");
+    const running = runMerge(deps, run, merge("T1"), CHECK_MS);
+    while (!existsSync(join(run.dir, "trees", "started"))) await Bun.sleep(5);
+    await appendEvent(run, { type: "run.finishing", verdict: "stopped", by: "architect-1", why: "w" });
+    writeFileSync(join(run.dir, "trees", "go"), "");
+    expect((await running).done).toMatchObject({ outcome: "refused" });
+    expect(git(tree, "rev-parse", "HEAD")).toBe(head);
+    expect(existsSync(dir)).toBe(true);
+  });
+
+  it("re-merges once when the architect committed during the fast check, and says so when the branch moves again", async () => {
+    const { run, deps, tree } = await treesRun();
+    const dir = await worked(run, deps, "T1", {
+      check: "touch ../started; until [ -f ../go ]; do sleep 0.02; done",
+    });
+    put(dir, "w.txt", "work\n");
+    const running = runMerge(deps, run, merge("T1"), CHECK_MS);
+    while (!existsSync(join(run.dir, "trees", "started"))) await Bun.sleep(5);
+    put(tree, "architect.txt", "x\n");
+    git(tree, "add", "-A");
+    git(tree, "commit", "-q", "-m", "architect");
+    writeFileSync(join(run.dir, "trees", "go"), "");
+    const { done } = await running;
+    expect(done).toMatchObject({ outcome: "merged" });
+    expect(existsSync(join(tree, "architect.txt"))).toBe(true);
+    expect(readFileSync(join(tree, "w.txt"), "utf8")).toBe("work\n");
+
+    const again = await treesRun();
+    const dir2 = await worked(again.run, again.deps, "T1", {
+      check: `git -c user.name=t -c user.email=t@t -C ${again.tree} commit -q --allow-empty -m moved`,
+    });
+    put(dir2, "w.txt", "work\n");
+    const second = await runMerge(again.deps, again.run, merge("T1"), CHECK_MS);
+    expect(second.done).toMatchObject({ outcome: "refused", message: expect.stringContaining("moved") });
+    expect(existsSync(dir2)).toBe(true);
+  });
+
+  it("reports a stale index.lock in the task's tree, and does not delete it", async () => {
+    const { run, deps } = await treesRun();
+    const dir = await worked(run, deps, "T1");
+    put(dir, "w.txt", "work\n");
+    const lock = join(git(dir, "rev-parse", "--absolute-git-dir"), "index.lock");
+    writeFileSync(lock, "");
+    utimesSync(lock, new Date(0), new Date(0));
+    const { done } = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(done.outcome).toBe("refused");
+    expect(done.message).toContain("index.lock");
+    expect(done.message).toContain("older than this daemon");
+    expect(existsSync(lock)).toBe(true);
+    expect(existsSync(join(dir, "w.txt"))).toBe(true);
+  });
+
+  it("records a merge as merged, not refused, when a restart came after the tree was removed", async () => {
+    const { run, deps, tree } = await treesRun();
+    const dir = await worked(run, deps, "T1");
+    put(dir, "w.txt", "work\n");
+    const first = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(first.done.outcome).toBe("merged");
+    const again = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(again.done).toMatchObject({ outcome: "merged", sha: git(tree, "rev-parse", "HEAD") });
   });
 });
 

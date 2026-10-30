@@ -1,11 +1,11 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { type ArchMerge, type ArchTask, treeWorking } from "../domain/architect-state.ts";
 import { runBranch } from "../domain/branch.ts";
 import type { RunEventInput } from "../domain/run-events.ts";
 import { errorMessage } from "../domain/errors.ts";
 import type { Regen } from "../domain/profile.ts";
-import { conflictMarkers, git, gitRun, snapshotTree } from "../infra/git.ts";
+import { conflictMarkers, git, gitRun, isAncestor, snapshotTree } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
 import { writeTextAtomic } from "../infra/store.ts";
@@ -18,7 +18,8 @@ import { oracleDiffFile, oracleOf } from "./oracle.ts";
 import type { Deps } from "./ports.ts";
 import { replayRun, withEventsLock } from "./run-events-store.ts";
 import type { Run } from "./run-store.ts";
-import { runTree, taskBranch, taskTreeDir } from "./tree-path.ts";
+import type { RunState } from "../domain/run-state.ts";
+import { mergedRef, runTree, taskBranch, taskTreeDir } from "./tree-path.ts";
 import { removeTaskTree } from "./writer-tree.ts";
 
 type MergeDone = Extract<RunEventInput, { type: "merge.done" }>;
@@ -90,11 +91,39 @@ export async function runMerge(
   if (!t?.tree) return end("refused", `${m.taskId} works on the run's tree: there is nothing to merge`);
   const tree = t.tree;
   if (t.merged) return end("refused", `${m.taskId}'s tree is merged already`);
-  if (treeWorking(a, t.tree))
-    return end("refused", `a task still works in ${t.tree}'s tree: merge it when it ends`);
-  const dir = taskTreeDir(run, t.tree);
-  if (!existsSync(dir)) return end("refused", `${t.tree}'s tree is gone: ${dir}`);
+  if (treeWorking(a, tree))
+    return end("refused", `a task still works in ${tree}'s tree: merge it when it ends`);
+  if (stopping(replayRun(run))) return end("refused", STOPPING(tree));
+  const dir = taskTreeDir(run, tree);
   const integration = runTree(run);
+  if (!existsSync(dir)) {
+    // a restart between the tree's removal and `merge.done`: the ref written before the fast-forward is in the branch
+    const mark = (
+      await out(run.meta.repo, ["rev-parse", "-q", "--verify", `${mergedRef(run, tree)}^{commit}`])
+    )?.trim();
+    if (mark && (await isAncestor(integration, mark, "HEAD")) === true) {
+      const sha = (await out(integration, ["rev-parse", "HEAD"]))?.trim() ?? null;
+      return end(
+        "merged",
+        `${branch} already holds ${m.taskId}'s work (${mark.slice(0, 12)}): it was merged before a restart`,
+        { sha },
+      );
+    }
+    return end("refused", `${tree}'s tree is gone: ${dir}`);
+  }
+  // a writer that left its branch: the fast-forward below moves to this tree's HEAD, which must be the branch's
+  const onBranch = (await out(dir, ["symbolic-ref", "-q", "HEAD"]))?.trim();
+  if (onBranch !== `refs/heads/${taskBranch(run, tree)}`)
+    return end(
+      "refused",
+      `${tree}'s tree is ${onBranch ? `on ${onBranch}` : "on a detached HEAD"}, not on ${taskBranch(run, tree)}: catherd keeps it; switch it back (git switch ${taskBranch(run, tree)}) and merge again`,
+    );
+  const lock = (await out(dir, ["rev-parse", "--path-format=absolute", "--git-path", "index.lock"]))?.trim();
+  if (lock && existsSync(lock))
+    return end(
+      "refused",
+      `${lock} exists${statSync(lock).mtimeMs < Date.now() - process.uptime() * 1000 ? ", older than this daemon: a git that died left it" : ""}: catherd keeps the tree and does not delete it; remove the file if no git runs in ${dir}, then merge again`,
+    );
   // the writer's work, committed: the merge, the check and the fast-forward all read commits
   const status = await out(dir, ["status", "--porcelain"]);
   if (status === null) return end("refused", `git cannot read ${dir}`);
@@ -137,13 +166,105 @@ export async function runMerge(
         [
           ...new Set(
             Object.values(a.tasks)
-              .filter((x) => x.tree === t.tree && x.ledgerTask)
+              .filter((x) => x.tree === tree && x.ledgerTask)
               .map((x) => x.ledgerTask),
           ),
         ].join(", ") || "its tree"
       } (diff ${held.diff}): accept it with oracle_accept and merge it again, or send the task back to restore it`,
       { files: held.paths, oracle: held },
     );
+  // the architect may commit on the run's branch while the check runs: then the branch is merged in once more
+  for (let attempt = 1; ; attempt++) {
+    const early = await mergeIn(deps, run, m, t, dir, branch, checkMs, attempt, end);
+    if (early) return early;
+    const moved = await advance();
+    if (moved !== "moved") return moved;
+    if (attempt === 2)
+      return end(
+        "refused",
+        `the run's branch moved again while ${m.taskId} was checked (it has commits ${m.taskId}'s tree does not): catherd keeps the tree; merge it again`,
+      );
+  }
+
+  /** Under the events lock, so no delegate can join the tree between the last look and the removal. */
+  function advance(): Promise<ReturnType<typeof end> | "moved"> {
+    return withEventsLock(run, async () => {
+      const now = replayRun(run);
+      if (stopping(now)) return end("refused", STOPPING(tree));
+      const late = Object.values(now.arch.tasks).filter(
+        (x) => x.tree === tree && x.delegatedSeq > m.seq && x.state !== "refused" && x.state !== "cancelled",
+      );
+      if (late.length)
+        return end(
+          "refused",
+          `${late.map((x) => x.taskId).join(", ")} was delegated into ${tree}'s tree after this merge was asked for: catherd keeps the tree. Merge it again when that task ends`,
+        );
+      const runOn = (await out(integration, ["symbolic-ref", "-q", "HEAD"]))?.trim();
+      if (runOn !== `refs/heads/${branch}`)
+        return end(
+          "refused",
+          `the run's tree is ${runOn ? `on ${runOn}` : "on a detached HEAD"}, not on refs/heads/${branch}: put it back, then merge again`,
+        );
+      // nothing the writer has may be lost with the tree: edits, untracked files, a submodule's own changes
+      const dirty = lines(
+        (await out(dir, ["status", "--porcelain", "--ignore-submodules=none"])) ?? "?? git cannot read it",
+      );
+      if (dirty.length)
+        return end(
+          "refused",
+          `${tree}'s tree is not clean after the check (${dirty.slice(0, 5).join(", ")}${dirty.length > 5 ? ", …" : ""}): catherd keeps it; commit or remove those, or send the task back`,
+        );
+      const head = (await out(dir, ["rev-parse", "HEAD"]))?.trim();
+      if (!head) return end("refused", `git cannot read ${tree}'s HEAD`);
+      if ((await isAncestor(integration, "HEAD", head)) === false) return "moved";
+      const before = (await out(integration, ["rev-parse", "HEAD"]))?.trim() ?? "";
+      await gitRun(run.meta.repo, ["update-ref", mergedRef(run, tree), head]);
+      const ff = await gitRun(integration, [...own, "merge", "--ff-only", "--no-verify", "-q", head]);
+      if (ff.code !== 0)
+        return end(
+          "refused",
+          `the run's tree did not fast-forward to ${m.taskId}'s work (${tail(`${ff.out}${ff.err}`)}): commit or drop your own edits there in the same files, then merge again`,
+        );
+      const sha = (await out(integration, ["rev-parse", "HEAD"]))?.trim() ?? null;
+      const files =
+        sha && before ? lines((await out(integration, ["diff", "--name-only", before, sha])) ?? "") : [];
+      await removeTaskTree(run, tree);
+      return end(
+        "merged",
+        `${branch} is at ${sha?.slice(0, 12)}: ${files.length} file(s) from ${m.taskId}${files.length ? ` (${files.slice(0, 10).join(", ")}${files.length > 10 ? ", …" : ""})` : ""}`,
+        { sha, files },
+      );
+    });
+  }
+}
+
+const stopping = (s: RunState): boolean => s.phase === "ended" || s.cancelling || !!s.arch.finishing;
+
+const STOPPING = (tree: string): string =>
+  `the run is finishing or cancelled: nothing is merged into its branch, and catherd keeps ${tree}'s tree`;
+
+type Ended = { done: MergeDone; back: SendBack | null };
+
+/**
+ * Merges the run's branch into the task's tree (regenerable paths keep the run's side and are rebuilt), then runs the
+ * task's fast check there. Null when the tree is ready to fast-forward, else the merge's ending.
+ */
+async function mergeIn(
+  deps: Deps,
+  run: Run,
+  m: ArchMerge,
+  t: ArchTask,
+  dir: string,
+  branch: string,
+  checkMs: number,
+  attempt: number,
+  end: (
+    outcome: MergeDone["outcome"],
+    message: string,
+    more?: Partial<Pick<MergeDone, "sha" | "files" | "oracle">>,
+    back?: SendBack | null,
+  ) => Ended,
+): Promise<Ended | null> {
   const regen = runProfile(deps, run).regen;
   const pre = (await out(dir, ["rev-parse", "HEAD"]))?.trim() ?? "";
   const merged = await gitRun(dir, [
@@ -187,80 +308,42 @@ export async function runMerge(
         },
       );
   }
-  if (t.check) {
-    const c = await runArchitectCheck(
-      deps,
-      run,
-      {
-        checkId: `${m.mergeId}-fast`,
-        command: t.check,
-        scope: "fast",
-        base: false,
-        fresh: false,
-        state: "queued",
-        ref: m.taskId,
-      },
-      { timeoutMs: checkMs },
-    );
-    // a failure the base has the same way is not this task's
-    const inherited = c.failures.length > 0 && c.failures.every((f) => c.preExisting.includes(f));
-    if (c.exit !== 0 && !inherited) {
-      const failed = `\`${t.check}\` failed (exit ${c.exit ?? "timeout"}): ${c.failures.slice(0, 3).join("; ") || "no failing line read"}; log ${c.logPath}`;
-      return end(
-        "red",
-        `its fast check in its tree, merged with the run's branch, ${failed}: catherd sends it back to its writer`,
-        {},
-        {
-          cause: "red",
-          text: `Your fast check ${failed.replace(`log ${c.logPath}`, `log ${join(run.dir, c.logPath)}`)}. It ran in your tree, merged with the run's branch \`${branch}\`. Fix it and end complete: catherd checks and merges again.`,
-        },
-      );
-    }
-  }
-  // the last look and the move are one step under the events lock: a delegate appends under it too, so no task can
-  // join the tree between the look and the removal
-  return withEventsLock(run, async () => {
-    const now = replayRun(run);
-    const late = Object.values(now.arch.tasks).filter(
-      (x) => x.tree === tree && x.delegatedSeq > m.seq && x.state !== "refused" && x.state !== "cancelled",
-    );
-    if (late.length)
-      return end(
-        "refused",
-        `${late.map((x) => x.taskId).join(", ")} was delegated into ${tree}'s tree after this merge was asked for: catherd keeps the tree. Merge it again when that task ends`,
-      );
-    const before = (await out(integration, ["rev-parse", "HEAD"]))?.trim() ?? "";
-    const ff = await gitRun(integration, [
-      ...own,
-      "merge",
-      "--ff-only",
-      "--no-verify",
-      "-q",
-      taskBranch(run, tree),
-    ]);
-    if (ff.code !== 0)
-      return end(
-        "refused",
-        `the run's tree did not fast-forward to ${m.taskId}'s work (${tail(`${ff.out}${ff.err}`)}): commit or drop your own edits there in the same files, then merge again`,
-      );
-    const sha = (await out(integration, ["rev-parse", "HEAD"]))?.trim() ?? null;
-    const files =
-      sha && before ? lines((await out(integration, ["diff", "--name-only", before, sha])) ?? "") : [];
-    await removeTaskTree(run, tree);
-    return end(
-      "merged",
-      `${branch} is at ${sha?.slice(0, 12)}: ${files.length} file(s) from ${m.taskId}${files.length ? ` (${files.slice(0, 10).join(", ")}${files.length > 10 ? ", …" : ""})` : ""}`,
-      { sha, files },
-    );
-  });
+  if (!t.check) return null;
+  const c = await runArchitectCheck(
+    deps,
+    run,
+    {
+      checkId: `${m.mergeId}-fast${attempt > 1 ? `-${attempt}` : ""}`,
+      command: t.check,
+      scope: "fast",
+      base: false,
+      fresh: false,
+      state: "queued",
+      ref: m.taskId,
+    },
+    { timeoutMs: checkMs },
+  );
+  // a failure the base has the same way is not this task's
+  const inherited = c.failures.length > 0 && c.failures.every((f) => c.preExisting.includes(f));
+  if (c.exit === 0 || inherited) return null;
+  const failed = `\`${t.check}\` failed (exit ${c.exit ?? "timeout"}): ${c.failures.slice(0, 3).join("; ") || "no failing line read"}; log ${c.logPath}`;
+  return end(
+    "red",
+    `its fast check in its tree, merged with the run's branch, ${failed}: catherd sends it back to its writer`,
+    {},
+    {
+      cause: "red",
+      text: `Your fast check ${failed.replace(`log ${c.logPath}`, `log ${join(run.dir, c.logPath)}`)}. It ran in your tree, merged with the run's branch \`${branch}\`. Fix it and end complete: catherd checks and merges again.`,
+    },
+  );
 }
+
+const regenAttributes = (run: Run): string => join(run.dir, "trees", "regen.attributes");
 
 /**
  * Spec D5: a regenerable path never conflicts. Its `merge=regen` attribute's driver keeps the run's side (`cp %B %A`),
  * set for this one merge through `-c`, so neither the repository's config nor its attributes change.
  */
-const regenAttributes = (run: Run): string => join(run.dir, "trees", "regen.attributes");
-
 function regenConfig(run: Run, paths: string[]): string[] {
   writeTextAtomic(regenAttributes(run), `${paths.map((p) => `${p} merge=regen`).join("\n")}\n`);
   return [
