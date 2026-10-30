@@ -312,6 +312,63 @@ describe("the oracle of every task in a tree is held at its merge (plan 55 revie
   });
 });
 
+describe("an oracle accept waives only what it accepted (plan 55 re-review)", () => {
+  it("holds another task's oracle, and a later edit to the accepted one, in the same tree", async () => {
+    const { run, deps, tree } = await treesRun();
+    put(tree, "a.test", "a1\n");
+    put(tree, "b.test", "b1\n");
+    git(tree, "add", "-A");
+    git(tree, "commit", "-q", "-m", "oracles");
+    writeLedger(
+      run,
+      {
+        tasks: {
+          add: [
+            { id: "L1", goal: "a", oracle: ["a.test"] },
+            { id: "L2", goal: "b", oracle: ["b.test"] },
+          ],
+        },
+      },
+      new Date(),
+    );
+    const dir = await worked(run, deps, "T1", { ledgerTask: "L1", oracle: ["a.test"] });
+    put(dir, "a.test", "a2\n");
+    const held = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(held.done).toMatchObject({ outcome: "held", oracle: { paths: ["a.test"] } });
+    await appendEvent(run, held.done);
+    await appendEvent(run, { type: "oracle.accepted", taskId: "T1", by: "architect-1", why: "a moves" });
+    // T2 joins T1's tree for the ledger task whose oracle is b.test, and edits b.test and a.test again
+    await appendEvent(run, {
+      type: "task.delegated",
+      taskId: "T2",
+      role: "worker",
+      rung: RUNG,
+      thread: "th-T1",
+      ledgerTask: "L2",
+      by: "architect-1",
+      why: "w",
+      tree: "T1",
+      oracle: ["b.test"],
+    });
+    const log = makeLog();
+    endDispatch(log, startDispatch(log, { name: "T2", unit: "T2" }), { name: "T2", unit: "T2" });
+    for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    put(dir, "b.test", "b2\n");
+    put(dir, "a.test", "a3\n");
+    const head = git(tree, "rev-parse", "HEAD");
+    const second = await runMerge(deps, run, merge("T2", "M2"), CHECK_MS);
+    expect(second.done).toMatchObject({ outcome: "held" });
+    expect(second.done.oracle?.paths.sort()).toEqual(["a.test", "b.test"]);
+    expect(git(tree, "rev-parse", "HEAD")).toBe(head);
+    // the accepted edit alone, untouched since, still merges with b.test left alone
+    put(dir, "b.test", "b1\n");
+    put(dir, "a.test", "a2\n");
+    expect((await runMerge(deps, run, merge("T2", "M3"), CHECK_MS)).done).toMatchObject({
+      outcome: "merged",
+    });
+  });
+});
+
 describe("a merge moves what the tree holds and nothing else (plan 55 review I5 and minors)", () => {
   it("refuses, keeping the tree, a writer that left its branch (switched or detached)", async () => {
     const { run, deps, tree } = await treesRun();

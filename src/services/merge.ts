@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { type ArchMerge, type ArchTask, treeWorking } from "../domain/architect-state.ts";
 import { runBranch } from "../domain/branch.ts";
@@ -496,16 +496,31 @@ async function heldOracle(
     ),
   ];
   if (oracle.length === 0) return null;
-  if (Object.values(tasks).some((x) => x.tree === t.tree && x.oracle?.accepted)) return null;
   const base = (await out(dir, ["merge-base", "HEAD", branch]))?.trim();
   // a tree git cannot compare is held on the oracle's own pathspec, as on the shared tree
   const names = base
     ? await out(dir, ["-c", "core.quotePath=false", "diff", "--name-only", base, "HEAD", "--", ...oracle])
     : null;
-  const paths = names === null ? oracle : lines(names);
+  const changed = names === null ? oracle : lines(names);
+  // an accept waives the paths it accepted, and only while their diff is the one the architect read
+  const waived = new Set<string>();
+  for (const x of Object.values(tasks)) {
+    if (x.tree !== t.tree || !x.oracle?.accepted) continue;
+    const now = base ? await out(dir, ["diff", base, "HEAD", "--", ...x.oracle.paths]) : null;
+    if (now !== null && now === readDiff(run, x.oracle.diff)) for (const p of x.oracle.paths) waived.add(p);
+  }
+  const paths = changed.filter((p) => !waived.has(p));
   if (paths.length === 0) return null;
   const diff = base ? await out(dir, ["diff", base, "HEAD", "--", ...paths]) : null;
   const file = oracleDiffFile(t.taskId);
   writeTextAtomic(join(run.dir, file), diff || "git could not diff\n");
   return { paths, diff: file };
 }
+
+const readDiff = (run: Run, file: string): string | null => {
+  try {
+    return readFileSync(join(run.dir, file), "utf8");
+  } catch {
+    return null;
+  }
+};
