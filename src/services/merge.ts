@@ -133,7 +133,15 @@ export async function runMerge(
   if (held)
     return end(
       "held",
-      `it changed ${held.paths.join(", ")}, the oracle of ledger ${t.ledgerTask} (diff ${held.diff}): accept it with oracle_accept and merge it again, or send the task back to restore it`,
+      `it changed ${held.paths.join(", ")}, the oracle of ledger ${
+        [
+          ...new Set(
+            Object.values(a.tasks)
+              .filter((x) => x.tree === t.tree && x.ledgerTask)
+              .map((x) => x.ledgerTask),
+          ),
+        ].join(", ") || "its tree"
+      } (diff ${held.diff}): accept it with oracle_accept and merge it again, or send the task back to restore it`,
       { files: held.paths, oracle: held },
     );
   const regen = runProfile(deps, run).regen;
@@ -356,7 +364,14 @@ async function heldOracle(
   dir: string,
   branch: string,
 ): Promise<{ paths: string[]; diff: string } | null> {
-  const oracle = t.delegatedOracle ?? oracleOf(run, t.ledgerTask);
+  // every task that worked in the tree: one that joined it must not carry another's oracle edit past the hold
+  const oracle = [
+    ...new Set(
+      Object.values(tasks)
+        .filter((x) => x.tree === t.tree)
+        .flatMap((x) => x.delegatedOracle ?? oracleOf(run, x.ledgerTask)),
+    ),
+  ];
   if (oracle.length === 0) return null;
   if (Object.values(tasks).some((x) => x.tree === t.tree && x.oracle?.accepted)) return null;
   const base = (await out(dir, ["merge-base", "HEAD", branch]))?.trim();

@@ -271,6 +271,28 @@ describe("catherd's own commits and merges ignore the repository's hooks (plan 5
   });
 });
 
+describe("the oracle of every task in a tree is held at its merge (plan 55 review I3)", () => {
+  it("holds a merge of a task that joined a tree whose first task had an oracle", async () => {
+    const { run, deps, tree } = await treesRun({ path: "test/pay.test.ts", text: 'it("pays", () => {});\n' });
+    writeLedger(
+      run,
+      { tasks: { add: [{ id: "L1", goal: "pay", oracle: ["test/pay.test.ts"] }] } },
+      new Date(),
+    );
+    const dir = await worked(run, deps, "T1", { ledgerTask: "L1", oracle: ["test/pay.test.ts"] });
+    // T2 joined T1's tree with no ledger task of its own, so no oracle of its own
+    await joined(run, "T2", "T1");
+    const log = makeLog();
+    endDispatch(log, startDispatch(log, { name: "T2", unit: "T2" }), { name: "T2", unit: "T2" });
+    for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    put(dir, "test/pay.test.ts", 'it.skip("pays", () => {});\n');
+    const head = git(tree, "rev-parse", "HEAD");
+    const { done } = await runMerge(deps, run, merge("T2"), CHECK_MS);
+    expect(done).toMatchObject({ outcome: "held", oracle: { paths: ["test/pay.test.ts"] } });
+    expect(git(tree, "rev-parse", "HEAD")).toBe(head);
+  });
+});
+
 describe("conflict markers are never committed (plan 55 review I2)", () => {
   it("sends back a tree that ends complete with markers in it, and commits nothing", async () => {
     const { run, deps, tree } = await treesRun({ path: "a.txt", text: "base\n" });
