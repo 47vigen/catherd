@@ -127,9 +127,13 @@ export function fakeDeps(
   };
 }
 
-/** An isolated CATHERD_HOME, a fresh git repo and a run in it. Call `afterEach(snapshotEnv())` in the file. */
-export function freshRun(title = "t"): { repo: string; run: Run } {
-  withHome();
+/**
+ * An isolated CATHERD_HOME, a fresh git repo and a run in it. Call `afterEach(snapshotEnv())` in the file.
+ * A run's events live in the home's database, so a test that reads two runs makes the second with `sameHome`:
+ * a new home would hide the first run's events from it.
+ */
+export function freshRun(title = "t", o: { sameHome?: boolean } = {}): { repo: string; run: Run } {
+  if (!o.sameHome) withHome();
   delete process.env.CATHERD_DECISION_KEY;
   const repo = tempRepo();
   return { repo, run: createRun({ repo, title, aLines: ["A1 it works"], version: "0.0.0-test" }) };
