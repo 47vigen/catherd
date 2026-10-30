@@ -86,11 +86,17 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
   }
   const strays = live.filter((d) => a.tasks[d.name]?.state === "cancelled");
   if (strays.length) out.push({ type: "cancel", dispatchIds: strays.map((d) => d.dispatchId) });
-  // plan 53: a full check is proof of the tree as it stands, so it waits for catherd's own fast checks to come in
-  const fastOut = Object.values(a.checks).some((c) => c.task && c.state === "queued");
+  // plan 53: a full check is proof of the tree as it stands, so it waits for catherd's own fast checks and (plan 55)
+  // the merges asked for to come in
+  const queuedMerges = Object.values(a.merges).filter((m) => m.state === "queued");
+  const pending =
+    queuedMerges.length > 0 || Object.values(a.checks).some((c) => c.task && c.state === "queued");
   for (const c of Object.values(a.checks))
-    if (c.state === "queued" && !(fastOut && c.scope === "full"))
+    if (c.state === "queued" && !(pending && c.scope === "full"))
       out.push({ type: "runCheck", checkId: c.checkId });
+  // spec D5: merges into the run's branch go one at a time, in the order they were asked for
+  const merge = queuedMerges[0];
+  if (merge) out.push({ type: "merge", mergeId: merge.mergeId });
   for (const l of Object.values(a.lands))
     if (l.state === "queued") out.push({ type: "land", landId: l.landId });
   if (s.paused !== null || s.held !== null) return out;

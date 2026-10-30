@@ -659,6 +659,19 @@ describe("host-specific profiles", () => {
     expect(port.forRepo(null).fastCheck).toBeUndefined();
   });
 
+  it("sets where writers work and what a merge regenerates, gives both to the view, and removes them with null (plan 55)", () => {
+    withHome();
+    const port = profileService(() => ({ host: "claude-code", session: null, conflict: null }));
+    expect(port.forRepo(null)).toMatchObject({ trees: "writer" });
+    expect(port.forRepo(null).regen).toBeUndefined();
+    const regen = { paths: ["bun.lock"], command: "bun install" };
+    expect(port.set(undefined, { trees: "shared", regen }).saved).toBe(true);
+    expect(port.forRepo(null)).toMatchObject({ trees: "shared", regen });
+    expect(port.set(undefined, { trees: null, regen: null }).saved).toBe(true);
+    expect(port.forRepo(null).trees).toBe("writer");
+    expect(port.forRepo(null).regen).toBeUndefined();
+  });
+
   it("gives the view its memory limits, the defaults filled under the profile's own", () => {
     withHome();
     const port = profileService(() => ({ host: "claude-code", session: null, conflict: null }));

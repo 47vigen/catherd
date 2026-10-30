@@ -454,6 +454,11 @@ export type ProfilePatch = {
     };
     notify?: Array<'milestone' | 'finish' | 'blocked'>;
     fastCheck?: string | null;
+    trees?: 'writer' | 'shared' | null;
+    regen?: {
+        paths: Array<string>;
+        command: string;
+    } | null;
     limits?: {
         memory?: {
             reserveMb?: number | null;

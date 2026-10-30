@@ -1,4 +1,5 @@
-import type { Caps } from "../domain/caps.ts";
+import type { Caps, TreeMode } from "../domain/caps.ts";
+import type { Regen } from "../domain/profile.ts";
 import type { NoRungCause } from "../domain/select.ts";
 import type { HostContext } from "../domain/host.ts";
 import type { Budget } from "../domain/budget.ts";
@@ -49,6 +50,9 @@ export interface ProfileView {
   limits: { memory: { reserveMb: number; perMilestoneMb: number; floorMb: number } };
   /** plan 53, spec D6: the fast check a worker task without its own gets */
   fastCheck?: string;
+  /** plan 55, spec D5: absent means `writer` */
+  trees?: TreeMode;
+  regen?: Regen;
 }
 
 /** What a profile write returns (spec §7.3): whether it saved, why not, what changed, and the agents it touched. */

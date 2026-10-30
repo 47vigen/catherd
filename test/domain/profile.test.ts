@@ -116,6 +116,20 @@ describe("resolveProfile", () => {
     });
   });
 
+  it("reads where a base run's writers work, writer trees by default, and a regen with paths and a command (plan 55)", () => {
+    const of = (doc: object) => resolveProfile({ schema: 1, ...doc }, "f", "claude-code");
+    expect(of({}).trees).toBe("writer");
+    expect(of({ trees: "shared" }).trees).toBe("shared");
+    expect(of({ trees: "lanes" }).trees).toBe("writer");
+    expect(of({ regen: { paths: [" bun.lock ", ""], command: " bun install " } }).regen).toEqual({
+      paths: ["bun.lock"],
+      command: "bun install",
+    });
+    expect(of({ regen: { paths: ["bun.lock"] } }).regen).toBeUndefined();
+    expect(of({ regen: { paths: [], command: "bun install" } }).regen).toBeUndefined();
+    expect(patchAt("trees", "shared")).toEqual({ trees: "shared" });
+  });
+
   it("takes a partial role's missing fields from the built-in one, but not its default rung", () => {
     const p = resolveProfile(
       {

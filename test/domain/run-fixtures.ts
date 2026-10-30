@@ -90,6 +90,7 @@ export function endDispatch(
     head?: string | null;
     lost?: true;
     oracle?: { paths: string[]; diff: string };
+    checkpoint?: string;
     at?: string;
   },
 ) {
@@ -98,6 +99,7 @@ export function endDispatch(
     {
       ...(o.lost ? { lost: true as const } : {}),
       ...(o.oracle ? { oracle: o.oracle } : {}),
+      ...(o.checkpoint ? { checkpoint: o.checkpoint } : {}),
       dispatchId,
       name: o.name,
       unit: o.unit,

@@ -1,7 +1,7 @@
 import type { OrchestrationHost } from "./host.ts";
 import { z } from "zod";
 import type { Budget } from "./budget.ts";
-import { type Caps, DEFAULT_CAPS } from "./caps.ts";
+import { type Caps, DEFAULT_CAPS, TREE_MODES, type TreeMode } from "./caps.ts";
 import { BILLING_KEYS, type BillingKey } from "./catalog.ts";
 import { BILLING_MODES, type BillingMode, DEFAULT_BILLING } from "./cost.ts";
 import { CatherdError } from "./errors.ts";
@@ -78,6 +78,10 @@ export const ProfileDocSchema = z.looseObject({
   engine: z.string().optional(),
   /** plan 53, spec D6: the fast check a worker task without its own gets */
   fastCheck: z.string().optional(),
+  /** plan 55, spec D5: where a base run's writers work; unknown, so a hand edit never makes the file unreadable */
+  trees: z.unknown().optional(),
+  /** plan 55, spec D5: the paths a merge regenerates rather than merges, and the command that does it */
+  regen: z.looseObject({ paths: z.unknown().optional(), command: z.unknown().optional() }).optional(),
 });
 export type ProfileDoc = z.infer<typeof ProfileDocSchema>;
 
@@ -178,6 +182,26 @@ export interface Profile {
   limits: { memory: Partial<Record<MemoryKey, number>> };
   /** plan 53, spec D6: the fast check a worker task without its own gets */
   fastCheck?: string;
+  /** plan 55, spec D5: `writer` (each writer its own worktree, the default) or `shared` (stage 1's one tree) */
+  trees: TreeMode;
+  /** plan 55, spec D5: lockfiles and generated files a merge keeps the run's side of, then rebuilds with `command` */
+  regen?: Regen;
+}
+
+export interface Regen {
+  paths: string[];
+  command: string;
+}
+
+/** A profile's `regen` when it names paths and a command, else none. */
+function regenOf(doc: ProfileDoc): Regen | undefined {
+  const paths = Array.isArray(doc.regen?.paths)
+    ? doc.regen.paths
+        .filter((p): p is string => typeof p === "string" && p.trim() !== "")
+        .map((p) => p.trim())
+    : [];
+  const command = typeof doc.regen?.command === "string" ? doc.regen.command.trim() : "";
+  return paths.length && command ? { paths, command } : undefined;
 }
 
 const LUNA_HIGH = "codex:gpt-6-luna#high";
@@ -350,6 +374,8 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
       ),
     },
     ...(doc.fastCheck?.trim() ? { fastCheck: doc.fastCheck.trim() } : {}),
+    trees: TREE_MODES.includes(doc.trees as TreeMode) ? (doc.trees as TreeMode) : "writer",
+    ...(regenOf(doc) ? { regen: regenOf(doc) } : {}),
   };
 }
 
@@ -399,6 +425,12 @@ export const ProfilePatchSchema = z.strictObject({
   notify: z.array(z.enum(NOTIFY)).optional(),
   /** plan 53: null removes it */
   fastCheck: z.string().trim().min(1).nullable().optional(),
+  /** plan 55: `shared` puts a base run's writers back on one tree (stage 1); null is the default, `writer` */
+  trees: z.enum(TREE_MODES).nullable().optional(),
+  regen: z
+    .strictObject({ paths: z.array(z.string().trim().min(1)).min(1), command: z.string().trim().min(1) })
+    .nullable()
+    .optional(),
   limits: z
     .strictObject({
       memory: z

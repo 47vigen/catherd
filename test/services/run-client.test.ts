@@ -93,6 +93,30 @@ describe("runStart", () => {
     expect(readEvents(run)[0]).toMatchObject({ type: "run.started", base: "main" });
   });
 
+  it("pins where the run's writers work: the profile's for a base run, the shared checkout without one (plan 55)", async () => {
+    withHome();
+    const { repo } = repoWithOrigin();
+    const deps = fakeDeps();
+    const pinned = async (base?: string) =>
+      readEvents(
+        findRun(
+          (
+            await runStart(deps, {
+              repo,
+              title: `w${base ?? ""}`,
+              aLines: ["A1 x"],
+              ...(base ? { base } : {}),
+            })
+          ).run,
+        ),
+      )[0];
+    expect(await pinned("main")).toMatchObject({ trees: "writer" });
+    deps.view.trees = "shared";
+    expect(await pinned("main")).toMatchObject({ trees: "shared" });
+    deps.view.trees = "writer";
+    expect(await pinned()).toMatchObject({ trees: "shared" });
+  });
+
   it("run_start returns the run when the daemon launch fails", async () => {
     withHome();
     const repo = tempRepo();

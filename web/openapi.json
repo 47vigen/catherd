@@ -3932,6 +3932,49 @@
               }
             ]
           },
+          "trees": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "writer",
+                  "shared"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "regen": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "paths": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "paths",
+                  "command"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "limits": {
             "type": "object",
             "properties": {
