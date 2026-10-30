@@ -1,30 +1,40 @@
 import type { Attempt, FlowDispatch, RunFlow, RunModel, RunNode } from "../../../../client";
 
-export function flowGeometry(flow: RunFlow, now: number) {
+export function flowGeometry(flow: RunFlow, now: number, viewport = 600, scale?: number) {
   const start = Date.parse(flow.startedAt);
   const end = Math.max(start, Date.parse(flow.endedAt ?? new Date(Math.max(now, Date.parse(flow.asOf))).toISOString()));
-  const x = (at: string) => Math.max(0, (Date.parse(at) - start) / 500) + 16;
+  const duration = Math.max(1, end - start);
+  const pixelsPerMs = scale ?? Math.max(1, viewport - 32) / duration;
+  const width = Math.max(viewport, duration * pixelsPerMs + 32);
+  const x = (at: string) => Math.max(0, (Date.parse(at) - start) * pixelsPerMs) + 16;
   return {
     end,
-    width: Math.max(960, (end - start) / 500 + 80),
+    width,
     nowX: x(new Date(end).toISOString()),
     x,
+    pixelsPerMs,
     interval: (startedAt: string, endedAt: string | null) => ({
       x: x(startedAt),
-      width: Math.max(2, ((endedAt ? Date.parse(endedAt) : end) - Date.parse(startedAt)) / 500),
+      width: Math.max(2, ((endedAt ? Date.parse(endedAt) : end) - Date.parse(startedAt)) * pixelsPerMs),
     }),
   };
 }
 
-/** Pack in source order; overlapping hit targets remain individually reachable. */
-export function stackIntervals(intervals: { x: number; width: number }[]): number[] {
-  const ends: number[] = [];
-  return intervals.map(({ x, width }) => {
-    let track = ends.findIndex((end) => end <= x);
-    if (track < 0) track = ends.length;
-    ends[track] = x + Math.max(28, width) + 4;
-    return track;
-  });
+export function tickStep(durationSeconds: number, width: number) {
+  const target = durationSeconds / Math.max(1, width / 80);
+  const steps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 18000, 36000, 86400];
+  return steps.find((step) => step >= target) ?? Math.ceil(target / 86400) * 86400;
+}
+
+export function mergeIdle(idle: RunFlow["idle"]) {
+  const merged: RunFlow["idle"] = [];
+  for (const item of idle) {
+    const last = merged.at(-1);
+    if (last && last.reason === item.reason && last.endedAt === item.startedAt) {
+      last.endedAt = item.endedAt;
+    } else merged.push({ ...item });
+  }
+  return merged;
 }
 
 export const dispatchStatus = (d: FlowDispatch): RunNode["status"] =>

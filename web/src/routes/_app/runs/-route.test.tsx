@@ -426,6 +426,8 @@ test("Full screen shows one graph in a dialog and closes back to the page", asyn
   await userEvent.click(screen.getByRole("button", { name: "Full screen" }));
   const dialog = await screen.findByRole("dialog", { name: "Steps of the run" });
   expect(await within(dialog).findByLabelText("Graph of the run")).toBeInTheDocument();
+  // The graph keeps its entrance; only the flow view opens at once.
+  expect(document.querySelector('[data-slot="modal-backdrop"]')).not.toHaveClass("flow-fullscreen");
   expect(document.querySelectorAll("[aria-label='Graph of the run']")).toHaveLength(1);
   expect(within(dialog).queryByRole("button", { name: "Full screen" })).toBeNull();
   await userEvent.click(within(dialog).getByRole("button", { name: /close/i }));
@@ -835,6 +837,8 @@ test("a 1.5 run shows its dispatches, report and timeline and no graph", async (
         : api(req, url),
   );
   expect(await screen.findByText(/This run started on catherd 1.5/)).toBeInTheDocument();
+  // a legacy run keeps the milestone wording; only architect runs count ledger tasks
+  expect(screen.getByText("1 milestone")).toBeInTheDocument();
   expect(await screen.findByRole("grid", { name: "Dispatches" })).toBeInTheDocument();
   expect(await screen.findByText("It shipped.")).toBeInTheDocument();
   expect(await screen.findByText("No events yet.")).toBeInTheDocument();
@@ -895,6 +899,8 @@ test("the header shows server rounds, waiting time and unpriced runs", async () 
       { id: "M1", title: "First", status: "lanes", round: 7, reviews: 2, commit: null },
       { id: "M2", title: "Second", status: "lanes", round: 7, reviews: 1, commit: null },
     ],
+    // The server's total is the run's, not the ledger's: it counts a round on a task since replaced.
+    metrics: { ...run().metrics, rounds: { perTask: { M1: 2, M2: 1 }, max: 2, total: 4 } },
   });
   model = {
     ...model,
@@ -905,14 +911,14 @@ test("the header shows server rounds, waiting time and unpriced runs", async () 
   };
   renderRoute("/runs/r1", api);
   expect(await screen.findByText("waiting on you 1h 00m")).toBeInTheDocument();
-  expect(screen.getByText("Rounds").nextElementSibling).toHaveTextContent("3");
+  expect(screen.getByText("Rounds").nextElementSibling).toHaveTextContent("4");
   expect(await screen.findByText("1 unpriced")).toBeInTheDocument();
   expect(screen.getByText("Cost").nextElementSibling).toHaveTextContent("$0.50");
   expect(screen.getByText("50 uncached · 20 cache read · 30 cache write · 40 out")).toBeInTheDocument();
 });
 
 test("the header shows zero rounds before any review", async () => {
-  runBody = run({ milestones: [] });
+  runBody = run({ milestones: [], metrics: { ...run().metrics, rounds: { perTask: {}, max: 0, total: 0 } } });
   renderRoute("/runs/r1", api);
   await screen.findByRole("heading", { name: "wallet split" });
   expect(screen.getByText("Rounds").nextElementSibling).toHaveTextContent("0");
@@ -991,7 +997,8 @@ test("flow opens the exact record-only dispatch through the existing drawer and 
   await user.keyboard("{Escape}");
   expect(await screen.findByRole("button", { name: /T-new worker/ })).toBeVisible();
   const view = screen.getByRole("region", { name: "Run flow" });
-  expect(within(view).getByText("Owner")).toBeVisible();
+  // the patched idle interval is drawn as a band that carries its reason, not as a visible label
+  expect(view.querySelector('[data-idle-reason="owner"]')).not.toBeNull();
   expect(within(view).getByText("done")).toBeVisible();
   expect(
     queryClient.getQueryData<RunModel>(getRunModelQueryKey({ path: { id: "r1" } }))?.flow?.dispatches,
@@ -1060,6 +1067,59 @@ test("eligible phone flow, full screen and queued question access share the exis
   expect(await screen.findByText(QUESTION.question)).toBeVisible();
   await user.keyboard("{Escape}");
   await user.click(screen.getByRole("button", { name: "Full screen" }));
-  const full = await screen.findByRole("dialog", { name: "Steps of the run" });
+  const full = await screen.findByRole("dialog", { name: "Run flow" });
   expect(within(full).getByRole("region", { name: "Run flow" })).toBeVisible();
+});
+
+test("an architect run's header counts its ledger tasks and its ledger states, not the graph's nodes", async () => {
+  const flow = flowFixture();
+  flow.tasks = flow.tasks.map((t, i) => ({
+    ...t,
+    state:
+      i < 2 ? ("done" as const) : i === 2 ? ("running" as const) : i === 3 ? ("blocked" as const) : ("todo" as const),
+  }));
+  model = { ...model, flow };
+  renderRoute("/runs/r1", api);
+  // the run still reports its one milestone row; the ledger is what the plan actually holds
+  expect(await screen.findByText("8 ledger tasks")).toBeInTheDocument();
+  expect(screen.getByText("Rounds").nextElementSibling).toHaveTextContent("2");
+  expect(screen.queryByText("1 milestone")).toBeNull();
+  // the flow's header counts the ledger's states; a failed graph node is not a failed task
+  expect(await screen.findByText("1 running · 1 blocked · 4 todo · 2 done of 8")).toBeVisible();
+  expect(screen.queryByText(/\d+ skipped · \d+ failed of/)).toBeNull();
+});
+
+test("a run drawn as a graph keeps its milestone card", async () => {
+  renderRoute("/runs/r1", api);
+  await nodeButton(LANE);
+  const card = await screen.findByRole("list", { name: "Milestones" });
+  expect(card).toHaveTextContent("Split the wallet");
+});
+
+test("a flow run drops the milestone card the flow already lists", async () => {
+  model = { ...model, flow: flowFixture(), nodes: [] };
+  renderRoute("/runs/r1", api);
+  expect(await screen.findByRole("region", { name: "Run flow" })).toBeVisible();
+  expect(await screen.findByRole("list", { name: "Models" })).toBeInTheDocument();
+  expect(screen.queryByRole("list", { name: "Milestones" })).toBeNull();
+});
+
+test("flow full screen is titled Run flow, opens without an entrance, and Escape returns to it", async () => {
+  const user = userEvent.setup();
+  model = { ...model, flow: { ...flowFixture(), endedAt: null }, nodes: [] };
+  const { router } = renderRoute("/runs/r1", api);
+  await user.click(await screen.findByRole("button", { name: "Full screen" }));
+  const dialog = await screen.findByRole("dialog", { name: "Run flow" });
+  expect(within(dialog).getByRole("heading", { name: "Run flow" })).toBeVisible();
+  // The flow keeps its entrance out of the way: the overlay, container and dialog carry no animation or transition.
+  expect(document.querySelector('[data-slot="modal-backdrop"]')).toHaveClass("flow-fullscreen");
+  await user.click(await within(dialog).findByRole("button", { name: /T1 worker/ }));
+  await waitFor(() => expect(router.state.location.searchStr).toContain("node="));
+  expect(await screen.findByRole("heading", { name: "T1" })).toBeVisible();
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(router.state.location.searchStr).not.toContain("node="));
+  await waitFor(() => expect(screen.getByRole("dialog", { name: "Run flow" })).toHaveFocus());
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(await screen.findByRole("button", { name: "Full screen" })).toBeInTheDocument();
 });

@@ -31,6 +31,7 @@ import { type LiveFrame, useLiveRun } from "./-hooks/useLiveRun";
 import { useTicker } from "./-hooks/useTicker";
 import { applyPatch } from "./-lib/apply-patch";
 import { drawerModel } from "./-lib/flow-view";
+import { ledgerSummary } from "./-lib/ledger";
 import { type LiveLog, LiveLogContext } from "./-lib/live-log";
 import { parseTab, type Tab } from "./-lib/tabs";
 import { matchesTypes } from "./-lib/timeline-filters";
@@ -157,11 +158,13 @@ function RunDetail({ runId }: { runId: string }) {
   const entries = page === 1 ? [...arrivedEntries, ...fetched] : fetched;
   const arrived = new Set(arrivedEntries.map((e) => e.seq));
   const [full, setFull] = useState(false);
+  const flow = model.data?.flow;
+  // Flow and graph runs share one full-screen dialog: its accessible name is what Escape and focus restore look for.
+  const fullLabel = flow ? "Run flow" : "Steps of the run";
   // The drawer sits outside the dialog's DOM: when it closes, focus is lost, and Escape would no longer reach the dialog.
   useEffect(() => {
-    if (full && !node) document.querySelector<HTMLElement>('[role="dialog"][aria-label="Steps of the run"]')?.focus();
-  }, [full, node]);
-  const flow = model.data?.flow;
+    if (full && !node) document.querySelector<HTMLElement>(`[role="dialog"][aria-label="${fullLabel}"]`)?.focus();
+  }, [full, node, fullLabel]);
   const flowLive = live === true && model.data?.phase !== "ended" && flow != null && flow.endedAt === null;
   useQuotaBoundary(runId, flow?.quotaHolds ?? [], flowLive, () => {
     void queryClient.invalidateQueries({ queryKey: modelKey });
@@ -197,16 +200,31 @@ function RunDetail({ runId }: { runId: string }) {
   const r = run.data;
 
   const steps = model.data?.nodes ?? [];
+  // A flow run's header counts its ledger tasks; the graph's nodes (checks, ends) are not tasks.
+  const nodeCounts =
+    steps.length > 0
+      ? `${steps.filter((n) => n.status === "done").length} done · ${steps.filter((n) => n.status === "skipped").length} skipped · ${steps.filter((n) => n.status === "failed").length} failed of ${steps.length}`
+      : null;
+  const summary = flow ? ledgerSummary(flow.tasks) : nodeCounts;
+  // Below `sm` a phone cannot hold the breakdown on one line, so it counts the tasks (or steps) and keeps the title.
+  const compact = flow
+    ? `${flow.tasks.length} ${flow.tasks.length === 1 ? "task" : "tasks"}`
+    : steps.length > 0
+      ? `${steps.length} steps`
+      : null;
   const stepsAside = (
-    <span className="flex items-center gap-4">
-      {steps.length > 0 ? (
-        <span className="text-muted font-mono text-xs tabular-nums">
-          {steps.filter((n) => n.status === "done").length} done · {steps.filter((n) => n.status === "skipped").length}{" "}
-          skipped · {steps.filter((n) => n.status === "failed").length} failed of {steps.length}
-        </span>
+    <span className="flex min-w-0 items-center gap-3 sm:gap-4">
+      {summary && compact ? (
+        <>
+          <span className="text-muted min-w-0 truncate font-mono text-xs tabular-nums max-sm:hidden">{summary}</span>
+          <span className="text-muted min-w-0 truncate font-mono text-xs tabular-nums sm:hidden">{compact}</span>
+        </>
       ) : null}
       {live ? (
-        <output data-connected={isConnected} className="text-muted flex items-center gap-1.5 font-mono text-xs">
+        <output
+          data-connected={isConnected}
+          className="text-muted flex shrink-0 items-center gap-1.5 font-mono text-xs"
+        >
           <span
             aria-hidden="true"
             className={cn("size-1.5 rounded-full", isConnected ? "bg-success motion-safe:animate-pulse" : "bg-muted")}
@@ -326,7 +344,8 @@ function RunDetail({ runId }: { runId: string }) {
         />
         {is2 ? (
           <div className="flex min-w-0 flex-col gap-4 lg:col-span-4">
-            <Milestones milestones={r.milestones} />
+            {/* The flow already lists every ledger task; the milestone card only belongs to a run drawn as a graph. */}
+            {model.data && !flow ? <Milestones milestones={r.milestones} /> : null}
             <Models dispatches={model.data?.dispatches ?? []} />
             {r.metrics ? <Metrics metrics={r.metrics} /> : null}
           </div>
@@ -373,12 +392,19 @@ function RunDetail({ runId }: { runId: string }) {
         </Tile>
       </div>
       {is2 && model.data ? (
-        <Modal.Backdrop isOpen={full} onOpenChange={setFull}>
+        // Flow full screen opens at once: no entrance to wait out (the graph keeps its own).
+        <Modal.Backdrop isOpen={full} onOpenChange={setFull} className={flow ? "flow-fullscreen" : undefined}>
           <Modal.Container size="full">
-            {/* The graph takes the whole dialog; the title and the close button float over its corners. */}
-            <Modal.Dialog aria-label="Steps of the run" className="relative overflow-hidden p-0!">
-              <Modal.Header className="border-border bg-surface/90 pointer-events-none absolute top-3 left-3 z-10 flex-row! items-center gap-4 rounded-lg border px-3 py-1.5 shadow-sm backdrop-blur">
-                <Modal.Heading className="text-sm!">Steps</Modal.Heading>
+            {/* The flow or graph takes the whole dialog; the title and the close button float over its corners. */}
+            <Modal.Dialog aria-label={fullLabel} className="relative overflow-hidden p-0!">
+              <Modal.Header
+                className={cn(
+                  "border-border bg-surface/90 pointer-events-none absolute top-3 left-3 z-10 flex-row! items-center gap-4 rounded-lg border px-3 py-1.5 shadow-sm backdrop-blur",
+                  // Flow runs carry a ledger count in this pill: keep it off the close button, and let it drop a line on a phone.
+                  flow && "max-w-[calc(100%-5rem)] flex-wrap",
+                )}
+              >
+                <Modal.Heading className="text-sm!">{flow ? "Run flow" : "Steps"}</Modal.Heading>
                 {stepsAside}
               </Modal.Header>
               <Modal.CloseTrigger className="border-border bg-surface/90 top-3! right-3! z-10 size-8.5! rounded-lg! border shadow-sm backdrop-blur" />

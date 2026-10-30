@@ -1,8 +1,7 @@
 import { Button, Chip, cn } from "@heroui/react";
-import { useRef, useState } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 
-import { useFlowFollow } from "../../-hooks/useFlowFollow";
-import { flowGeometry, stackIntervals } from "../../-lib/flow-view";
+import { flowGeometry, mergeIdle, tickStep } from "../../-lib/flow-view";
 import { formatCost } from "../../-lib/format";
 import { formatDuration } from "../../-lib/node-view";
 import type { FlowSelection, RunFlow, RunView } from "../../../../../client";
@@ -10,13 +9,14 @@ import type { FlowSelection, RunFlow, RunView } from "../../../../../client";
 type Bar = {
   id: string;
   label: string;
+  visibleLabel?: string;
   detail: string;
   x: number;
   width: number;
   family: string;
   tone?: string;
   selection?: FlowSelection;
-  marker?: string;
+  climbed?: boolean;
   unknown?: boolean;
   idleReason?: RunFlow["idle"][number]["reason"];
 };
@@ -33,10 +33,10 @@ const FAMILY: Record<string, string> = {
 };
 const IDLE = { owner: "Owner", quota: "Quota", check: "Check", gap: "Gap" };
 const IDLE_FILL = {
-  owner: "fill-accent/20",
-  quota: "fill-warning/20",
-  check: "fill-chart-2/20",
-  gap: "fill-surface-tertiary",
+  owner: "fill-accent",
+  quota: "fill-warning",
+  check: "fill-chart-2",
+  gap: "fill-muted",
 };
 
 export function RunFlowView({
@@ -56,10 +56,67 @@ export function RunFlowView({
   onExpand?: () => void;
   fill?: boolean;
 }) {
-  const geometry = flowGeometry(flow, now);
-  const live = flow.endedAt === null && run.phase !== "ended";
   const track = useRef<HTMLElement>(null);
-  const follow = useFlowFollow(track, live, geometry.nowX);
+  const [viewport, setViewport] = useState(600);
+  const [scale, setScale] = useState<number>();
+  const pendingScroll = useRef<number | null>(null);
+  const pointers = useRef(new Map<number, number>());
+  const drag = useRef<{
+    x: number;
+    scroll: number;
+    pinch?: { distance: number; anchor: number; scroll: number; pixelsPerMs: number };
+  } | null>(null);
+  useLayoutEffect(() => {
+    const el = track.current;
+    if (!el) return;
+    const measure = () => setViewport(el.clientWidth || 600);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const geometry = flowGeometry(flow, now, viewport, scale);
+  useLayoutEffect(() => {
+    if (pendingScroll.current !== null && track.current) {
+      track.current.scrollLeft = pendingScroll.current;
+      pendingScroll.current = null;
+    }
+  }, [geometry.width]);
+  const zoom = (
+    factor: number,
+    anchor = viewport / 2,
+    origin = { anchor, scroll: track.current?.scrollLeft ?? 0, pixelsPerMs: geometry.pixelsPerMs },
+  ) => {
+    const el = track.current;
+    if (!el) return;
+    const next = Math.max(
+      (viewport - 32) / Math.max(1, geometry.end - Date.parse(flow.startedAt)),
+      Math.min(origin.pixelsPerMs * factor, 1),
+    );
+    const scroll = ((origin.scroll + origin.anchor - 16) * next) / origin.pixelsPerMs + 16 - anchor;
+    if (next === geometry.pixelsPerMs) el.scrollLeft = scroll;
+    else pendingScroll.current = scroll;
+    setScale(next);
+  };
+  const fit = () => {
+    setScale(undefined);
+    if (track.current) track.current.scrollLeft = 0;
+  };
+  const wheel = useEffectEvent((e: WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      zoom(Math.exp(-e.deltaY * 0.01), e.clientX - track.current!.getBoundingClientRect().left);
+    } else if (e.deltaX !== 0) setScale(geometry.pixelsPerMs);
+  });
+  useEffect(() => {
+    const el = track.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => wheel(e);
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
+  const live = flow.endedAt === null && run.phase !== "ended";
   const [detail, setDetail] = useState<string | null>(null);
   const dispatchBar = (d: RunFlow["dispatches"][number]): Bar => {
     const interval = geometry.interval(d.startedAt, d.endedAt);
@@ -77,10 +134,12 @@ export function RunFlowView({
       ...interval,
       id: d.dispatchId,
       label: `${d.name} ${d.role} · ${status}`,
+      visibleLabel:
+        d.role === "architect" ? `turn ${flow.architect.findIndex((a) => a.dispatchId === d.dispatchId) + 1}` : d.name,
       detail: `${d.name} · ${d.role} · ${d.rung} · ${d.status} · ${duration}${d.ledgerTask ? ` · ${d.ledgerTask}` : ""}${marker ? ` · ${marker}` : ""}`,
       family: d.role,
       selection: d.selection,
-      marker,
+      climbed: Boolean(d.climbFrom),
       tone:
         d.status === "limit"
           ? "warning"
@@ -114,6 +173,7 @@ export function RunFlowView({
           ...interval,
           id: c.checkId,
           label: `${c.checkId} check · ${status}`,
+          visibleLabel: c.checkId,
           detail: `${c.checkId} · check · ${c.scope} · ${status} · ${c.startedAt ? formatDuration(Math.max(0, ((c.endedAt ? Date.parse(c.endedAt) : geometry.end) - Date.parse(c.startedAt)) / 1000)) : "Timing unknown"}`,
           family: "check",
           selection: c.selection,
@@ -124,23 +184,17 @@ export function RunFlowView({
     });
   rows.push({
     id: "Idle",
-    bars: flow.idle.map((i, index) => ({
+    bars: mergeIdle(flow.idle).map((i, index) => ({
       ...geometry.interval(i.startedAt, i.endedAt),
       id: `idle-${index}`,
       label: IDLE[i.reason],
-      detail: `Idle · ${IDLE[i.reason]}`,
+      detail: `Idle · ${IDLE[i.reason]} · ${(Math.max(0, (i.endedAt ? Date.parse(i.endedAt) : geometry.end) - Date.parse(i.startedAt)) / 60000).toFixed(1)} min`,
       family: "idle",
       idleReason: i.reason,
     })),
   });
-  let y = 32;
-  const positioned = rows.map((row) => {
-    const tracks = stackIntervals(row.bars);
-    const height = Math.max(64, (Math.max(-1, ...tracks) + 1) * 42 + 16);
-    const placed = { ...row, y, height, tracks };
-    y += height;
-    return placed;
-  });
+  const positioned = rows.map((row, index) => ({ ...row, y: 32 + index * 36, height: 36 }));
+  const y = 32 + rows.length * 36;
   const m = run.metrics;
   const stats = [
     ["State", run.outcome ?? run.phase ?? "–"],
@@ -151,11 +205,24 @@ export function RunFlowView({
     ["Review rounds", m ? String(m.rounds.total) : "–"],
     ["Cost", m?.costUsd == null ? "–" : formatCost(m.costUsd)],
   ];
-  const tickStep = Math.max(30, Math.ceil((geometry.end - Date.parse(flow.startedAt)) / 1000 / 12 / 30) * 30);
+  const step = tickStep((geometry.end - Date.parse(flow.startedAt)) / 1000, geometry.width);
   const ticks = Array.from(
-    { length: Math.floor((geometry.end - Date.parse(flow.startedAt)) / 1000 / tickStep) + 1 },
-    (_, i) => i * tickStep,
+    { length: Math.floor((geometry.end - Date.parse(flow.startedAt)) / 1000 / step) + 1 },
+    (_, i) => i * step,
   );
+  // Reserve the rightmost label first; inward endpoint alignment can crowd the preceding tick.
+  const axisTicks: { seconds: number; x: number; label: string; endAligned: boolean }[] = [];
+  let nextLabelLeft = live ? geometry.nowX - 24 : Infinity;
+  for (const seconds of ticks.toReversed()) {
+    const x = 16 + seconds * 1000 * geometry.pixelsPerMs;
+    const label = formatDuration(seconds);
+    const labelWidth = label.length * 7;
+    const endAligned = x + labelWidth > geometry.width - 4;
+    const left = endAligned ? x - labelWidth : x;
+    if (left + labelWidth + 8 > nextLabelLeft) continue;
+    axisTicks.unshift({ seconds, x, label, endAligned });
+    nextLabelLeft = left;
+  }
   return (
     <section
       aria-label="Run flow"
@@ -172,32 +239,44 @@ export function RunFlowView({
           </div>
         ))}
       </dl>
-      <div className="text-muted flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-xs">
-        <span className="text-foreground">● Architect</span>
-        <span className="text-foreground">
-          <span aria-hidden="true" className="text-accent">
-            ●
-          </span>{" "}
-          Worker / writer / artist
+      <div className="flex min-w-0 items-center gap-2 px-4 py-3">
+        <div
+          aria-label="Flow legend"
+          className="text-muted flex min-w-0 flex-1 items-center gap-4 overflow-x-auto text-xs whitespace-nowrap"
+        >
+          <span className="text-foreground">● Architect</span>
+          <span className="text-foreground">
+            <span aria-hidden="true" className="text-accent">
+              ●
+            </span>{" "}
+            Worker / writer / artist
+          </span>
+          <span className="text-foreground">
+            <span aria-hidden="true" className="text-success">
+              ●
+            </span>{" "}
+            Reviewer / verifier
+          </span>
+          <span className="text-foreground">
+            <span aria-hidden="true" className="text-warning">
+              ●
+            </span>{" "}
+            Researcher
+          </span>
+          <span className="text-foreground">▧ Check</span>
+        </div>
+        <span className="text-muted text-xs" aria-hidden="true">
+          ›
         </span>
-        <span className="text-foreground">
-          <span aria-hidden="true" className="text-success">
-            ●
-          </span>{" "}
-          Reviewer / verifier
-        </span>
-        <span className="text-foreground">
-          <span aria-hidden="true" className="text-warning">
-            ●
-          </span>{" "}
-          Researcher
-        </span>
-        <span className="text-foreground">▧ Check</span>
-        {live ? (
-          <Button size="sm" variant="tertiary" onPress={follow.resume} isDisabled={follow.following}>
-            Follow now
-          </Button>
-        ) : null}
+        <Button size="sm" variant="tertiary" aria-label="Zoom out" onPress={() => zoom(0.5)}>
+          −
+        </Button>
+        <Button size="sm" variant="tertiary" aria-label="Zoom in" onPress={() => zoom(2)}>
+          +
+        </Button>
+        <Button size="sm" variant="tertiary" onPress={fit}>
+          Fit
+        </Button>
         {onExpand ? (
           <Button size="sm" variant="tertiary" onPress={onExpand}>
             Full screen
@@ -208,32 +287,27 @@ export function RunFlowView({
         <p className="text-muted px-4 py-2 text-sm">No activity recorded yet.</p>
       ) : null}
       <div className="flex max-w-full min-w-0">
-        <svg width="152" height={y} className="bg-surface sticky left-0 z-10 w-[152px] shrink-0" aria-label="Flow rows">
+        <svg
+          width="180"
+          height={y}
+          className="bg-surface sticky left-0 z-10 w-[120px] shrink-0 sm:w-[180px]"
+          aria-label="Flow rows"
+        >
           {positioned.map((row) => (
             <g key={row.id}>
-              <line x1="0" x2="152" y1={row.y} y2={row.y} className="stroke-border" />
-              <foreignObject x="0" y={row.y + 6} width="152" height={row.height - 6}>
-                <div className="flex min-w-0 flex-col gap-1 px-3">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-mono text-xs">{row.id}</span>
-                    {row.state ? (
-                      <Chip size="sm" variant="soft">
-                        <Chip.Label className="text-[10px]">{row.state}</Chip.Label>
-                      </Chip>
-                    ) : null}
-                  </div>
-                  {row.goal ? (
-                    <span className="truncate text-xs" title={row.goal}>
-                      {row.goal}
-                    </span>
-                  ) : null}
-                  {row.depends?.length ? (
-                    <span
-                      className="text-muted truncate font-mono text-[10px]"
-                      title={`Depends on ${row.depends.join(", ")}`}
-                    >
-                      Depends on {row.depends.join(", ")}
-                    </span>
+              <line x1="0" x2="100%" y1={row.y} y2={row.y} className="stroke-border" />
+              <foreignObject x="0" y={row.y + 6} width="100%" height={row.height - 6}>
+                <div
+                  className="flex min-w-0 items-center gap-1 px-2"
+                  title={[row.id, row.goal, row.depends?.length ? `Depends on ${row.depends.join(", ")}` : null]
+                    .filter(Boolean)
+                    .join(" · ")}
+                >
+                  <span className="min-w-0 truncate font-mono text-xs">{row.id}</span>
+                  {row.state ? (
+                    <Chip size="sm" variant="soft">
+                      <Chip.Label className="text-[10px]">{row.state}</Chip.Label>
+                    </Chip>
                   ) : null}
                 </div>
               </foreignObject>
@@ -243,7 +317,53 @@ export function RunFlowView({
         <section
           ref={track}
           aria-label="Flow timeline"
-          className="max-w-full min-w-0 flex-1 overflow-x-auto overscroll-x-contain"
+          className="max-w-full min-w-0 flex-1 touch-pan-y overflow-x-auto overscroll-x-contain"
+          onScroll={(e) => {
+            if (e.currentTarget.scrollLeft > 0 && scale === undefined) setScale(geometry.pixelsPerMs);
+          }}
+          onPointerDown={(e) => {
+            if ((e.target as Element).closest('[role="button"]')) return;
+            pointers.current.set(e.pointerId, e.clientX);
+            e.currentTarget.setPointerCapture(e.pointerId);
+            const values = [...pointers.current.values()];
+            drag.current = {
+              x: e.clientX,
+              scroll: e.currentTarget.scrollLeft,
+              pinch:
+                values.length === 2
+                  ? {
+                      distance: Math.abs(values[0]! - values[1]!),
+                      anchor: (values[0]! + values[1]!) / 2 - e.currentTarget.getBoundingClientRect().left,
+                      scroll: e.currentTarget.scrollLeft,
+                      pixelsPerMs: geometry.pixelsPerMs,
+                    }
+                  : undefined,
+            };
+          }}
+          onPointerMove={(e) => {
+            if (!pointers.current.has(e.pointerId) || !drag.current) return;
+            pointers.current.set(e.pointerId, e.clientX);
+            const values = [...pointers.current.values()];
+            if (values.length === 2 && drag.current.pinch?.distance) {
+              const distance = Math.abs(values[0]! - values[1]!);
+              zoom(
+                distance / drag.current.pinch.distance,
+                (values[0]! + values[1]!) / 2 - e.currentTarget.getBoundingClientRect().left,
+                drag.current.pinch,
+              );
+            } else if (values.length === 1) {
+              e.currentTarget.scrollLeft = drag.current.scroll + drag.current.x - e.clientX;
+              if (Math.abs(drag.current.x - e.clientX) > 2) setScale(geometry.pixelsPerMs);
+            }
+          }}
+          onPointerUp={(e) => {
+            pointers.current.delete(e.pointerId);
+            drag.current = null;
+          }}
+          onPointerCancel={(e) => {
+            pointers.current.delete(e.pointerId);
+            drag.current = null;
+          }}
         >
           <svg
             width={geometry.width}
@@ -251,19 +371,19 @@ export function RunFlowView({
             viewBox={`0 0 ${geometry.width} ${y}`}
             className="font-mono text-[10px] tabular-nums"
           >
-            {ticks.map((s) => (
-              <g key={s}>
-                <line x1={16 + s * 2} x2={16 + s * 2} y1="24" y2={y} className="stroke-border/40" />
-                <text x={16 + s * 2} y="17" className="fill-muted">
-                  {formatDuration(s)}
+            {axisTicks.map(({ seconds, x, label, endAligned }) => (
+              <g key={seconds}>
+                <line x1={x} x2={x} y1="24" y2={y} className="stroke-border/40" />
+                <text x={x} y="17" textAnchor={endAligned ? "end" : "start"} className="fill-muted">
+                  {label}
                 </text>
               </g>
             ))}
             {positioned.map((row) => (
               <g key={row.id}>
                 <line x1="0" x2={geometry.width} y1={row.y} y2={row.y} className="stroke-border" />
-                {row.bars.map((bar, i) => {
-                  const top = row.y + 7 + row.tracks[i]! * 42;
+                {row.bars.map((bar) => {
+                  const top = row.y + 4;
                   return (
                     <g
                       key={bar.id}
@@ -301,17 +421,16 @@ export function RunFlowView({
                             d={`M ${bar.x + 7} ${top + 7} l 7 7 l -7 7 l -7 -7 Z`}
                             strokeWidth="2"
                             className={cn("fill-surface", bar.tone === "danger" ? "stroke-danger" : "stroke-muted")}
-                          />
-                          <text x={bar.x + 18} y={top + 19} className="fill-muted">
-                            Timing unknown
-                          </text>
+                          >
+                            <title>Timing unknown</title>
+                          </path>
                         </g>
                       ) : (
                         <rect
                           x={bar.x}
-                          y={top + 7}
+                          y={bar.idleReason ? row.y : top + 7}
                           width={bar.width}
-                          height="14"
+                          height={bar.idleReason ? row.height : 14}
                           rx="2"
                           strokeWidth={bar.tone ? 2 : 1}
                           className={cn(
@@ -346,12 +465,12 @@ export function RunFlowView({
                                     : "fill-accent-foreground",
                           )}
                         >
-                          {bar.label}
+                          {bar.visibleLabel && bar.width >= bar.visibleLabel.length * 6 + 8 ? bar.visibleLabel : ""}
                         </text>
                       </svg>
-                      {bar.marker ? (
-                        <text x={bar.x} y={top + 37} className="fill-foreground">
-                          {bar.marker}
+                      {bar.climbed ? (
+                        <text x={bar.x} y={top + 9} className="fill-foreground" aria-hidden="true">
+                          ↗
                         </text>
                       ) : null}
                     </g>
@@ -369,7 +488,7 @@ export function RunFlowView({
                   className="stroke-accent"
                   strokeDasharray="3 3"
                 />
-                <text x={geometry.nowX + 4} y="17" className="fill-foreground">
+                <text x={geometry.nowX} y="17" textAnchor="end" className="fill-foreground">
                   Now
                 </text>
               </g>

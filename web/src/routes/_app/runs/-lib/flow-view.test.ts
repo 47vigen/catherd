@@ -1,23 +1,25 @@
 import type { RunModel } from "../../../../client";
-import { drawerModel, flowGeometry, stackIntervals } from "./flow-view";
+import { drawerModel, flowGeometry, mergeIdle, tickStep } from "./flow-view";
 import { at, flowFixture } from "./flow.fixture";
 
-test("open geometry grows, closed runs freeze and overlap gets separate tracks", () => {
+test("geometry fits narrow and wide viewports, scales manually, and chooses round ticks", () => {
   const flow = { ...flowFixture(), endedAt: null };
-  const a = flowGeometry(flow, Date.parse(at(130)));
-  const b = flowGeometry(flow, Date.parse(at(140)));
-  expect(b.interval(at(10), null).width).toBeGreaterThan(a.interval(at(10), null).width);
-  expect(b.interval(at(10), at(30))).toEqual(a.interval(at(10), at(30)));
+  for (const width of [200, 1000]) {
+    const fitted = flowGeometry(flow, Date.parse(at(130)), width);
+    expect(fitted.width).toBe(width);
+    expect(fitted.nowX).toBeCloseTo(width - 16);
+    expect(flowGeometry(flow, Date.parse(at(140)), width, fitted.pixelsPerMs).width).toBeGreaterThan(width);
+  }
   expect(flowGeometry(flowFixture(), Date.parse(at(900))).end).toBe(Date.parse(at(120)));
-  expect(a.width).toBeGreaterThanOrEqual(960);
-  expect(a.interval(at(10), at(10)).width).toBe(2);
-  expect(
-    stackIntervals([
-      { x: 0, width: 20 },
-      { x: 10, width: 20 },
-      { x: 40, width: 2 },
-    ]),
-  ).toEqual([0, 1, 0]);
+  expect(tickStep(1800, 600)).toBe(300);
+  expect(tickStep(1800, 200)).toBe(900);
+  const idle: NonNullable<RunModel["flow"]>["idle"] = [
+    { startedAt: at(0), endedAt: at(10), reason: "gap", evidenceSeqs: [1] },
+    { startedAt: at(10), endedAt: at(20), reason: "gap", evidenceSeqs: [2, 3] },
+  ];
+  const original = structuredClone(idle);
+  expect(mergeIdle(idle)).toEqual([{ ...original[0], endedAt: at(20) }]);
+  expect(idle).toEqual(original);
 });
 test("drawer projections retain existing nodes and supply record-only and requested targets", () => {
   const flow = flowFixture();

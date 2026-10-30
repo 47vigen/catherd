@@ -308,6 +308,19 @@
   }
 }
 
+/*
+ * The flow's full screen opens at once: its overlay, container and dialog carry no entrance to wait out, while the
+ * controls and the drawer inside keep their own motion. Scoped to that one dialog, not to every modal.
+ */
+@utility flow-fullscreen {
+  &,
+  & > *,
+  & .modal__dialog {
+    animation: none !important;
+    transition-duration: 0s !important;
+  }
+}
+
 /* The label voice: small mono capitals, used for column heads, section labels and stat names. */
 @utility label-caps {
   font-family: var(--font-mono);

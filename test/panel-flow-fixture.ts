@@ -27,11 +27,20 @@ export async function seedFlowRun(deps: Deps, repo: string): Promise<{ id: strin
     run,
     {
       tasks: {
-        add: Array.from({ length: 8 }, (_, i) => ({
-          id: `L${i + 1}`,
-          goal: `Flow task ${i + 1}`,
-          ...(i ? { depends: [`L${i}`] } : {}),
-        })),
+        add: [
+          ...Array.from({ length: 8 }, (_, i) => ({
+            id: `L${i + 1}`,
+            goal: `Flow task ${i + 1}`,
+            ...(i ? { depends: [`L${i}`] } : {}),
+          })),
+          // A representative long id and goal: the row must truncate on one line and keep the goal in its tooltip
+          // and the drawer, while the header and sidebar count it like the rest.
+          {
+            id: "L9-a-long-ledger-task-id-that-truncates",
+            goal: "Check that a long ledger task id truncates on one line and its full goal stays in the tooltip and the drawer",
+            depends: ["L8"],
+          },
+        ],
         set: [{ id: "L7", state: "blocked" }],
       },
     },
@@ -137,6 +146,11 @@ export async function seedFlowRun(deps: Deps, repo: string): Promise<{ id: strin
     reason: "owner",
   });
   await add(22, { type: "question.answered", unit: "run", answer: "Continue", by: "owner" });
+  // A limit that lands while no other role works: the hold from the 12-minute limit closes at 14 (a live role
+  // masks its whole span), so this one is what puts a real quota interval in the derived idle row.
+  await delegate(23, "T8", "worker", "L6");
+  await start(23, "D010", "T8", "worker");
+  await end(24, "D010", "T8", "limit");
   await start(25, "D008", "architect-2", "architect", nextRung);
   await add(26, {
     type: "task.delegated",
@@ -161,6 +175,27 @@ export async function seedFlowRun(deps: Deps, repo: string): Promise<{ id: strin
   await end(28, "D008", "architect-2");
   await start(29, "D009", "T7", "worker", nextRung);
   await end(32, "D009", "T7");
+  await add(33, {
+    type: "ledger.changed",
+    tasks: ["L1", "L2", "L6"],
+    progress: true,
+    by: "architect-2",
+    why: "Record the finished and blocked tasks",
+  });
+  // Several ledger states, so the header and sidebar counts and the row chips cover more than `todo` and `blocked`.
+  writeLedger(
+    run,
+    {
+      tasks: {
+        set: [
+          { id: "L1", state: "done" },
+          { id: "L2", state: "done" },
+          { id: "L6", state: "blocked" },
+        ],
+      },
+    },
+    at(33),
+  );
   const checks = [
     {
       id: "C1",

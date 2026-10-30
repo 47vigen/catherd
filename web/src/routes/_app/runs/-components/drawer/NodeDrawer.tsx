@@ -129,6 +129,7 @@ export function NodeDrawer({
   const flowCheck = model.flow?.checks.find((c) => c.selection.nodeId === nodeId);
   const flowTurn = model.flow?.architect.find((t) => t.dispatchId === attempt?.dispatchId);
   const flowDispatch = model.flow?.dispatches.find((d) => d.dispatchId === attempt?.dispatchId);
+  const flowTask = model.flow?.tasks.find((t) => t.id === flowDispatch?.ledgerTask);
   const dispatchId = attempt?.dispatchId ?? null;
   const running = attempt?.status === "running";
   const dispatch = useQuery({
@@ -224,6 +225,12 @@ export function NodeDrawer({
                                 <p className="text-sm whitespace-pre-wrap">{c.why}</p>
                               </div>
                             ))}
+                        </section>
+                      ) : null}
+                      {flowTask ? (
+                        <section aria-label="Ledger goal" className="mb-4 text-sm">
+                          <h3 className="label-caps text-muted">Goal</h3>
+                          <p className="whitespace-pre-wrap">{flowTask.goal}</p>
                         </section>
                       ) : null}
                       {flowDispatch ? (

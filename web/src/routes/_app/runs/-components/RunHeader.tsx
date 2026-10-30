@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { formatCost, formatTokens, totalsOf } from "../-lib/format";
+import { ledgerTasks } from "../-lib/ledger";
 import { formatDuration } from "../-lib/node-view";
 import { runStatus } from "../-lib/run-status";
 import type { RunModel, RunView } from "../../../../client";
@@ -86,7 +87,12 @@ export function RunHeader({
   const cacheWrite = dispatches.reduce((a, d) => a + (d.tokens?.cacheWrite ?? 0), 0);
   const tokensOut = dispatches.reduce((a, d) => a + (d.tokens?.output ?? 0), 0);
   const milestones = run.milestones.length;
-  const rounds = run.milestones.reduce((sum, m) => sum + m.reviews, 0);
+  // An architect run's ledger is its plan; only a legacy run still has milestones. The model arrives a beat after the
+  // run itself, and the server derives a 2.0 run's milestones from its ledger, so the count is right before the flow loads.
+  const architect = run.engine === "2.0";
+  const tasks = model?.flow ? model.flow.tasks.length : milestones;
+  // The server counts every review round; summing the ledger's own rows can miss a task the architect has replaced.
+  const rounds = run.metrics ? run.metrics.rounds.total : run.milestones.reduce((s, m) => s + m.reviews, 0);
 
   return (
     <>
@@ -189,7 +195,7 @@ export function RunHeader({
         <Tile.Stat
           label="Rounds"
           value={rounds}
-          hint={`${milestones} ${milestones === 1 ? "milestone" : "milestones"}`}
+          hint={architect ? ledgerTasks(tasks) : `${milestones} ${milestones === 1 ? "milestone" : "milestones"}`}
         />
       </Tile.Stats>
       <ConfirmDelete
