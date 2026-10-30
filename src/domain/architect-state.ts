@@ -90,6 +90,8 @@ export interface ArchCheck {
   task?: string;
   /** plan 55: a commit's full sha (checked in a detached tree) or a task id (its own tree); absent: the run's tree */
   ref?: string;
+  /** the `check.requested` seq: orders a task-ref check against a merge of the same tree (R19) */
+  seq?: number;
 }
 
 /** Plan 55: a check ref that names a task's tree rather than a commit. */
@@ -420,6 +422,18 @@ export const treeBusy = (a: ArchState, tree: string, except?: string): boolean =
   );
 
 /**
+ * R19: a queued task-ref check and a queued merge of the same tree never run together (the merge changes the tree and
+ * removes it): whichever was asked for first runs, the other waits for its end.
+ */
+export const treeRaced = (a: ArchState, c: ArchCheck, m: ArchMerge): boolean =>
+  !!c.ref &&
+  isTaskRef(c.ref) &&
+  c.state === "queued" &&
+  m.state === "queued" &&
+  a.tasks[c.ref]?.tree != null &&
+  a.tasks[c.ref]?.tree === a.tasks[m.taskId]?.tree;
+
+/**
  * Plan 55, spec D5 and D6: the merge catherd asks for when a task in its own tree ends complete, from the state before
  * its `dispatch.ended`; null for a task on the run's tree, an end short of complete, or a run that is stopping.
  */
@@ -699,6 +713,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
         state: "queued",
         ...(e.task ? { task: e.task } : {}),
         ...(e.ref ? { ref: e.ref } : {}),
+        seq: e.seq,
       };
       a.idle = 0;
       return true;

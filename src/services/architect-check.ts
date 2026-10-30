@@ -14,7 +14,7 @@ import { runProfile } from "./run-pin.ts";
 import type { Run } from "./run-store.ts";
 import { setUp } from "./run-tree.ts";
 import { replayRun } from "./run-events-store.ts";
-import { runTree, taskTreeDir } from "./tree-path.ts";
+import { mergedRef, runTree, taskTreeDir } from "./tree-path.ts";
 
 type CheckDone = Extract<RunEventInput, { type: "check.done" }>;
 
@@ -76,6 +76,14 @@ function refTree(run: Run, ref: string): string | null {
   return taskTreeDir(run, owner);
 }
 
+/** R19: the commit a merged task's tree was fast-forwarded to, else null (its tree is still there, or never was). */
+async function mergedCommit(run: Run, ref: string): Promise<string | null> {
+  const t = replayRun(run).arch.tasks[ref];
+  if (!t?.merged || !t.tree) return null;
+  const r = await git(run.meta.repo, ["rev-parse", "-q", "--verify", `${mergedRef(run, t.tree)}^{commit}`]);
+  return r.kind === "ok" ? r.out.trim() || null : null;
+}
+
 /** HEAD's full sha when the tree has nothing uncommitted, else null: a check result then names it (spec D11). */
 async function committedHead(tree: string): Promise<string | null> {
   const status = await git(tree, ["status", "--porcelain"]);
@@ -132,8 +140,10 @@ async function execute(
 ): Promise<{ done: CheckDone; comparable: boolean }> {
   const logPath = `checks/${c.checkId}.log`;
   // plan 55: a task id checks that task's tree; a commit is checked out detached, as the base is
-  const commit = c.ref && !c.base && !isTaskRef(c.ref) ? c.ref : null;
-  const repo = (c.ref && !c.base ? refTree(run, c.ref) : null) ?? runTree(run);
+  // R19: a task whose tree was merged and removed is checked as the commit its merge put in the run's branch
+  const mergedSha = c.ref && !c.base && isTaskRef(c.ref) ? await mergedCommit(run, c.ref) : null;
+  const commit = mergedSha ?? (c.ref && !c.base && !isTaskRef(c.ref) ? c.ref : null);
+  const repo = (c.ref && !c.base && !mergedSha ? refTree(run, c.ref) : null) ?? runTree(run);
   const sha = c.base ? await baseSha(run, repo) : commit;
   const detached = sha !== null;
   if (c.base && !sha)

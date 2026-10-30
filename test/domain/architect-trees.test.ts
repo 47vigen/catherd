@@ -95,6 +95,68 @@ describe("writer trees in the architect's state (plan 55, spec D5)", () => {
     expect(after(log)).toContainEqual({ type: "runCheck", checkId: "C1" });
   });
 
+  describe("a check of a task's tree and that tree's merge never run together (R19)", () => {
+    const check = (log: Log, checkId: string, ref: string) =>
+      log.add("check.requested", {
+        checkId,
+        command: "bun test",
+        scope: "fast",
+        base: false,
+        fresh: false,
+        by: "architect-1",
+        why: "w",
+        ref,
+      });
+    const done = (log: Log) =>
+      log.add("merge.done", {
+        mergeId: "M1",
+        taskId: "T1",
+        outcome: "merged",
+        sha: "a".repeat(40),
+        files: [],
+        message: "merged",
+      });
+    const types = (a: Action[]) => a.map((x) => x.type);
+
+    it("holds a task-ref check while an earlier merge of that tree is queued, then issues it", () => {
+      const log = treesRun();
+      work(log, "T1", { tree: "T1" });
+      work(log, "T2", { tree: "T2" });
+      ask(log, "M1", "T1");
+      check(log, "C1", "T1");
+      check(log, "C2", "T2");
+      check(log, "C3", "a".repeat(40));
+      const first = after(log);
+      expect(first).toContainEqual({ type: "merge", mergeId: "M1" });
+      expect(first).not.toContainEqual({ type: "runCheck", checkId: "C1" });
+      // another tree's check and a commit's check are unaffected
+      expect(first).toContainEqual({ type: "runCheck", checkId: "C2" });
+      expect(first).toContainEqual({ type: "runCheck", checkId: "C3" });
+      done(log);
+      expect(after(log)).toContainEqual({ type: "runCheck", checkId: "C1" });
+    });
+
+    it("holds the merge while an earlier task-ref check of that tree is queued, then issues it", () => {
+      const log = treesRun();
+      work(log, "T1", { tree: "T1" });
+      check(log, "C1", "T1");
+      ask(log, "M1", "T1");
+      const first = after(log);
+      expect(first).toContainEqual({ type: "runCheck", checkId: "C1" });
+      expect(types(first)).not.toContain("merge");
+      log.add("check.done", {
+        checkId: "C1",
+        exit: 0,
+        failures: [],
+        preExisting: [],
+        cached: false,
+        minutes: 0,
+        logPath: "checks/C1.log",
+      });
+      expect(after(log)).toContainEqual({ type: "merge", mergeId: "M1" });
+    });
+  });
+
   it("marks every task of a merged tree merged, wakes the architect, and counts the merge as news", () => {
     const log = treesRun();
     work(log, "T1", { tree: "T1", ledgerTask: "L1" });
@@ -241,6 +303,16 @@ describe("writer trees in the architect's state (plan 55, spec D5)", () => {
     full("C1", "d".repeat(40));
     full("C2", "T1");
     expect(after(log)).toContainEqual({ type: "runCheck", checkId: "C1" });
+    // R19: the tree's own merge goes first, being asked for first
+    expect(after(log)).not.toContainEqual({ type: "runCheck", checkId: "C2" });
+    log.add("merge.done", {
+      mergeId: "M1",
+      taskId: "T1",
+      outcome: "refused",
+      sha: null,
+      files: [],
+      message: "refused",
+    });
     expect(after(log)).toContainEqual({ type: "runCheck", checkId: "C2" });
     const done = (checkId: string) =>
       log.add("check.done", {

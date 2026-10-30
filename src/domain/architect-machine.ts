@@ -1,9 +1,12 @@
 import {
+  type ArchCheck,
+  type ArchMerge,
   type ArchState,
   architectName,
   isStanding,
   rungHeld,
   STANDING_CAP,
+  treeRaced,
   unheldRung,
   WRITER_CAP,
 } from "./architect-state.ts";
@@ -91,13 +94,20 @@ export function architectNext(s: RunState, e: RunEvent): Action[] {
   const queuedMerges = Object.values(a.merges).filter((m) => m.state === "queued");
   const pending =
     queuedMerges.length > 0 || Object.values(a.checks).some((c) => c.task && c.state === "queued");
+  // R19: a task-ref check and a merge of that tree go in the order they were asked for, never together
+  const raced = (c: ArchCheck, m: ArchMerge) => treeRaced(a, c, m);
   for (const c of Object.values(a.checks))
     // a check on a commit or a task's tree does not read the run's tree
-    if (c.state === "queued" && !(pending && c.scope === "full" && !c.ref))
+    if (
+      c.state === "queued" &&
+      !(pending && c.scope === "full" && !c.ref) &&
+      !queuedMerges.some((m) => raced(c, m) && m.seq < (c.seq ?? 0))
+    )
       out.push({ type: "runCheck", checkId: c.checkId });
   // spec D5: merges into the run's branch go one at a time, in the order they were asked for
   const merge = queuedMerges[0];
-  if (merge) out.push({ type: "merge", mergeId: merge.mergeId });
+  if (merge && !Object.values(a.checks).some((c) => raced(c, merge) && (c.seq ?? 0) < merge.seq))
+    out.push({ type: "merge", mergeId: merge.mergeId });
   for (const l of Object.values(a.lands))
     if (l.state === "queued") out.push({ type: "land", landId: l.landId });
   if (s.paused !== null || s.held !== null) return out;

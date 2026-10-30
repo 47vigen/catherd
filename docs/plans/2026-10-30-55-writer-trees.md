@@ -153,6 +153,14 @@ this branch, one per task, in task order. Full gate and the panel's gate green o
   (re-review 2): under the events lock, when no task was delegated into the tree after `merge.requested`, the files
   it left are removed before the send-back goes out, so the writer does not inherit them and the next merge does not
   commit them.
+- **R19 — a task-ref check and that tree's merge never run together (re-review 2).** A `check {ref: <task>}` runs in
+  the writer's live tree, which a merge changes and then removes. `architectNext` orders them by their request seq
+  (`ArchCheck.seq`, `treeRaced`): a queued check waits while a queued merge of the same tree was asked for earlier, and
+  the queue's head merge waits while an earlier task-ref check of its tree is queued; the other goes when the first is
+  done, so neither can wait on the other. Commit-ref checks, checks of other trees and the fast check inside a merge
+  are unaffected. A task-ref check that runs after the merge finds no tree: it checks the commit the merge
+  fast-forwarded to (`mergedRef`), as a commit ref would; before, it failed on the missing directory. — Cost if wrong:
+  a check waits for a merge's fast check (minutes).
 
 ## Review Focus
 
