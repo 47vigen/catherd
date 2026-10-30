@@ -71,6 +71,6 @@ export async function renderBrief(
       unit: resumed ? [] : fitUnit(run, [...parts.unit, ...(rules ? [rules] : [])]),
       round: parts.round,
     },
-    { run: run.id, name: a.name, role, version: VERSION, resumed, lane: null },
+    { run: run.id, name: a.name, role, version: VERSION, trees: s.trees, resumed, lane: null },
   );
 }
