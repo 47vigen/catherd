@@ -149,7 +149,10 @@ this branch, one per task, in task order. Full gate and the panel's gate green o
   leaves files therefore never merges until they are ignored or the check cleans up: the digest says so. Tracked files
   a check changed stay as the writer's to commit or restore. The lock is never held for the tree's removal: the
   fast-forward is under it, the removal after it (the merge is queued still, so no delegate joins). — Cost if wrong: a
-  project whose check builds into an untracked directory needs a `.gitignore` line.
+  project whose check builds into an untracked directory needs a `.gitignore` line. A red check gets the same sweep
+  (re-review 2): under the events lock, when no task was delegated into the tree after `merge.requested`, the files
+  it left are removed before the send-back goes out, so the writer does not inherit them and the next merge does not
+  commit them.
 
 ## Review Focus
 

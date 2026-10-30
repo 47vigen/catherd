@@ -431,6 +431,22 @@ describe("a merge moves what the tree holds and nothing else (plan 55 review I5 
     expect(git(tree, "rev-parse", "HEAD")).toBe(head);
   });
 
+  it("removes what a red check left, so the send-back does not inherit it and the next merge does not commit it (R18)", async () => {
+    const { run, deps, tree } = await treesRun();
+    // red the first time, green the second; the marker lives outside the tree
+    const dir = await worked(run, deps, "T1", {
+      check: "if [ -f ../second ]; then exit 0; fi; touch ../second; echo junk > check.out; exit 1",
+    });
+    put(dir, "w.txt", "work\n");
+    const red = await runMerge(deps, run, merge("T1"), CHECK_MS);
+    expect(red.done.outcome).toBe("red");
+    expect(existsSync(join(dir, "check.out"))).toBe(false);
+    expect(readFileSync(join(dir, "w.txt"), "utf8")).toBe("work\n");
+    const again = await runMerge(deps, run, merge("T1", "M2"), CHECK_MS);
+    expect(again.done.outcome).toBe("merged");
+    expect(git(tree, "log", "--format=%H", "--", "check.out")).toBe("");
+  });
+
   it("refuses when the run's tree is not on the run's branch", async () => {
     const { run, deps, tree } = await treesRun();
     const dir = await worked(run, deps, "T1");

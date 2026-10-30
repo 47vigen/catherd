@@ -194,10 +194,17 @@ export async function runMerge(
   for (let attempt = 1; ; attempt++) {
     const before = new Set(await untracked(dir));
     const early = await mergeIn(deps, run, m, t, dir, branch, checkMs, attempt, end);
-    if (early) return early;
     // R18: the files the check left; nothing the writer has may be lost with the tree, and nothing the check left may
     // be committed by a later merge
     const left = (await untracked(dir)).filter((p) => !before.has(p));
+    if (early) {
+      // a red check's leftovers would reach the send-back and the next merge's commit
+      if (early.done.outcome === "red" && left.length)
+        await withEventsLock(run, async () => {
+          if (!lateRefusal(replayRun(run))) await sweep(left);
+        });
+      return early;
+    }
     const dirty = lines(
       (await out(dir, ["status", "--porcelain", "--ignore-submodules=none"])) ?? "?? git cannot read it",
     );
@@ -215,6 +222,10 @@ export async function runMerge(
         "refused",
         `the run's branch moved again while ${m.taskId} was checked (it has commits ${m.taskId}'s tree does not): catherd keeps the tree; merge it again`,
       );
+  }
+
+  function sweep(left: string[]) {
+    return gitRun(dir, ["--literal-pathspecs", "clean", "-f", "-q", "--", ...left]);
   }
 
   function lateRefusal(now: RunState): ReturnType<typeof end> | null {
@@ -247,7 +258,7 @@ export async function runMerge(
         );
       if (left.length || dirty.length) {
         // only now, with no task delegated into the tree, are the check's own leftovers its to remove
-        if (left.length) await gitRun(dir, ["--literal-pathspecs", "clean", "-f", "-q", "--", ...left]);
+        if (left.length) await sweep(left);
         return end(
           "refused",
           `${tree}'s tree is not clean after the check (${dirty.slice(0, 5).join(", ")}${dirty.length > 5 ? ", …" : ""})${left.length ? `; catherd removed the ${left.length} untracked file(s) the check left, so that no merge commits them (ignore them in the repository, or have the check clean up)` : ""}: catherd keeps the tree; commit or remove what is left, or send the task back`,
