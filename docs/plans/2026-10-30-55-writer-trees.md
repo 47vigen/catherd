@@ -134,6 +134,13 @@ this branch, one per task, in task order. Full gate and the panel's gate green o
 - **R16 — the run's tree is claimed once at a time.** With writer trees, the architect's first turn and a task's start
   claim it together; `claimRunTree` shares one in-flight claim per run (the race showed as "cannot lock ref" in the
   Task 5 daemon test).
+- **R17 — a tree with a queued or running merge is busy (review C1).** `treeBusy` counts a merge in `queued` state
+  (until its `merge.done`); `treeOf` and `continuedTree` fall back to a new tree, `worktree: task:<id>` and a
+  `thread_send` follow-up to a task whose tree waits to merge are refused ("its merge result wakes you"), and catherd's
+  own send-back is the one task allowed in (`viaMerge`). `runMerge` looks once more under the events lock right before
+  the fast-forward and refuses, keeping the tree, when a task was delegated into it after `merge.requested`; `merge.done`
+  marks merged only the tasks delegated before that seq. — A follow-up resumed in a new tree would lack the thread's
+  own work. — Cost if wrong: one wait for a merge result.
 
 ## Review Focus
 

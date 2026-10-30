@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { type ArchMerge, type ArchTask, treeBusy } from "../domain/architect-state.ts";
+import { type ArchMerge, type ArchTask, treeWorking } from "../domain/architect-state.ts";
 import { runBranch } from "../domain/branch.ts";
 import type { RunEventInput } from "../domain/run-events.ts";
 import { errorMessage } from "../domain/errors.ts";
@@ -16,7 +16,7 @@ import { treeLimits } from "./run-tree.ts";
 import { teamSend } from "./team.ts";
 import { oracleDiffFile, oracleOf } from "./oracle.ts";
 import type { Deps } from "./ports.ts";
-import { replayRun } from "./run-events-store.ts";
+import { replayRun, withEventsLock } from "./run-events-store.ts";
 import type { Run } from "./run-store.ts";
 import { runTree, taskBranch, taskTreeDir } from "./tree-path.ts";
 import { removeTaskTree } from "./writer-tree.ts";
@@ -76,8 +76,9 @@ export async function runMerge(
     back,
   });
   if (!t?.tree) return end("refused", `${m.taskId} works on the run's tree: there is nothing to merge`);
+  const tree = t.tree;
   if (t.merged) return end("refused", `${m.taskId}'s tree is merged already`);
-  if (treeBusy(a, t.tree))
+  if (treeWorking(a, t.tree))
     return end("refused", `a task still works in ${t.tree}'s tree: merge it when it ends`);
   const dir = taskTreeDir(run, t.tree);
   if (!existsSync(dir)) return end("refused", `${t.tree}'s tree is gone: ${dir}`);
@@ -168,22 +169,35 @@ export async function runMerge(
       );
     }
   }
-  const before = (await out(integration, ["rev-parse", "HEAD"]))?.trim() ?? "";
-  const ff = await gitRun(integration, ["merge", "--ff-only", "-q", taskBranch(run, t.tree)]);
-  if (ff.code !== 0)
-    return end(
-      "refused",
-      `the run's tree did not fast-forward to ${m.taskId}'s work (${tail(`${ff.out}${ff.err}`)}): commit or drop your own edits there in the same files, then merge again`,
+  // the last look and the move are one step under the events lock: a delegate appends under it too, so no task can
+  // join the tree between the look and the removal
+  return withEventsLock(run, async () => {
+    const now = replayRun(run);
+    const late = Object.values(now.arch.tasks).filter(
+      (x) => x.tree === tree && x.delegatedSeq > m.seq && x.state !== "refused" && x.state !== "cancelled",
     );
-  const sha = (await out(integration, ["rev-parse", "HEAD"]))?.trim() ?? null;
-  const files =
-    sha && before ? lines((await out(integration, ["diff", "--name-only", before, sha])) ?? "") : [];
-  await removeTaskTree(run, t.tree);
-  return end(
-    "merged",
-    `${branch} is at ${sha?.slice(0, 12)}: ${files.length} file(s) from ${m.taskId}${files.length ? ` (${files.slice(0, 10).join(", ")}${files.length > 10 ? ", …" : ""})` : ""}`,
-    { sha, files },
-  );
+    if (late.length)
+      return end(
+        "refused",
+        `${late.map((x) => x.taskId).join(", ")} was delegated into ${tree}'s tree after this merge was asked for: catherd keeps the tree. Merge it again when that task ends`,
+      );
+    const before = (await out(integration, ["rev-parse", "HEAD"]))?.trim() ?? "";
+    const ff = await gitRun(integration, ["merge", "--ff-only", "-q", taskBranch(run, tree)]);
+    if (ff.code !== 0)
+      return end(
+        "refused",
+        `the run's tree did not fast-forward to ${m.taskId}'s work (${tail(`${ff.out}${ff.err}`)}): commit or drop your own edits there in the same files, then merge again`,
+      );
+    const sha = (await out(integration, ["rev-parse", "HEAD"]))?.trim() ?? null;
+    const files =
+      sha && before ? lines((await out(integration, ["diff", "--name-only", before, sha])) ?? "") : [];
+    await removeTaskTree(run, tree);
+    return end(
+      "merged",
+      `${branch} is at ${sha?.slice(0, 12)}: ${files.length} file(s) from ${m.taskId}${files.length ? ` (${files.slice(0, 10).join(", ")}${files.length > 10 ? ", …" : ""})` : ""}`,
+      { sha, files },
+    );
+  });
 }
 
 /**

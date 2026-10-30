@@ -11,7 +11,7 @@ import { realEffects } from "../../src/services/run-effects.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
 import { claimRunTree } from "../../src/services/run-tree.ts";
-import { taskTreeDir } from "../../src/services/tree-path.ts";
+import { taskBranch, taskTreeDir } from "../../src/services/tree-path.ts";
 import { claimTaskTree } from "../../src/services/writer-tree.ts";
 import { endDispatch, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { commitInClone, snapshotEnv } from "../helpers.ts";
@@ -69,12 +69,29 @@ async function worked(
   return claimTaskTree(deps, run, taskId);
 }
 
-const merge = (taskId: string, mergeId = "M1"): ArchMerge => ({
+// asked for after everything the tests delegated, unless a test gives the seq of a real `merge.requested`
+const merge = (taskId: string, mergeId = "M1", seq = Number.MAX_SAFE_INTEGER): ArchMerge => ({
   mergeId,
   taskId,
   by: "catherd",
   state: "queued",
+  seq,
 });
+
+/** Appends a worker task's delegation (and start) into `tree`, as a delegate that raced the merge would have. */
+async function joined(run: Run, taskId: string, tree: string): Promise<void> {
+  await appendEvent(run, {
+    type: "task.delegated",
+    taskId,
+    role: "worker",
+    rung: RUNG,
+    thread: "th-T1",
+    ledgerTask: null,
+    by: "architect-1",
+    why: "w",
+    tree,
+  });
+}
 
 describe("merging a writer's tree into the run's branch (plan 55, spec D5)", () => {
   it("commits the tree, checks it merged with the run's branch, fast-forwards the run's branch and removes the tree", async () => {
@@ -184,6 +201,34 @@ describe("merging a writer's tree into the run's branch (plan 55, spec D5)", () 
       message: expect.stringMatching(/: catherd sent it back as T2$/),
     });
     expect(readFileSync(join(run.dir, "tasks/T2/brief.md"), "utf8")).toContain("conflicts in: a.txt");
+  });
+});
+
+describe("a merge never takes a tree a later task joined (plan 55 review C1)", () => {
+  it("refuses at the fast-forward, and keeps the tree with the late task's work, when a task was delegated into it during the check", async () => {
+    const { run, deps, tree } = await treesRun();
+    const dir = await worked(run, deps, "T1", {
+      check: "touch ../started; until [ -f ../go ]; do sleep 0.02; done",
+    });
+    put(dir, "one.txt", "one\n");
+    const requested = await appendEvent(run, {
+      type: "merge.requested",
+      mergeId: "M1",
+      taskId: "T1",
+      by: "catherd",
+      why: "w",
+    });
+    const head = git(tree, "rev-parse", "HEAD");
+    const running = runMerge(deps, run, merge("T1", "M1", requested.seq), CHECK_MS);
+    while (!existsSync(join(run.dir, "trees", "started"))) await Bun.sleep(5);
+    await joined(run, "T2", "T1");
+    put(dir, "late.txt", "T2's work\n");
+    writeFileSync(join(run.dir, "trees", "go"), "");
+    const { done } = await running;
+    expect(done).toMatchObject({ outcome: "refused", message: expect.stringContaining("T2") });
+    expect(git(tree, "rev-parse", "HEAD")).toBe(head);
+    expect(existsSync(join(dir, "late.txt"))).toBe(true);
+    expect(git(run.meta.repo, "branch", "--list", taskBranch(run, "T1"))).not.toBe("");
   });
 });
 

@@ -162,6 +162,44 @@ describe("writer trees in the architect's state (plan 55, spec D5)", () => {
     expect(continuedTree(log.state().arch, "L1")).toBeNull();
   });
 
+  it("keeps a tree busy while its merge is queued or running, and frees it only when the merge is done (plan 55 review C1)", () => {
+    const log = treesRun();
+    work(log, "T1", { tree: "T1", ledgerTask: "L1" });
+    endDispatch(log, log.state().arch.tasks.T1?.dispatchId as string, { name: "T1", unit: "T1" });
+    ask(log, "M1", "T1");
+    expect(treeBusy(log.state().arch, "T1")).toBe(true);
+    // the merge's own send-back is the one task that may join its tree
+    expect(treeBusy(log.state().arch, "T1", "M1")).toBe(false);
+    expect(continuedTree(log.state().arch, "L1")).toBeNull();
+    log.add("merge.done", {
+      mergeId: "M1",
+      taskId: "T1",
+      outcome: "conflict",
+      sha: null,
+      files: ["a.txt"],
+      message: "m",
+    });
+    expect(treeBusy(log.state().arch, "T1")).toBe(false);
+    expect(continuedTree(log.state().arch, "L1")).toBe("T1");
+  });
+
+  it("marks merged only the tasks delegated before the merge was asked for (plan 55 review C1)", () => {
+    const log = treesRun();
+    work(log, "T1", { tree: "T1" });
+    endDispatch(log, log.state().arch.tasks.T1?.dispatchId as string, { name: "T1", unit: "T1" });
+    ask(log, "M1", "T1");
+    work(log, "T2", { tree: "T1" });
+    log.add("merge.done", {
+      mergeId: "M1",
+      taskId: "T1",
+      outcome: "merged",
+      sha: "d".repeat(40),
+      files: [],
+      message: "m",
+    });
+    expect([log.state().arch.tasks.T1?.merged, log.state().arch.tasks.T2?.merged]).toEqual([true, false]);
+  });
+
   it("wakes the architect when a task catherd sent back ends, and names the end's checkpoint", () => {
     const log = treesRun();
     log.add("task.delegated", {

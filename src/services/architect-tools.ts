@@ -17,6 +17,7 @@ import {
   stalled,
   taskAttempts,
   treeBusy,
+  treeWorking,
   WRITER_CAP,
   workAttempts,
 } from "../domain/architect-state.ts";
@@ -139,6 +140,8 @@ async function delegate(
     from?: "clean";
     /** plan 55: catherd sends a task back after its merge */
     cause?: "conflict" | "red";
+    /** plan 55: the merge this send-back answers; its tree is busy for everyone else until the merge is done */
+    viaMerge?: string;
     why: string;
   },
 ): Promise<{
@@ -278,7 +281,7 @@ async function delegate(
  */
 function treeOf(
   s: RunState,
-  i: { worktree?: string; from?: "clean"; ledgerTask?: string },
+  i: { worktree?: string; from?: "clean"; ledgerTask?: string; viaMerge?: string },
   id: string,
 ): string {
   if (i.worktree?.startsWith("task:")) {
@@ -288,13 +291,18 @@ function treeOf(
         `${i.worktree} has no unmerged tree`,
         "use worktree new, or a task whose tree is not merged",
       );
-    if (treeBusy(s.arch, other.tree))
+    if (treeWorking(s.arch, other.tree))
       throw invalid(`${other.tree}'s tree has a task queued or working`, "wait for it, or use worktree new");
+    // a queued merge commits what the tree holds and removes it: nothing may join it before the merge is done
+    if (treeBusy(s.arch, other.tree, i.viaMerge))
+      throw invalid(
+        `${other.tree}'s tree is waiting to be merged into the run's branch`,
+        "its merge result wakes you: then send the follow-up (a conflict or a red check goes back to its writer by itself), or use worktree new",
+      );
     return other.tree;
   }
   if (i.worktree === "new" || i.from === "clean") return id;
-  const last = continuedTree(s.arch, i.ledgerTask ?? null);
-  return last && !treeBusy(s.arch, last) ? last : id;
+  return continuedTree(s.arch, i.ledgerTask ?? null, i.viaMerge) ?? id;
 }
 
 const VERIFIER_FACTS =
@@ -345,6 +353,7 @@ export async function sendBack(
   run: Run,
   taskId: string,
   back: { cause: "conflict" | "red"; text: string },
+  mergeId: string,
 ): Promise<string> {
   const c: ToolContext = { deps, run, caller: { name: "catherd", role: "architect" } };
   const s = replayRun(run);
@@ -361,6 +370,7 @@ export async function sendBack(
     worktree: `task:${t.taskId}`,
     thread,
     cause: back.cause,
+    viaMerge: mergeId,
     why: `${taskId}'s merge ${back.cause === "conflict" ? "conflicted" : "went red"}`,
   });
   return r.taskId;
@@ -646,16 +656,12 @@ export const ARCHITECT_TOOL_SPECS: Record<ArchitectTool, ToolSpec> = {
             `${t.taskId} has no unmerged tree of its own`,
             "a task on the run's tree is in it already",
           );
-        if (treeBusy(s.arch, t.tree))
+        if (treeWorking(s.arch, t.tree))
           throw invalid(
             `a task still works in ${t.tree}'s tree`,
             "merge it when the task ends; its end wakes you",
           );
-        if (
-          Object.values(s.arch.merges).some(
-            (m) => m.state === "queued" && s.arch.tasks[m.taskId]?.tree === t.tree,
-          )
-        )
+        if (treeBusy(s.arch, t.tree))
           throw invalid(`${t.tree}'s tree is already waiting to merge`, "its result wakes you");
         const id = nextMergeId(s.arch);
         add({ type: "merge.requested", mergeId: id, taskId: t.taskId, by: c.caller.name, why: a.why }, at(c));

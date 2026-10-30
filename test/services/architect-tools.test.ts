@@ -232,6 +232,34 @@ describe("the architect's tools (plan 47, spec D3 and D12)", () => {
     expect(await call(run, "capabilities", {})).toMatchObject({ trees: "writer" });
   });
 
+  it("keeps a tree out of reach while its merge is queued: a follow-up is refused, a retry gets a new tree (plan 55 review C1)", async () => {
+    const { run } = branchRun();
+    await appendEvent(run, { type: "run.started", ...startedFields, base: "main", trees: "writer" });
+    await call(run, "ledger", { tasks: { add: [{ id: "L1", goal: "the wallet" }] }, why: "w" });
+    await call(run, "delegate_task", { role: "worker", ledgerTask: "L1", task: "x", why: "w" });
+    const log = makeLog();
+    endDispatch(log, startDispatch(log, { name: "T1", unit: "T1" }), {
+      name: "T1",
+      unit: "T1",
+      thread: "th-T1",
+    });
+    for (const { v: _v, seq: _s, at: _a, ...e } of log.events) await appendEvent(run, e as never);
+    await appendEvent(run, { type: "merge.requested", mergeId: "M1", taskId: "T1", by: "catherd", why: "w" });
+    const tasks = () => Object.keys(replayRun(run).arch.tasks);
+    await expect(
+      call(run, "thread_send", { to: "T1", text: "and the refund?", why: "w" }),
+    ).rejects.toMatchObject({
+      code: "E_INPUT_INVALID",
+      message: expect.stringContaining("waiting to be merged"),
+    });
+    await expect(
+      call(run, "delegate_task", { role: "worker", worktree: "task:T1", task: "x", why: "w" }),
+    ).rejects.toMatchObject({ code: "E_INPUT_INVALID" });
+    expect(tasks()).toEqual(["T1"]);
+    await call(run, "delegate_task", { role: "worker", ledgerTask: "L1", task: "again", why: "w" });
+    expect(replayRun(run).arch.tasks.T2?.tree).toBe("T2");
+  });
+
   it("delegate_task refuses a tree of its own on a run whose writers share one (plan 55)", async () => {
     const run = await architectRun();
     await expect(

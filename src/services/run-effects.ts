@@ -462,7 +462,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
         const now = replayRun(run);
         // spec D5: a conflict or a red check goes back to the same writer, unless the run is stopping
         if (r.back && !(now.phase === "ended" || now.cancelling || now.arch.finishing)) {
-          const sent = await sendBack(deps, run, m.taskId, r.back).then(
+          const sent = await sendBack(deps, run, m.taskId, r.back, m.mergeId).then(
             (id) => `: catherd sent it back as ${id}`,
             (e: unknown) => `; catherd could not send it back (${errorMessage(e)}): send it back or replan`,
           );

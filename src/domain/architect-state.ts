@@ -75,6 +75,8 @@ export interface ArchMerge {
   taskId: string;
   by: string;
   state: "queued" | "done";
+  /** the seq of its `merge.requested`: a task delegated into the tree after it is not part of this merge */
+  seq: number;
 }
 
 export interface ArchCheck {
@@ -395,17 +397,27 @@ export const nextMergeId = (a: ArchState): string => `M${Object.keys(a.merges).l
  * Plan 55, spec D5: the tree a new attempt at a ledger task continues in by default: the latest earlier attempt's own
  * tree, while it is not merged; null when there is none (the attempt gets a new tree).
  */
-export function continuedTree(a: ArchState, ledgerTask: string | null): string | null {
+export function continuedTree(a: ArchState, ledgerTask: string | null, except?: string): string | null {
   if (ledgerTask === null) return null;
   const last = Object.values(a.tasks)
     .filter((t) => t.ledgerTask === ledgerTask && t.tree !== null && t.state !== "refused")
     .reduce<ArchTask | undefined>((x, t) => (!x || t.delegatedSeq > x.delegatedSeq ? t : x), undefined);
-  return last && !last.merged ? last.tree : null;
+  return last && !last.merged && !treeBusy(a, last.tree as string, except) ? last.tree : null;
 }
 
-/** Whether a task works in `tree` right now (queued or working): a second one may not join it. */
-export const treeBusy = (a: ArchState, tree: string): boolean =>
+/** Whether a task works in `tree` right now (queued or working). */
+export const treeWorking = (a: ArchState, tree: string): boolean =>
   Object.values(a.tasks).some((t) => t.tree === tree && (t.state === "queued" || t.state === "working"));
+
+/**
+ * Whether a second task may not join `tree`: one works in it, or a merge of it is queued or running (the merge commits
+ * what the tree holds and removes it). `except` is the merge whose own send-back is the one task allowed in.
+ */
+export const treeBusy = (a: ArchState, tree: string, except?: string): boolean =>
+  treeWorking(a, tree) ||
+  Object.values(a.merges).some(
+    (m) => m.state === "queued" && m.mergeId !== except && a.tasks[m.taskId]?.tree === tree,
+  );
 
 /**
  * Plan 55, spec D5 and D6: the merge catherd asks for when a task in its own tree ends complete, from the state before
@@ -731,7 +743,7 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       return true;
     }
     case "merge.requested":
-      a.merges[e.mergeId] = { mergeId: e.mergeId, taskId: e.taskId, by: e.by, state: "queued" };
+      a.merges[e.mergeId] = { mergeId: e.mergeId, taskId: e.taskId, by: e.by, state: "queued", seq: e.seq };
       a.idle = 0;
       return true;
     case "merge.done": {
@@ -741,7 +753,9 @@ export function applyArchitect(s: RunState, e: RunEvent): boolean {
       if (t && e.outcome === "merged") {
         // spec D10: a new commit on the run's branch is news for every ledger task
         a.newsSeq = e.seq;
-        for (const x of Object.values(a.tasks)) if (x.tree !== null && x.tree === t.tree) x.merged = true;
+        const asked = m?.seq ?? Number.POSITIVE_INFINITY;
+        for (const x of Object.values(a.tasks))
+          if (x.tree !== null && x.tree === t.tree && x.delegatedSeq < asked) x.merged = true;
       }
       if (t && e.outcome === "held" && e.oracle) t.oracle = { ...e.oracle, accepted: null };
       push(a, e, `${e.mergeId} (merge of ${e.taskId}) ${e.outcome}: ${e.message}`);
