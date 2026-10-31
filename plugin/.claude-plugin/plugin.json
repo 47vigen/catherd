@@ -1,6 +1,6 @@
 {
   "name": "catherd",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "description": "Herds coding agents: Claude plans and verifies, Codex, opencode or headless Claude Code workers write the code, and the architect picks the model and effort for each dispatch from each role's ladder.",
   "author": {
     "name": "47vigen",
