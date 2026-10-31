@@ -24,6 +24,7 @@ import { NodeList } from "./-components/NodeList";
 import { RunDocs } from "./-components/RunDocs";
 import { RunHeader } from "./-components/RunHeader";
 import { Metrics, Milestones, Models } from "./-components/RunSide";
+import { CostSpent, Findings, NeedsYou, Now, TimeSpent } from "./-components/RunSummary";
 import { Timeline, TimelineFilter } from "./-components/Timeline";
 import { useQuotaBoundary } from "./-hooks/useFlowFollow";
 import { useIsDesktop } from "./-hooks/useIsDesktop";
@@ -31,6 +32,7 @@ import { type LiveFrame, useLiveRun } from "./-hooks/useLiveRun";
 import { useTicker } from "./-hooks/useTicker";
 import { applyPatch } from "./-lib/apply-patch";
 import { drawerModel } from "./-lib/flow-view";
+import { findings } from "./-lib/insights";
 import { ledgerSummary } from "./-lib/ledger";
 import { type LiveLog, LiveLogContext } from "./-lib/live-log";
 import { parseTab, type Tab } from "./-lib/tabs";
@@ -262,6 +264,34 @@ function RunDetail({ runId }: { runId: string }) {
     <div className="flex max-w-full min-w-0 flex-col gap-4">
       <RunHeader run={r} model={model.data} live={live === true} now={now} />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        {flow && model.data ? (
+          <>
+            <NeedsYou nodes={model.data.nodes} onOpen={open} />
+            {/* One bento row of equal tiles: what matters now, then where the time and the money went. */}
+            {live ? <Now run={r} flow={flow} now={now.getTime()} onOpen={openFlow} className="lg:col-span-4" /> : null}
+            <Findings
+              items={findings(r, flow, model.data.dispatches, now.getTime())}
+              onOpen={openFlow}
+              className="lg:col-span-4"
+            />
+            <TimeSpent
+              run={r}
+              flow={flow}
+              attempts={model.data.dispatches}
+              now={now.getTime()}
+              className="lg:col-span-4"
+            />
+            {live ? null : (
+              <CostSpent
+                flow={flow}
+                attempts={model.data.dispatches}
+                now={now.getTime()}
+                onOpen={openFlow}
+                className="lg:col-span-4"
+              />
+            )}
+          </>
+        ) : null}
         {is2 ? (
           <Tile title={flow ? "Run flow" : "Steps"} aside={stepsAside} className="min-w-0 lg:col-span-12">
             {model.isPending ? (
@@ -301,7 +331,7 @@ function RunDetail({ runId }: { runId: string }) {
             ) : (
               <NodeList nodes={model.data.nodes} selected={node} now={now.getTime()} onOpen={open} />
             )}
-            {flow && model.data?.nodes.some((n) => n.question) ? (
+            {!flow && model.data?.nodes.some((n) => n.question) ? (
               <div className="flex flex-wrap gap-2 px-4 pb-3">
                 {model.data.nodes
                   .filter((n) => n.question)
@@ -346,8 +376,12 @@ function RunDetail({ runId }: { runId: string }) {
           <div className="flex min-w-0 flex-col gap-4 lg:col-span-4">
             {/* The flow already lists every ledger task; the milestone card only belongs to a run drawn as a graph. */}
             {model.data && !flow ? <Milestones milestones={r.milestones} /> : null}
+            {flow && model.data && live ? (
+              <CostSpent flow={flow} attempts={model.data.dispatches} now={now.getTime()} onOpen={openFlow} />
+            ) : null}
             <Models dispatches={model.data?.dispatches ?? []} />
-            {r.metrics ? <Metrics metrics={r.metrics} /> : null}
+            {/* A flow run shows these figures in its header, time bar and findings. */}
+            {r.metrics && !flow ? <Metrics metrics={r.metrics} /> : null}
           </div>
         ) : null}
         <Tile
@@ -371,7 +405,7 @@ function RunDetail({ runId }: { runId: string }) {
           ) : entries.length === 0 ? (
             <p className="text-muted px-4 py-4 text-sm">{types ? "No events of this type." : "No events yet."}</p>
           ) : (
-            <Timeline entries={entries} now={now} arrived={arrived} />
+            <Timeline entries={entries} now={now} arrived={arrived} startedAt={r.startedAt} />
           )}
           {(timeline.data?.total ?? 0) > 0 ? (
             <div className="border-border border-t px-4 py-2.5">

@@ -1,4 +1,4 @@
-import { Alert, Label, SearchField, Switch } from "@heroui/react";
+import { Alert, Label, SearchField, Spinner, Switch } from "@heroui/react";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 
 import type { LiveFrame } from "../../-hooks/useLiveRun";
@@ -191,7 +191,10 @@ export function TranscriptView({ runId, dispatchId, live }: { runId: string; dis
           live={live && !view.ended}
         />
       ) : (
-        <p className="text-muted text-sm">Reading the log…</p>
+        <div className="text-muted flex items-center justify-center gap-2 py-8 text-sm">
+          <Spinner size="sm" />
+          Reading the log…
+        </div>
       )}
     </section>
   );

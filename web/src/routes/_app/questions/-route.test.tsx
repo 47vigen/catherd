@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { client } from "../../../client/client.gen";
@@ -40,9 +40,12 @@ const list =
 
 test("lists each parked unit with its run, reason, age and question, filtered by run from the URL", async () => {
   const { requests } = renderRoute("/questions?run=r1", list([parked()]));
-  expect(await screen.findByText("Keep the old wallet id?")).toBeInTheDocument();
+  const inbox = await screen.findByRole("list", { name: "Waiting questions" });
+  expect(within(inbox).getByText("Keep the old wallet id?")).toBeInTheDocument();
+  expect(within(inbox).getByText("M1.L2")).toBeInTheDocument();
+  // the first question opens on its own, with a link to its run
+  expect(within(screen.getByRole("region", { name: "Question" })).getByText("Keep the old wallet id?")).toBeVisible();
   expect(screen.getByRole("link", { name: "wallet split" })).toHaveAttribute("href", "/runs/r1");
-  expect(screen.getByText("M1.L2")).toBeInTheDocument();
   expect(screen.getByText(REASON_TEXT.needs_user)).toBeInTheDocument();
   expect(requests.map(describeRequest)).toContain("GET /api/questions?run=r1&limit=25&offset=0");
 });
@@ -94,14 +97,16 @@ test("nothing waiting says so", async () => {
   expect(await screen.findByText("Nothing is waiting for you.")).toBeInTheDocument();
 });
 
-test("each card explains its reason, keeps the reply closed and links its node in the graph", async () => {
+test("the open question explains its reason, shows the role's reply and links its node in the graph", async () => {
   renderRoute("/questions", list([parked()]));
-  const summary = await screen.findByText("worker's latest reply");
-  const details = summary.closest("details")!;
-  expect(details).not.toHaveAttribute("open");
-  expect(screen.queryByText("both")).not.toBeInTheDocument();
-  await userEvent.click(summary);
-  expect(await screen.findByText("both")).toBeInTheDocument();
+  // the reply is what the owner decides from, so it is open, not behind a click
+  const reply = await screen.findByRole("region", { name: "Latest reply" });
+  expect(reply).toHaveTextContent("worker's latest reply");
+  expect(within(reply).getByText("both")).toBeVisible();
+  expect(within(reply).getByRole("link", { name: /Full output/ })).toHaveAttribute(
+    "href",
+    "/runs/r1?node=M1%2Flane%2FM1.L2&tab=output",
+  );
   expect(screen.getByRole("link", { name: "Open in the graph" })).toHaveAttribute(
     "href",
     "/runs/r1?node=M1%2Flane%2FM1.L2&tab=overview",
@@ -173,4 +178,51 @@ test("nothing waiting hides the search, and the URL stays free of list defaults"
   expect(await screen.findByText("Nothing is waiting for you.")).toBeInTheDocument();
   expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
   expect(router.state.location.href).toBe("/questions");
+});
+
+test("the inbox opens the question picked, and ↑ ↓ move through it", async () => {
+  const user = userEvent.setup();
+  const { router } = renderRoute(
+    "/questions",
+    list([parked(), parked({ unit: "M1.L3", question: "Drop the cache?" })]),
+  );
+  const inbox = await screen.findByRole("list", { name: "Waiting questions" });
+  await user.click(within(inbox).getByText("Drop the cache?"));
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ open: "r1/M1.L3" }));
+  expect(within(screen.getByRole("region", { name: "Question" })).getByText("Drop the cache?")).toBeVisible();
+  await user.keyboard("{ArrowUp}");
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ open: "r1/M1.L2" }));
+  expect(within(screen.getByRole("region", { name: "Question" })).getByText("Keep the old wallet id?")).toBeVisible();
+});
+
+test("an answered question leaves the inbox and the next one opens", async () => {
+  let sent = false;
+  renderRoute("/questions?open=r1%2FM1.L2", (req, url) => {
+    if (url.pathname === "/api/runs/r1/answers") {
+      sent = true;
+      return Response.json({ unit: "M1.L2", parked: [] });
+    }
+    const next = parked({ unit: "M1.L3", question: "Drop the cache?" });
+    return list(sent ? [next] : [parked(), next])(req, url);
+  });
+  await userEvent.type(await screen.findByRole("textbox", { name: "Your answer" }), "keep it");
+  await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
+  await waitFor(() =>
+    expect(within(screen.getByRole("region", { name: "Question" })).getByText("Drop the cache?")).toBeVisible(),
+  );
+});
+
+test("a page emptied by an answer goes back to the last page that still has questions", async () => {
+  const { requests } = renderRoute("/questions?page=2", (_req, url) =>
+    url.pathname === "/api/questions"
+      ? Response.json(
+          url.searchParams.get("offset") === "0" ? { items: [parked()], total: 25 } : { items: [], total: 25 },
+        )
+      : url.pathname === "/api/questions/answered"
+        ? Response.json({ items: [] })
+        : undefined,
+  );
+  expect(await screen.findByRole("list", { name: "Waiting questions" })).toBeInTheDocument();
+  expect(requests.map(describeRequest)).toContain("GET /api/questions?limit=25&offset=0");
+  expect(screen.queryByText("Nothing is waiting for you.")).toBeNull();
 });

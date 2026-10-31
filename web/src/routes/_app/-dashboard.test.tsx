@@ -118,7 +118,7 @@ test("a live run shows its now line, its provider, its milestones and opens the 
   expect(within(live).getByText(/^\d+m \d\ds$|^\d+s$/)).toBeInTheDocument();
 });
 
-test("the range reads as one sheet of figures and four tiles", async () => {
+test("the range reads as one sheet of figures, its tiles and what stands out", async () => {
   renderRoute("/", serve(overview()));
   const runs = (await screen.findByText("Runs", { selector: "dt" })).closest("dl")!;
   for (const [label, value] of [
@@ -141,10 +141,10 @@ test("the range reads as one sheet of figures and four tiles", async () => {
   const roles = screen.getByRole("list", { name: "Time by role" });
   expect(within(roles).getByText("Worker")).toBeInTheDocument();
   expect(within(roles).getByText("1h 20m")).toBeInTheDocument();
-  const recoveries = screen.getByText("Recoveries").closest("section")!;
-  expect(within(recoveries).getByText("Failovers")).toBeInTheDocument();
-  expect(within(recoveries).getByText("1")).toBeInTheDocument();
-  expect(within(recoveries).queryByText("Climbs")).not.toBeInTheDocument();
+  // recoveries are a finding now, not a tile of their own
+  expect(screen.queryByText("Recoveries")).toBeNull();
+  const standsOut = screen.getByRole("list", { name: "What stands out" });
+  expect(within(standsOut).getByText("1 failover and 2 climbs")).toBeInTheDocument();
   const perDay = screen.getByText("Cost per day").closest("section")!;
   expect(within(perDay).getByRole("list", { name: "Backends" })).toHaveTextContent("Codex");
   expect(within(perDay).getByText("$2.00")).toBeInTheDocument();

@@ -71,12 +71,25 @@ export function ModelShares({ models, className }: { models: Overview["tokensByM
   );
 }
 
+/** The role palette the run page and its flow chart use, so a colour means the same role everywhere. */
+const ROLE_TONE: Record<string, string> = {
+  architect: "bg-chart-4",
+  worker: "bg-chart-1",
+  writer: "bg-chart-1",
+  artist: "bg-chart-1",
+  reviewer: "bg-chart-2",
+  verifier: "bg-chart-2",
+  researcher: "bg-chart-3",
+};
+
 /** Worked time per role. */
 export function RoleShares({ roles, className }: { roles: Overview["secsByRole"]; className?: string }) {
   const rows = roles.map((r) => ({
     id: r.role,
+    mark: <span aria-hidden="true" className={`size-2.5 shrink-0 rounded-[3px] ${ROLE_TONE[r.role] ?? "bg-muted"}`} />,
     name: r.role.charAt(0).toUpperCase() + r.role.slice(1),
     value: r.secs,
+    tone: ROLE_TONE[r.role] ?? "bg-muted",
   }));
   return (
     <Tile title="Time by role" className={className}>

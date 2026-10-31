@@ -90,4 +90,17 @@ describe("the Models page", () => {
       await screen.findByText("No model is indexed yet. Run catherd catalog sync, then reload."),
     ).toBeInTheDocument();
   });
+
+  it("names the smartest model, the best value and the effort table", async () => {
+    page([
+      model("gpt-6-sol", [{ ...pt("high", 0.4, true), intelligence: 58 }]),
+      model("claude-opus-5-5", [{ ...pt("max", 5, true), intelligence: 62 }], "anthropic"),
+    ]);
+    expect(await screen.findByText("Smartest")).toBeInTheDocument();
+    expect(screen.getByText("Smartest").nextElementSibling).toHaveTextContent(/Opus/);
+    expect(screen.getByText("Best value").nextElementSibling).toHaveTextContent(/Sol/);
+    const table = screen.getByRole("table");
+    expect(within(table).getByRole("columnheader", { name: "max" })).toBeInTheDocument();
+    expect(within(table).getByText("58.0")).toBeInTheDocument();
+  });
 });

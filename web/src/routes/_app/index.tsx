@@ -9,10 +9,11 @@ import { PageHeader } from "../../components/page-header/PageHeader";
 import { errorMessage } from "../../lib/api";
 import { DailyChart } from "./-dashboard/DailyChart";
 import { rangeOf, repoName } from "./-dashboard/format";
+import { rangeFindings } from "./-dashboard/insights";
 import { LiveStrip } from "./-dashboard/LiveStrip";
 import { RecentRuns } from "./-dashboard/RecentRuns";
-import { Recoveries } from "./-dashboard/Recoveries";
 import { ModelShares, RoleShares } from "./-dashboard/Shares";
+import { StandsOut } from "./-dashboard/StandsOut";
 import { StatSheet } from "./-dashboard/StatSheet";
 import { useNow } from "./-dashboard/useNow";
 import { WaitingList } from "./-dashboard/WaitingList";
@@ -117,10 +118,10 @@ function Dashboard() {
           <StatSheet data={data} className="lg:col-span-12" />
           <LiveStrip live={data.live} className="lg:col-span-8" />
           <WaitingList questions={data.questions} now={new Date(now)} className="lg:col-span-4" />
+          <StandsOut items={rangeFindings(data, now)} days={days} className="lg:col-span-4" />
           <DailyChart data={data} days={days} className="lg:col-span-8" />
-          <ModelShares models={data.tokensByModel} className="lg:col-span-4" />
           <RoleShares roles={data.secsByRole} className="lg:col-span-8" />
-          <Recoveries failovers={data.failovers} className="lg:col-span-4" />
+          <ModelShares models={data.tokensByModel} className="lg:col-span-4" />
           <RecentRuns runs={data.recent} now={new Date(now)} className="lg:col-span-12" />
         </div>
       )}

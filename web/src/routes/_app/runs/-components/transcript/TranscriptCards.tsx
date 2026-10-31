@@ -27,8 +27,8 @@ function Frame({ tone, children }: { tone?: "danger"; children: ReactNode }) {
   return (
     <div
       className={cn(
-        "bg-surface-secondary overflow-hidden rounded-md border text-sm",
-        tone === "danger" ? "border-danger/50" : "border-border",
+        "bg-surface overflow-hidden rounded-sm border text-sm",
+        tone === "danger" ? "border-danger/40" : "border-border",
       )}
     >
       {children}
@@ -38,7 +38,7 @@ function Frame({ tone, children }: { tone?: "danger"; children: ReactNode }) {
 
 function Head({ children, chip }: { children: ReactNode; chip?: ReactNode }) {
   return (
-    <div className="border-border flex min-w-0 items-center gap-2 border-b px-3 py-1.5">
+    <div className="border-border bg-surface-secondary flex min-w-0 items-center gap-2 border-b px-3 py-1.5">
       <div className="flex min-w-0 flex-1 items-center gap-2">{children}</div>
       {chip}
     </div>
@@ -65,7 +65,7 @@ function CardView({ card }: { card: Card }) {
     case "thinking":
       return (
         <details className="group text-muted text-sm">
-          <summary className="hover:text-foreground cursor-pointer text-xs font-medium select-none">Thinking</summary>
+          <summary className="label-caps hover:text-foreground cursor-pointer select-none">Thinking</summary>
           <p dir="auto" className="border-border mt-1.5 border-s-2 ps-3 leading-6 break-words whitespace-pre-wrap">
             {card.text}
           </p>
@@ -141,7 +141,13 @@ function CardView({ card }: { card: Card }) {
       const parts = ["Turn ended"];
       if (card.tokens) parts.push(`${number.format(card.tokens.input + card.tokens.output)} tokens`);
       if (card.costUsd !== null) parts.push(costText(card.costUsd));
-      return <p className="text-muted border-border border-t pt-1.5 text-xs">{parts.join(" · ")}</p>;
+      return (
+        <p className="text-muted flex items-center gap-3 font-mono text-[11px] tabular-nums">
+          <span aria-hidden="true" className="bg-border h-px flex-1" />
+          {parts.join(" · ")}
+          <span aria-hidden="true" className="bg-border h-px flex-1" />
+        </p>
+      );
     }
     case "raw":
       return (
@@ -200,11 +206,11 @@ export function TranscriptCards({
         </div>
       ) : null}
       {total === 0 ? (
-        <p className="text-muted text-sm">
+        <p className="border-border text-muted rounded-sm border border-dashed px-4 py-8 text-center text-sm">
           {showRaw ? "No lines have been logged yet." : "Nothing has been logged yet."}
         </p>
       ) : showRaw ? (
-        <ol className="flex flex-col gap-0.5">
+        <ol className="border-border bg-surface-secondary flex flex-col gap-0.5 rounded-sm border px-3 py-2">
           {lines.map((l) => (
             <li key={l.key}>
               <pre dir="ltr" className="font-mono text-xs leading-5 break-all whitespace-pre-wrap">
@@ -214,7 +220,7 @@ export function TranscriptCards({
           ))}
         </ol>
       ) : (
-        <ol className="flex flex-col gap-3">
+        <ol className="flex flex-col gap-4">
           {shown.map(({ card, key }) => (
             <li key={key} data-kind={card.kind} className="min-w-0">
               <CardView card={card} />

@@ -21,7 +21,7 @@ test("one answered from Questions moves to Recently answered", async ({ page }) 
   const errors = consoleErrors(page);
   await signIn(page);
   await page.goto("/questions");
-  await expect(page.getByText("Keep the old wallet id?")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Question" }).getByText("Keep the old wallet id?")).toBeVisible();
   await page.getByRole("textbox", { name: "Your answer" }).fill("keep it");
   await page.getByRole("button", { name: "Send answer" }).click();
   await expect(page.getByText("Nothing is waiting for you.")).toBeVisible();

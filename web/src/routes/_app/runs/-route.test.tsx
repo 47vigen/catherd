@@ -309,7 +309,7 @@ test("an empty list says how a run starts", async () => {
 test("the graph draws every node with its status and now line", async () => {
   renderRoute("/runs/r1", api);
   expect(await screen.findByRole("heading", { name: "wallet split" })).toBeInTheDocument();
-  expect(screen.getByText("r1 · /work/wallet")).toBeInTheDocument();
+  expect(screen.getByTitle("/work/wallet")).toHaveTextContent("wallet");
   for (const n of model.nodes) expect(await nodeButton(n.id)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /M1\.L1 worker\. Running\. Codex is writing/ })).toHaveTextContent(
     "round 2",
@@ -330,7 +330,7 @@ test("the graph draws every node with its status and now line", async () => {
 test("the header sums tokens and cost and names the run's time", async () => {
   renderRoute("/runs/r1", api);
   await screen.findByRole("heading", { name: "wallet split" });
-  await waitFor(() => expect(screen.getByText("Tokens").nextElementSibling?.textContent).toMatch(/M$/));
+  await waitFor(() => expect(screen.getByText(/ tokens · /).textContent).toMatch(/M tokens/));
   expect(screen.getByText("Cost").nextElementSibling).toHaveTextContent("$1.73");
   expect(screen.getByText("Running for")).toBeInTheDocument();
   // The server supplies rounds; the graph supplies step outcomes.
@@ -499,7 +499,7 @@ test("a check node's drawer shows the check logs and the exit", async () => {
   renderRoute(`/runs/r1?node=${encodeURIComponent("M1/check/M1.L1")}&tab=checks`, api);
   const dialog = await screen.findByRole("dialog");
   expect(await within(dialog).findByText(/lint ok/)).toBeInTheDocument();
-  expect(within(dialog).getByText("0")).toBeInTheDocument();
+  expect(within(dialog).getByText(/exited with/).parentElement).toHaveTextContent(/exited with0$/);
   expect(within(dialog).getByText("No full check log yet.")).toBeInTheDocument();
 });
 
@@ -838,7 +838,7 @@ test("a 1.5 run shows its dispatches, report and timeline and no graph", async (
   );
   expect(await screen.findByText(/This run started on catherd 1.5/)).toBeInTheDocument();
   // a legacy run keeps the milestone wording; only architect runs count ledger tasks
-  expect(screen.getByText("1 milestone")).toBeInTheDocument();
+  expect(screen.getByText("Milestones").nextElementSibling).toHaveTextContent("1");
   expect(await screen.findByRole("grid", { name: "Dispatches" })).toBeInTheDocument();
   expect(await screen.findByText("It shipped.")).toBeInTheDocument();
   expect(await screen.findByText("No events yet.")).toBeInTheDocument();
@@ -912,9 +912,9 @@ test("the header shows server rounds, waiting time and unpriced runs", async () 
   renderRoute("/runs/r1", api);
   expect(await screen.findByText("waiting on you 1h 00m")).toBeInTheDocument();
   expect(screen.getByText("Rounds").nextElementSibling).toHaveTextContent("4");
-  expect(await screen.findByText("1 unpriced")).toBeInTheDocument();
+  expect(await screen.findByText(/· 1 unpriced$/)).toBeInTheDocument();
   expect(screen.getByText("Cost").nextElementSibling).toHaveTextContent("$0.50");
-  expect(screen.getByText("50 uncached · 20 cache read · 30 cache write · 40 out")).toBeInTheDocument();
+  expect(screen.getByTitle("50 uncached · 20 cache read · 30 cache write · 40 out")).toBeInTheDocument();
 });
 
 test("the header shows zero rounds before any review", async () => {
@@ -948,7 +948,7 @@ test("the header does not count an active dispatch as unpriced", async () => {
     ],
   };
   renderRoute("/runs/r1", api);
-  await screen.findByText("1 role run");
+  await screen.findByText(/· 1 role run$/);
   expect(screen.queryByText(/\d+ unpriced/)).not.toBeInTheDocument();
   expect(screen.getByText("Cost").nextElementSibling).toHaveTextContent("—");
 });
@@ -961,7 +961,7 @@ test("flow opens the exact record-only dispatch through the existing drawer and 
   expect(router.state.location.search).toMatchObject({ node: "task/orphan", attempt: "DU", tab: "overview" });
   const drawer = await screen.findByRole("dialog");
   expect(within(drawer).getByRole("heading", { name: "orphan" })).toBeVisible();
-  expect(within(drawer).getByText(/Ledger task: removed/)).toBeVisible();
+  expect(within(drawer).getByText("Ledger task").nextElementSibling).toHaveTextContent("removed");
   const ws = await openSocket();
   const replacement = { ...flowFixture(), endedAt: null };
   replacement.tasks[0] = { ...replacement.tasks[0]!, state: "done" };
@@ -1005,7 +1005,7 @@ test("flow opens the exact record-only dispatch through the existing drawer and 
   ).toHaveLength(5);
 });
 
-test("flow check opens evidence and the Checks tab without a lane log request", async () => {
+test("flow check opens its evidence on the overview, with no log tab and no lane log request", async () => {
   const user = userEvent.setup();
   model = { ...model, flow: flowFixture(), nodes: [] };
   const requests: string[] = [];
@@ -1018,12 +1018,12 @@ test("flow check opens evidence and the Checks tab without a lane log request", 
   const drawer = await screen.findByRole("dialog");
   const evidence = within(drawer).getByRole("region", { name: "Check details" });
   expect(evidence).toHaveTextContent("bun test");
-  expect(evidence).toHaveTextContent("1 new failures · 1 inherited failures");
+  expect(evidence).toHaveTextContent("1 new failure · 1 inherited failure");
   expect(evidence).toHaveTextContent("scratch/check.log");
-  expect(evidence).toHaveTextContent(at(40));
-  expect(evidence).toHaveTextContent(at(50));
-  await user.click(within(drawer).getByRole("tab", { name: "Checks" }));
-  expect(within(drawer).getByRole("region", { name: "Check details" })).toHaveTextContent("new failure");
+  expect(evidence.querySelector(`time[datetime="${at(40)}"]`)).not.toBeNull();
+  expect(evidence.querySelector(`time[datetime="${at(50)}"]`)).not.toBeNull();
+  expect(within(evidence).getByRole("list", { name: "Failures" })).toHaveTextContent("new failure");
+  expect(within(drawer).queryByRole("tab", { name: "Check logs" })).toBeNull();
   expect(requests.filter((p) => p.includes("/checks/"))).toEqual([]);
 });
 
@@ -1063,8 +1063,10 @@ test("eligible phone flow, full screen and queued question access share the exis
   model = { ...model, flow: flowFixture(), nodes: model.nodes.filter((n) => n.question) };
   renderRoute("/runs/r1", api);
   expect(await screen.findByRole("region", { name: "Run flow" })).toBeVisible();
+  // the question leads the page, and its Answer opens the drawer that takes the answer
+  expect(within(screen.getByRole("region", { name: "Needs you" })).getByText(QUESTION.question)).toBeVisible();
   await user.click(screen.getByRole("button", { name: /^Answer / }));
-  expect(await screen.findByText(QUESTION.question)).toBeVisible();
+  expect(within(await screen.findByRole("dialog")).getByText(QUESTION.question)).toBeVisible();
   await user.keyboard("{Escape}");
   await user.click(screen.getByRole("button", { name: "Full screen" }));
   const full = await screen.findByRole("dialog", { name: "Run flow" });
@@ -1081,9 +1083,9 @@ test("an architect run's header counts its ledger tasks and its ledger states, n
   model = { ...model, flow };
   renderRoute("/runs/r1", api);
   // the run still reports its one milestone row; the ledger is what the plan actually holds
-  expect(await screen.findByText("8 ledger tasks")).toBeInTheDocument();
+  expect(await screen.findByText("done of 8 ledger tasks")).toBeInTheDocument();
   expect(screen.getByText("Rounds").nextElementSibling).toHaveTextContent("2");
-  expect(screen.queryByText("1 milestone")).toBeNull();
+  expect(screen.queryByText(/\bmilestones?\b/)).toBeNull();
   // the flow's header counts the ledger's states; a failed graph node is not a failed task
   expect(await screen.findByText("1 running · 1 blocked · 4 todo · 2 done of 8")).toBeVisible();
   expect(screen.queryByText(/\d+ skipped · \d+ failed of/)).toBeNull();

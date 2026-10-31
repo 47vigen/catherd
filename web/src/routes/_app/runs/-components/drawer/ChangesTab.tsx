@@ -25,11 +25,8 @@ function DiffText({ text }: { text: string }) {
   const [shown, setShown] = useState(STEP);
   const lines = text.split("\n");
   return (
-    <div className="flex flex-col gap-2">
-      <pre
-        dir="ltr"
-        className="bg-surface-secondary border-border max-h-[60vh] overflow-auto rounded-sm border py-2 font-mono text-xs leading-5"
-      >
+    <div className="flex flex-col">
+      <pre dir="ltr" className="bg-surface-secondary max-h-[60vh] overflow-auto py-2 font-mono text-xs leading-5">
         <code className="block min-w-max">
           {lines.slice(0, shown).map((l, i) => (
             <span key={i} className={cn("block px-3 whitespace-pre", lineClass(l))}>
@@ -39,7 +36,7 @@ function DiffText({ text }: { text: string }) {
         </code>
       </pre>
       {shown < lines.length ? (
-        <div>
+        <div className="px-3 pb-3">
           <Button size="sm" variant="secondary" onPress={() => setShown((n) => n + STEP)}>
             Show {Math.min(STEP, lines.length - shown)} more lines
           </Button>
@@ -49,24 +46,58 @@ function DiffText({ text }: { text: string }) {
   );
 }
 
+/** Lines added and removed, read off the diff itself (file headers are not changes). */
+function counts(text: string) {
+  let add = 0;
+  let del = 0;
+  for (const l of text.split("\n")) {
+    if (l.startsWith("+") && !l.startsWith("+++")) add++;
+    else if (l.startsWith("-") && !l.startsWith("---")) del++;
+  }
+  return {
+    add,
+    del,
+    files: text.split("\n").filter((l) => l.startsWith("diff ")).length,
+  };
+}
+
 function CommitDiff({ runId, sha, label, lane }: { runId: string; sha: string; label: string; lane: string | null }) {
-  const diff = useQuery(getCommitDiffOptions({ path: { id: runId, sha }, query: lane ? { lane } : undefined }));
+  const diff = useQuery(
+    getCommitDiffOptions({
+      path: { id: runId, sha },
+      query: lane ? { lane } : undefined,
+    }),
+  );
+  const c = diff.data && diff.data.text.trim() !== "" ? counts(diff.data.text) : null;
   return (
-    <section className="flex flex-col gap-2">
-      <h3 className="flex items-baseline gap-2">
-        <span className="font-mono text-sm">{sha.slice(0, 7)}</span>
+    <section aria-label={`Commit ${sha.slice(0, 7)}`} className="border-border overflow-hidden rounded-sm border">
+      <h3 className="border-border flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b px-3 py-2.5">
+        <span className="font-mono text-[13px]">{sha.slice(0, 7)}</span>
         <span className="text-muted text-xs">{label}</span>
+        {c ? (
+          <span className="ms-auto flex gap-2 font-mono text-xs tabular-nums">
+            {c.files > 0 ? <span className="text-muted">{c.files} files</span> : null}
+            <span className="text-success">+{c.add}</span>
+            <span className="text-danger">−{c.del}</span>
+          </span>
+        ) : null}
       </h3>
       {diff.isPending ? (
-        <Loading />
+        <Loading label="Reading the diff" />
       ) : diff.isError ? (
-        <QueryError error={diff.error} title="Could not load this diff" />
+        <div className="p-3">
+          <QueryError error={diff.error} title="Could not load this diff" />
+        </div>
       ) : diff.data.text.trim() === "" ? (
-        <Empty>{lane ? `This commit did not change the files of ${lane}.` : "This commit changed nothing."}</Empty>
+        <p className="text-muted px-3 py-6 text-center text-sm">
+          {lane ? `This commit did not change the files of ${lane}.` : "This commit changed nothing."}
+        </p>
       ) : (
         <>
           {diff.data.truncated ? (
-            <p className="text-warning text-xs">The diff is over 1 MB, so only its first 1 MB is shown.</p>
+            <p className="text-warning border-border border-b px-3 py-2 text-xs">
+              The diff is over 1 MB, so only its first 1 MB is shown.
+            </p>
           ) : null}
           <DiffText text={diff.data.text} />
         </>
@@ -91,11 +122,11 @@ export function ChangesTab({
   const lane = node.kind === "lane" ? node.lane : null;
   if (commits.length === 0) return <Empty>No commit yet.</Empty>;
   return (
-    <div className="flex flex-col gap-5">
+    <>
       {lane ? <p className="text-muted text-xs">The commit is per milestone; this shows this lane's files.</p> : null}
       {commits.map((c) => (
         <CommitDiff key={c.sha} runId={runId} sha={c.sha} label={c.label} lane={lane} />
       ))}
-    </div>
+    </>
   );
 }
