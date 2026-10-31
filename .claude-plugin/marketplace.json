@@ -1,5 +1,5 @@
 {
-  "name": "catherd",
+  "name": "catherd-next",
   "owner": { "name": "47vigen", "url": "https://github.com/47vigen" },
   "description": "catherd: autopilot builds from your own Claude Code session.",
   "plugins": [
@@ -9,7 +9,7 @@
         "source": "git-subdir",
         "url": "https://github.com/47vigen/catherd.git",
         "path": "plugin",
-        "ref": "v1.5.0"
+        "ref": "plugin-next"
       },
       "description": "Herds coding agents: Claude plans and verifies, Codex, opencode or headless Claude Code workers write the code, and the architect picks the model and effort for each dispatch from each role's ladder.",
       "license": "MIT",
