@@ -211,3 +211,18 @@ test("an answered question leaves the inbox and the next one opens", async () =>
     expect(within(screen.getByRole("region", { name: "Question" })).getByText("Drop the cache?")).toBeVisible(),
   );
 });
+
+test("a page emptied by an answer goes back to the last page that still has questions", async () => {
+  const { requests } = renderRoute("/questions?page=2", (_req, url) =>
+    url.pathname === "/api/questions"
+      ? Response.json(
+          url.searchParams.get("offset") === "0" ? { items: [parked()], total: 25 } : { items: [], total: 25 },
+        )
+      : url.pathname === "/api/questions/answered"
+        ? Response.json({ items: [] })
+        : undefined,
+  );
+  expect(await screen.findByRole("list", { name: "Waiting questions" })).toBeInTheDocument();
+  expect(requests.map(describeRequest)).toContain("GET /api/questions?limit=25&offset=0");
+  expect(screen.queryByText("Nothing is waiting for you.")).toBeNull();
+});

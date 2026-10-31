@@ -1,12 +1,13 @@
 import { CircleCheck } from "@gravity-ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect } from "react";
 
 import { listAnsweredOptions, listQuestionsOptions } from "../../../client/@tanstack/react-query.gen";
 import { DataList } from "../../../components/data-list/DataList";
 import { PageHeader } from "../../../components/page-header/PageHeader";
 import { Tile } from "../../../components/tile/Tile";
-import { type ListSearch, parseListSearch, stripListDefaults } from "../../../lib/list-search";
+import { type ListSearch, pageCount, parseListSearch, stripListDefaults } from "../../../lib/list-search";
 import { formatRelative } from "../../../lib/time";
 import { AnsweredList } from "./-components/AnsweredList";
 import { QuestionDetail } from "./-components/QuestionDetail";
@@ -41,6 +42,11 @@ function QuestionsPage() {
   const done = answered.data?.items ?? [];
   const total = list.data?.total ?? 0;
   const filtered = q !== "" || run !== undefined;
+  // Answering the last question of a later page empties it: go back to the last page that still has questions.
+  const last = pageCount(total, pageSize);
+  useEffect(() => {
+    if (list.data && page > last) void navigate({ search: (prev) => ({ ...prev, page: last }), replace: true });
+  }, [list.data, page, last, navigate]);
   const now = new Date(Math.max(list.dataUpdatedAt, answered.dataUpdatedAt));
   // The filter offers the runs of the questions on this page, by title.
   const runs = [...new Map(items.map((i) => [i.run, i.runTitle]))].map(([id, label]) => ({ id, label }));
