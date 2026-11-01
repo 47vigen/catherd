@@ -310,10 +310,10 @@ const LEADING_SETUP = new RegExp(
 const SHELL_C = /\b(?:ba|z|da)?sh\s+-\w*c\s/;
 /**
  * `cd dir &&`, `cd dir || exit n`, a fail-late `|| status=1` and `|| { echo …; status=1; }`: none of them skips a
- * later stage.
+ * later stage. A group with `&` or `|` anywhere in it, a quoted `bash -c` script included, is left to be judged.
  */
 const NO_SKIP = new RegExp(
-  String.raw`\bcd\s+(?:"[^"]*"|'[^']*'|[^\s;&|()]+)\s*(?:&&|\|\|\s*exit(?:\s+\d+)?(?![\w=]))|\|\|\s*(?:\{\s*(?:(?:"[^"]*"|'[^']*'|[^{}&|"'])*;\s*)?)?${ENV_ASSIGN}(?:\s*;?\s*\})?`,
+  String.raw`\bcd\s+(?:"[^"]*"|'[^']*'|[^\s;&|()]+)\s*(?:&&|\|\|\s*exit(?:\s+\d+)?(?![\w=]))|\|\|\s*(?:\{\s*(?:(?:"[^"&|]*"|'[^'&|]*'|[^{}&|"'])*;\s*)?)?${ENV_ASSIGN}(?:\s*;?\s*\})?`,
   "g",
 );
 

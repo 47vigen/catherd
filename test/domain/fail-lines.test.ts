@@ -429,6 +429,9 @@ exit "$s"'`;
     expect(markParts(grouped, "m")).toMatchObject({ parts: 1, tracked: true });
     expect(markParts("s=0; a || { s=1; }; exit $s", "m")).toMatchObject({ tracked: true });
     expect(markParts("s=0; a || { b && c; s=1; }; exit $s", "m")).toMatchObject({ tracked: false });
+    expect(markParts("s=0; false || { bash -c 'lint && tests'; s=1; }; exit $s", "m")).toMatchObject({
+      tracked: false,
+    });
     expect(markParts("(cd d && go test ./...)", "m")).toMatchObject({ tracked: true });
   });
   it("reads a failed cd as a failure, so a stage it skipped never passes as inherited", () => {
