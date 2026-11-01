@@ -1,5 +1,0 @@
----
-"catherd-cli": minor
----
-
-Per-writer worktrees and merge (spec D5). In a run with a base, each writing task works in its own worktree, cut from the run's branch, and a retry on the same ledger task continues in the last attempt's tree (`delegate_task {worktree, from: "clean"}`). When the task ends complete, catherd commits its tree, merges the run's branch into it, runs its fast check there and fast-forwards the run's branch; a conflict or a red check goes back to the same writer, and a change to the task's oracle holds the merge until the architect accepts it. Every running writer hears what merged, and a writer whose work would now conflict is told the paths at once. `merge {taskId}` merges by hand, `check {ref}` checks a commit apart or a task's own tree, the profile's `regen` lists lockfiles and generated files a merge regenerates, and every dispatch end checkpoints the writer's tree under `refs/catherd/`. `catherd profile set trees shared` puts a run's writers back on one tree; the blocked minutes count merge rework under `merge_conflict` and `merge_red`.
