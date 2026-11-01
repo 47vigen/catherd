@@ -11,7 +11,7 @@ The owner comes to a run page for two jobs, and both matter equally:
 
 The page before this change answered neither directly. It stacked five layers (a six-figure stat sheet, the flow
 with its own copy of those figures, plan and report beside Models and Metrics, then 40 raw timeline events), and the
-same numbers (idle, concurrency, cost, rounds) appeared up to three times. A real run (payment-3 on codekesh: 45 role
+same numbers (idle, concurrency, cost, rounds) appeared up to three times. A real run (payment-3 on the test server: 45 role
 runs, $25.63, 94 min) shows what the data is worth: a handful of stories ("T4 alone took 22.6M tokens", "the run is
 done but its last full check failed", "the architect came back 27 times"). Every figure was shown at the same weight,
 so none of the stories was visible.
