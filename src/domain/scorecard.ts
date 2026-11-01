@@ -140,13 +140,19 @@ export function stageBar(current: ScorecardFile, baseline: ScorecardFile): Stage
     const runs = runsOf(current, task);
     const base = runsOf(baseline, task);
     const wall = median(runs.map((r) => r.wallMinutes));
-    const baseWall = median(base.map((r) => r.wallMinutes));
+    // an unfinished baseline run stopped early, so its wall time would flatter the baseline
+    const baseDone = base.filter((r) => r.finished);
+    const baseWall = median(baseDone.map((r) => r.wallMinutes));
     const finished = runs.filter((r) => r.finished).length;
     if (runs.length < STAGE_RUNS)
       failures.push(`${task}: ${runs.length} run(s); a stage is compared on ${STAGE_RUNS} or more per task`);
     if (base.length < STAGE_RUNS)
       failures.push(
         `${task}: ${base.length} run(s) in ${baseline.label}; a stage is compared on ${STAGE_RUNS} or more per task`,
+      );
+    else if (baseDone.length < STAGE_RUNS)
+      failures.push(
+        `${task}: ${baseDone.length} of ${base.length} runs in ${baseline.label} finished; its wall time is compared on ${STAGE_RUNS} or more`,
       );
     if (finished < runs.length)
       failures.push(`${task}: ${runs.length - finished} of ${runs.length} runs did not finish`);
