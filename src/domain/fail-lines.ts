@@ -295,6 +295,15 @@ export function andTail(command: string): string | null {
   return checkItems(command).slice(1).join(" && ") || null;
 }
 
+// no `$(…)`: a command substitution can fail before the check runs, and no mark would say so
+const ENV_VALUE = String.raw`(?:"[^"$]*"|'[^']*'|\$\{[^}]*\}|\$\w+|[^\s"'$();&|<>\\]|\\.)*`;
+const ENV_ASSIGN = String.raw`[A-Za-z_]\w*=${ENV_VALUE}`;
+/** A leading `cd dir &&`, or a part made only of `export NAME=value …` / `NAME=value …` words, then `&&`. */
+const LEADING_SETUP = new RegExp(
+  String.raw`^(?:cd\s+(?:"[^"]*"|'[^']*'|\S+)|(?:export\s+)?${ENV_ASSIGN}(?:\s+${ENV_ASSIGN})*)\s*&&\s*`,
+);
+const SHELL_C = /\b(?:ba|z|da)?sh\s+-\w*c\s/;
+
 /**
  * Plan 52: `command` with `mark` run after every top-level `&&` part but the last, so the marks that ran say which
  * part failed (marks = parts - 1: the last part failed). `tracked` is false when the marks cannot be trusted: a `||`
@@ -310,8 +319,15 @@ export function markParts(
   } catch {
     items = [command.trim()];
   }
-  const chainsInside = (item: string): boolean =>
-    /&&|\|\|/.test(item.replace(/^cd\s+("[^"]*"|'[^']*'|\S+)\s*&&\s*/, "").replace(/"[^"]*"|'[^']*'/g, ""));
+  const chainsInside = (item: string): boolean => {
+    let rest = item;
+    // leading cd and export-only parts only set the folder and the environment of what follows
+    for (let next = rest.replace(LEADING_SETUP, ""); next !== rest; next = rest.replace(LEADING_SETUP, ""))
+      rest = next;
+    // a shell -c script is opaque: its inner parts cannot be marked, so a chain in it is never judged part by part
+    if (SHELL_C.test(rest) && /&&|\|\|/.test(rest)) return true;
+    return /&&|\|\|/.test(rest.replace(/"[^"]*"|'[^']*'/g, ""));
+  };
   const tracked = (items.length === 1 || !command.includes("||")) && !items.some(chainsInside);
   return { script: tracked ? items.join(` && ${mark} && `) : command, parts: items.length, tracked };
 }

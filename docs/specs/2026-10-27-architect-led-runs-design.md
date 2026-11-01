@@ -303,6 +303,13 @@ Options:
   full check does not cover and reads the full check's result for the rest; its verdict carries the commands it ran
   (the existing `RAN:` lines), and a verdict with no command run on a runnable acceptance line is not a PASS. Plan 45
   already removes process audits from its contract.
+  **Amended by plan 57:** the verifier runs beside the full check, not after it. Once the tree is stable (no writer
+  running, the fast checks in), the architect starts the full check and delegates the verifier in the same turn, on
+  the same commit; the verifier's brief names the check id, its command, the commit and its log path, and says the
+  check may still be running. The verifier never waits for the check: it reads the log only if it is already
+  complete, and an acceptance line only the full check covers is passed as covered by it. The gate is unchanged
+  and lives in `land {final}`, which still needs the green full check and the verifier's PASS on the exact same
+  commit; the verifier no longer has to read the check's result for that.
 - **Findings go to the architect**, which decides what is fixed now, later, or listed under Known issues in the MR.
   The judge's triage step goes ([judge]: it never filtered a finding).
 - **Review converges** (Claude Code team, "How the Claude Code team does code review", 2026-10: one PR cycled 50+

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { rolePrompt } from "../../src/domain/role-prompts.ts";
+import { roleContract, rolePrompt } from "../../src/domain/role-prompts.ts";
 
 describe("the one verifier's prompt (plan 50, spec D8)", () => {
   it("verifies the integrated product once, reads the full check's result and runs what it does not cover", () => {
@@ -62,6 +62,36 @@ describe("the one verifier's prompt (plan 50, spec D8)", () => {
     const text = rolePrompt("verifier", "1.5.0");
     expect(text).toContain("(a submodule pin, a file's contents)");
     expect(text).toContain("every other line needs a RAN line");
+  });
+});
+
+describe("the verifier runs beside the full check (plan 57, spec D8 amended)", () => {
+  it("tells the architect to delegate the verifier with the full check, on the same commit, in both tree modes", () => {
+    for (const trees of ["writer", "shared"] as const) {
+      const text = roleContract("architect", "1.5.0", trees);
+      for (const s of [
+        "delegate the verifier in the same turn as the full check",
+        "no writer is running",
+        "the same commit",
+        "the verifier's brief names the check id, its command, the commit and its log path (checks/<id>.log)",
+        "land final still needs both",
+      ])
+        expect(text).toContain(s);
+      expect(text).not.toContain("then check scope full and delegate the verifier");
+      // a run without a base ends with finish, and gets the same rule
+      expect(text).toContain("Before finish done in a run without a base, the same as for land final");
+    }
+  });
+
+  it("tells the verifier the full check may still be running and never to wait for it", () => {
+    const text = rolePrompt("verifier", "1.5.0");
+    for (const s of [
+      "may still be running",
+      "never wait for it",
+      "read its log at the path your brief names only if it is already complete",
+      "land final requires the full check green on this commit, apart from your verdict",
+    ])
+      expect(text).toContain(s);
   });
 });
 
