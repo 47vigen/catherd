@@ -372,4 +372,35 @@ describe("plan 52: which part of an && chain failed", () => {
     expect(markParts("(cd web && lint && test)", "m")).toMatchObject({ parts: 1, tracked: false });
     expect(markParts("echo 'a && b; c'", "m")).toMatchObject({ parts: 1, tracked: true });
   });
+  it("judges a command behind a leading export or assignment on its real parts (plan 57)", () => {
+    const simple = "export A=1 B=2 && cd services/x && go test ./... && go vet ./...";
+    expect(markParts(simple, "m")).toEqual({
+      script: "export A=1 B=2 && m && cd services/x && go test ./... && m && go vet ./...",
+      parts: 3,
+      tracked: true,
+    });
+    // the parser gives up on the comment, so the whole command is one item: its env-only head and cd are stripped
+    expect(markParts("export A=\"x y\" B=$(pwd) C='z' && cd d && go test ./... # all", "m")).toMatchObject({
+      parts: 1,
+      tracked: true,
+    });
+    expect(markParts("A=1 && export B=2 && cd d && go test ./... # all", "m")).toMatchObject({
+      tracked: true,
+    });
+  });
+  it("still chains on a part that is not only export words", () => {
+    expect(markParts("export A=1 && echo hi && cd d && go test ./... # all", "m")).toMatchObject({
+      tracked: false,
+    });
+    expect(markParts("export A=$(a && b) && cd d && go test ./... # all", "m")).toMatchObject({
+      tracked: false,
+    });
+    expect(markParts("export A=1 && (cd d && go test ./...)", "m")).toMatchObject({ tracked: false });
+  });
+  it("cannot judge a wrapper whose shell -c script chains: its inner parts are not marked", () => {
+    const wrapper =
+      "export GOTOOLCHAIN=go1.27.3 PATH=/x/bin:$PATH && '/x/wrapper' -- bash -c 'export DOCKER_HOST=$(docker context inspect --format '\\''{{.Endpoints.docker.Host}}'\\'') TURBO_TELEMETRY_DISABLED=1 && (cd packages/kit && nice -n 10 task check) && (cd services/auth && nice -n 10 task check)'";
+    expect(markParts(wrapper, "m")).toMatchObject({ parts: 2, tracked: false });
+    expect(markParts("'/x/wrapper' -- bash -c 'task check'", "m")).toMatchObject({ tracked: true });
+  });
 });
