@@ -58,9 +58,7 @@ Left out of plan 53 on purpose:
 
 - **A fast check runs on the shared run tree** of a `trees: shared` run (and a run without a base). Plan 55 moved it
   into the task's own tree at its merge on every other run.
-- **The verifier still waits for the full check.** Land final needs both green on one commit, so the verifier could
-  run beside the full check and save one serial check per land; spec D8 has it read the full check's result first.
-  Measure the check wait on stage 2 before changing D8.
+- Picked up (moved into the architect-led spec, decision 8, amended): the verifier runs beside the full check.
 - **A red notice goes to every role.** Narrow it to the running writers if it shows up as noise in their replies.
 - **A fast check is not rerun when a sibling ends.** A fast check that went red on a sibling's half-written work stays
   red until the architect asks again.
