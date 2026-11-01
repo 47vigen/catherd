@@ -426,4 +426,12 @@ exit "$s"'`;
     expect(markParts("bash -c 'task check || true'", "m")).toMatchObject({ tracked: false });
     expect(markParts("(cd d && go test ./...)", "m")).toMatchObject({ tracked: true });
   });
+  it("reads a failed cd as a failure, so a stage it skipped never passes as inherited", () => {
+    const head = checkFailLines("vulnerability\nbash: line 7: cd: tooling: No such file or directory\n");
+    expect(head).toContain("bash: line 7: cd: tooling: No such file or directory");
+    expect(checkFailLines("sh: 1: cd: can't cd to tooling\n")).toEqual(["sh: 1: cd: can't cd to tooling"]);
+    expect(checkVerdict(1, ["--- FAIL: TestA", ...head], { exit: 1, failures: ["--- FAIL: TestA"] })).toBe(
+      "new",
+    );
+  });
 });

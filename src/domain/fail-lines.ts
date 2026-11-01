@@ -43,7 +43,12 @@ export function checkFailLines(out: string, roots: readonly string[] = []): stri
     const vuln = line.match(/^Vulnerability #\d+: (GO-\d{4}-\d+)/)?.[1];
     if (vuln) seen.add(`vulnerability ${vuln}`);
     else if (PASS_LINE.test(line)) continue;
-    else if (/(^|\s)(FAIL|FAILED|✗|✕|×)(\s|:|$)|^\(fail\)|^--- FAIL|^not ok\b|\bpanic:|^error:/.test(line))
+    // a failed cd skips the stages behind it, so it is a failure of its own
+    else if (
+      /(^|\s)(FAIL|FAILED|✗|✕|×)(\s|:|$)|^\(fail\)|^--- FAIL|^not ok\b|\bpanic:|^error:|\bcd: .*(?:No such file or directory|Not a directory|can't cd to)/.test(
+        line,
+      )
+    )
       seen.add(line.slice(0, 300));
   }
   return [...seen];
