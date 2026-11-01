@@ -265,6 +265,31 @@ describe("the stage comparison, per task (plan 51, spec D17)", () => {
     );
   });
 
+  it("takes the baseline's wall time from its finished runs only", () => {
+    const base = twice("stage-0", () => [40, 40, 80, 80]);
+    for (const runs of Object.values(base.runs ?? {}))
+      runs.forEach((r, i) => {
+        if (i < 2) r.finished = false;
+      });
+    const v = stageBar(
+      twice("stage-1", () => [75, 75]),
+      base,
+    );
+    expect(v.rows[0]?.baselineWallMin).toBe(80);
+    expect(v.failures).toEqual([]);
+  });
+
+  it("fails a task the baseline finished fewer than twice", () => {
+    const base = twice("stage-0", () => [40, 40]);
+    for (const runs of Object.values(base.runs ?? {})) for (const r of runs) r.finished = false;
+    expect(
+      stageBar(
+        twice("stage-1", () => [75, 75]),
+        base,
+      ).failures,
+    ).toContain("raqam-myanmar: 0 of 2 runs in stage-0 finished; its wall time is compared on 2 or more");
+  });
+
   it("reads a file written before plan 51 as one run per task", () => {
     expect(runsOf(file("1.5.0", all(60)), "raqam-myanmar")).toHaveLength(1);
   });
