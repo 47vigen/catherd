@@ -303,6 +303,11 @@ const LEADING_SETUP = new RegExp(
   String.raw`^(?:cd\s+(?:"[^"]*"|'[^']*'|\S+)|(?:export\s+)?${ENV_ASSIGN}(?:\s+${ENV_ASSIGN})*)\s*&&\s*`,
 );
 const SHELL_C = /\b(?:ba|z|da)?sh\s+-\w*c\s/;
+/** `cd dir &&`, `cd dir || exit n` and a fail-late `|| status=1`: none of them skips a later stage. */
+const NO_SKIP = new RegExp(
+  String.raw`\bcd\s+(?:"[^"]*"|'[^']*'|[^\s;&|()]+)\s*(?:&&|\|\|\s*exit(?:\s+\d+)?(?![\w=]))|\|\|\s*${ENV_ASSIGN}`,
+  "g",
+);
 
 /**
  * Plan 52: `command` with `mark` run after every top-level `&&` part but the last, so the marks that ran say which
@@ -324,6 +329,7 @@ export function markParts(
     // leading cd and export-only parts only set the folder and the environment of what follows
     for (let next = rest.replace(LEADING_SETUP, ""); next !== rest; next = rest.replace(LEADING_SETUP, ""))
       rest = next;
+    rest = rest.replace(NO_SKIP, " ");
     // a shell -c script is opaque: its inner parts cannot be marked, so a chain in it is never judged part by part
     if (SHELL_C.test(rest) && /&&|\|\|/.test(rest)) return true;
     return /&&|\|\|/.test(rest.replace(/"[^"]*"|'[^']*'/g, ""));

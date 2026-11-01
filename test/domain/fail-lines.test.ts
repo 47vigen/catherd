@@ -395,7 +395,9 @@ describe("plan 52: which part of an && chain failed", () => {
     expect(markParts("export A=$(a && b) && cd d && go test ./... # all", "m")).toMatchObject({
       tracked: false,
     });
-    expect(markParts("export A=1 && (cd d && go test ./...)", "m")).toMatchObject({ tracked: false });
+    expect(markParts("export A=1 && (cd d && go test ./... && go vet ./...)", "m")).toMatchObject({
+      tracked: false,
+    });
     // a setup that runs a command can fail before the check with no mark written
     expect(
       markParts("A=$(sh -c 'echo error: setup failed >&2; exit 1') && echo ACTUAL_TEST # check", "m"),
@@ -406,5 +408,22 @@ describe("plan 52: which part of an && chain failed", () => {
       "export GOTOOLCHAIN=go1.27.3 PATH=/x/bin:$PATH && '/x/wrapper' -- bash -c 'export DOCKER_HOST=$(docker context inspect --format '\\''{{.Endpoints.docker.Host}}'\\'') TURBO_TELEMETRY_DISABLED=1 && (cd packages/kit && nice -n 10 task check) && (cd services/auth && nice -n 10 task check)'";
     expect(markParts(wrapper, "m")).toMatchObject({ parts: 2, tracked: false });
     expect(markParts("'/x/wrapper' -- bash -c 'task check'", "m")).toMatchObject({ tracked: true });
+  });
+  it("judges a fail-late script, whose every stage runs, as one part", () => {
+    const failLate = `export PATH=/x/bin:$PATH GOTOOLCHAIN=go1.27.3
+nice -n 10 bash -c 'export TURBO_TELEMETRY_DISABLED=1
+s=0
+for d in services/auth services/notification; do
+  (cd "$d" && task check) || s=1
+done
+cd tooling || exit 1
+node dupes.mjs || s=1
+exit "$s"'`;
+    expect(markParts(failLate, "m")).toMatchObject({ parts: 1, tracked: true });
+    expect(markParts("bash -c '(cd a && task check) && (cd b && task check)'", "m")).toMatchObject({
+      tracked: false,
+    });
+    expect(markParts("bash -c 'task check || true'", "m")).toMatchObject({ tracked: false });
+    expect(markParts("(cd d && go test ./...)", "m")).toMatchObject({ tracked: true });
   });
 });
