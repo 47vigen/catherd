@@ -295,7 +295,8 @@ export function andTail(command: string): string | null {
   return checkItems(command).slice(1).join(" && ") || null;
 }
 
-const ENV_VALUE = String.raw`(?:"[^"]*"|'[^']*'|\$\((?:[^()'"&|]|'[^']*'|"[^"]*")*\)|\$\{[^}]*\}|\$\w+|[^\s"'$();&|<>\\]|\\.)*`;
+// no `$(…)`: a command substitution can fail before the check runs, and no mark would say so
+const ENV_VALUE = String.raw`(?:"[^"$]*"|'[^']*'|\$\{[^}]*\}|\$\w+|[^\s"'$();&|<>\\]|\\.)*`;
 const ENV_ASSIGN = String.raw`[A-Za-z_]\w*=${ENV_VALUE}`;
 /** A leading `cd dir &&`, or a part made only of `export NAME=value …` / `NAME=value …` words, then `&&`. */
 const LEADING_SETUP = new RegExp(

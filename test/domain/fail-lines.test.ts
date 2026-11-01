@@ -380,7 +380,7 @@ describe("plan 52: which part of an && chain failed", () => {
       tracked: true,
     });
     // the parser gives up on the comment, so the whole command is one item: its env-only head and cd are stripped
-    expect(markParts("export A=\"x y\" B=$(pwd) C='z' && cd d && go test ./... # all", "m")).toMatchObject({
+    expect(markParts("export A=\"x y\" B=$HOME C='z' && cd d && go test ./... # all", "m")).toMatchObject({
       parts: 1,
       tracked: true,
     });
@@ -396,6 +396,10 @@ describe("plan 52: which part of an && chain failed", () => {
       tracked: false,
     });
     expect(markParts("export A=1 && (cd d && go test ./...)", "m")).toMatchObject({ tracked: false });
+    // a setup that runs a command can fail before the check with no mark written
+    expect(
+      markParts("A=$(sh -c 'echo error: setup failed >&2; exit 1') && echo ACTUAL_TEST # check", "m"),
+    ).toMatchObject({ tracked: false });
   });
   it("cannot judge a wrapper whose shell -c script chains: its inner parts are not marked", () => {
     const wrapper =
