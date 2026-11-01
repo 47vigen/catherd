@@ -424,6 +424,11 @@ exit "$s"'`;
       tracked: false,
     });
     expect(markParts("bash -c 'task check || true'", "m")).toMatchObject({ tracked: false });
+    // a group that reports, then sets the status, skips nothing either
+    const grouped = `s=0; (cd a && task check) || s=1; for m in a b; do test -z "$(ls $m)" || { echo "dup in $m"; s=1; }; done; exit $s`;
+    expect(markParts(grouped, "m")).toMatchObject({ parts: 1, tracked: true });
+    expect(markParts("s=0; a || { s=1; }; exit $s", "m")).toMatchObject({ tracked: true });
+    expect(markParts("s=0; a || { b && c; s=1; }; exit $s", "m")).toMatchObject({ tracked: false });
     expect(markParts("(cd d && go test ./...)", "m")).toMatchObject({ tracked: true });
   });
   it("reads a failed cd as a failure, so a stage it skipped never passes as inherited", () => {

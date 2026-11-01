@@ -71,7 +71,7 @@ describe("the verifier runs beside the full check (plan 57, spec D8 amended)", (
       const text = roleContract("architect", "1.5.0", trees);
       for (const s of [
         "delegate the verifier in the same turn as the full check",
-        "no writer is running",
+        "no writer or reviewer is running",
         "the same commit",
         "the verifier's brief names the check id, its command, the commit and its log path (checks/<id>.log)",
         "land final still needs both",
