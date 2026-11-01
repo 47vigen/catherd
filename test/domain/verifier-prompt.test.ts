@@ -78,6 +78,7 @@ describe("the verifier runs beside the full check (plan 57, spec D8 amended)", (
       ])
         expect(text).toContain(s);
       expect(text).not.toContain("then check scope full and delegate the verifier");
+      expect(text).toContain("Write a full check of several stages fail-late");
       // a run without a base ends with finish, and gets the same rule
       expect(text).toContain("Before finish done in a run without a base, the same as for land final");
     }
